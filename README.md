@@ -1,2 +1,0 @@
-# frontend
-App frontend
