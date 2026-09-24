@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+*.tsbuildinfo
+.vite/
+
+# Tests and coverage
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# Customer data: drawings and archives stay out of the repository.
+# Small anonymised fixtures for tests go into __fixtures__ directories.
+*.dxf
+*.dwg
+*.zip
+*.shp
+*.shx
+*.dbf
+*.prj
+*.geojson
+!**/__fixtures__/**
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Tool caches
+.eslintcache
+.stylelintcache
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.swp
+*~
