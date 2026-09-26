@@ -1,0 +1,802 @@
+openapi: 3.1.0
+info:
+  title: greenplan API — контракт-предложение фронтенда
+  version: 0.1.0-proposed
+  description: |
+    Эндпоинты и схемы, которых фронтенду не хватает в текущем API (коммит бэкенда 822709e).
+    Здесь только новое и изменённое. Неизменные схемы подключены ссылкой на задеплоенную
+    спецификацию https://backend.greenleaders.online/openapi.json.
+
+    Что предлагается:
+    - `GET /projects/{project_id}/explanation` — новый формат ответа (ломающее изменение):
+      обоснование каждой посадки и каждого отклонённого места со ссылкой на норму
+      и фактическим расстоянием;
+    - `POST /projects/{project_id}/runs` — повторная обработка загруженного архива с параметрами;
+    - `GET /processing-defaults` — параметры обработки по умолчанию и допустимые диапазоны;
+    - перечисления для `status`, `job.stage`; необязательный `bbox_user`; тело и коды ответов
+      `upload`; файл в ответе `dxf`; схемы ответов `zones` и `planting` (описывают текущий вывод
+      бэкенда, формат не меняется);
+    - `ErrorResponse` для всех ошибок, кроме 422.
+
+    Когда эндпоинт реализован, фронтенд удаляет его из этого файла и берёт типы из основной
+    спецификации.
+
+paths:
+  /projects:
+    post:
+      summary: Создать проект
+      description: Изменение — `bbox_user` необязателен (см. `ProjectCreateRequest`).
+      operationId: create_project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+      responses:
+        '201':
+          description: Проект создан, статус `draft`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /projects/{project_id}/upload:
+    post:
+      summary: Загрузить архив и запустить обработку
+      description: |
+        Тело — сырые байты ZIP-архива, не multipart. Допустимо из статусов `draft` и `failed`.
+        Лимит размера — `GREENPLAN_API_MAX_UPLOAD_MB` (в docker-compose — 100 МиБ, 104 857 600 байт).
+      operationId: upload_project
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: X-Upload-Filename
+          in: header
+          required: false
+          description: |
+            Исходное имя файла, закодированное `encodeURIComponent` (заголовок допускает только
+            ASCII). Бэкенд может его не читать; сейчас его использует только мок фронтенда
+            для детерминированных сценариев.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '202':
+          description: Архив принят, статус `queued`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '400':
+          description: Пустое тело.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ProjectNotFound'
+        '409':
+          description: Статус проекта не позволяет загрузку (не `draft` и не `failed`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Архив больше лимита.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyJobs'
+
+  /projects/{project_id}/runs:
+    post:
+      summary: Повторить обработку с параметрами
+      description: |
+        Перезапускает обработку уже загруженного архива. Результат прошлой обработки заменяется.
+        Исходный архив не меняется. Все поля тела необязательны: пустой объект — повтор
+        с параметрами по умолчанию (`GET /processing-defaults`).
+      operationId: run_project
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunRequest'
+      responses:
+        '202':
+          description: Перезапуск принят, статус `queued`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '404':
+          $ref: '#/components/responses/ProjectNotFound'
+        '409':
+          description: Статус не `ready` и не `failed`, или архив ещё не загружен.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyJobs'
+
+  /projects/{project_id}/explanation:
+    get:
+      summary: Обоснование посадок и отклонённых мест
+      description: |
+        Ломающее изменение: эндпоинт уже есть, но сейчас отдаёт массив
+        `[{id, plant_type, rule_id, rule_name_ru, x, y}]` без норм и расстояний
+        (`greenplan/explain/builder.py`). Предлагается заменить его объектом `Explanation`.
+        Фронтенд переходит на новый формат, как только он выкачен; старый не поддерживает.
+      operationId: get_explanation
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Обоснование результата.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Explanation'
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+
+  /projects/{project_id}/zones:
+    get:
+      summary: Зоны разрешённой и запрещённой посадки
+      description: Описывает текущий вывод `greenplan/export/zones.py`; формат не меняется.
+      operationId: get_zones
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: GeoJSON FeatureCollection.
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/ZonesFeatureCollection'
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+
+  /projects/{project_id}/planting:
+    get:
+      summary: Точки посадок
+      description: Описывает текущий вывод `greenplan/export/planting.py`; формат не меняется.
+      operationId: get_planting
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: GeoJSON FeatureCollection.
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/PlantingFeatureCollection'
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+
+  /projects/{project_id}/dxf:
+    get:
+      summary: Скачать DXF с результатом
+      description: |
+        Главный DXF архива плюс слой `GREENING_PROPOSED`. Сейчас спецификация указывает
+        `application/json`, а бэкенд отдаёт файл.
+      operationId: get_dxf
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: DXF-файл.
+          headers:
+            Content-Disposition:
+              description: |
+                `attachment; filename="planting.dxf"; filename*=UTF-8''<имя>.dxf` (RFC 6266,
+                RFC 5987). `filename*` нужен для кириллицы в имени проекта; `filename` —
+                ASCII-запасной вариант.
+              schema:
+                type: string
+          content:
+            application/dxf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+
+  /processing-defaults:
+    get:
+      summary: Параметры обработки по умолчанию
+      description: |
+        Значения — из `greenplan/layout/default.yaml`. Диапазоны `min`/`max` — предложение
+        фронтенда; бэкенд утверждает их и проверяет по ним `RunRequest` (иначе 422).
+      operationId: get_processing_defaults
+      responses:
+        '200':
+          description: Параметры по умолчанию.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingDefaults'
+
+components:
+  parameters:
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    ProjectNotFound:
+      description: Проекта нет или он удалён.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ResultNotReady:
+      description: |
+        Проекта нет, или результат ещё не готов (статус не `ready`). Различить случаи по `detail`
+        нельзя: фронтенд опирается на статус проекта.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyJobs:
+      description: Все слоты обработки заняты. Повторить позже.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: Ошибка валидации тела (стандартный ответ FastAPI).
+      content:
+        application/json:
+          schema:
+            $ref: 'https://backend.greenleaders.online/openapi.json#/components/schemas/HTTPValidationError'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      description: Тело всех ошибок, кроме 422 (`HTTPException` FastAPI).
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          description: Техническое сообщение на английском. Пользователю не показывается.
+
+    PlantType:
+      type: string
+      enum: [tree, shrub]
+
+    ProjectStatus:
+      type: string
+      description: |
+        Статус проекта; совпадает с `job.stage`. Значения — из `greenplan/api/jobs.py`.
+        `draft` — архив не загружен. `queued`…`exporting` — обработка идёт, `georeferencing`
+        только при заданном `bbox_user`. `ready` и `failed` — финальные.
+        Переходы: draft → queued → extracting → parsing → [georeferencing] → zoning_layout →
+        exporting → ready; с любого этапа — в failed; из failed и ready — снова в queued
+        (upload из failed, runs из ready и failed).
+      enum:
+        - draft
+        - queued
+        - extracting
+        - parsing
+        - georeferencing
+        - zoning_layout
+        - exporting
+        - ready
+        - failed
+
+    ProjectCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        bbox_user:
+          description: |
+            Изменение: необязателен. Примерные границы участка
+            `[min_lon, min_lat, max_lon, max_lat]` в WGS84. Без него этап `georeferencing`
+            пропускается, а `zones`, `planting` и `Position.lon/lat` остаются в локальных
+            координатах чертежа (так бэкенд уже поступает с проектами без bbox).
+          type: [array, 'null']
+          prefixItems:
+            - type: number
+            - type: number
+            - type: number
+            - type: number
+          minItems: 4
+          maxItems: 4
+
+    JobStatus:
+      type: object
+      description: Изменение — `stage` перечислением.
+      required: [stage, progress_pct]
+      properties:
+        stage:
+          $ref: '#/components/schemas/ProjectStatus'
+        progress_pct:
+          type: integer
+          description: 'По этапам: 0, 5, 10, 40, 70, 90, 100. У `failed` тоже 100.'
+        error:
+          anyOf:
+            - $ref: 'https://backend.greenleaders.online/openapi.json#/components/schemas/JobError'
+            - type: 'null'
+        georeference:
+          anyOf:
+            - $ref: 'https://backend.greenleaders.online/openapi.json#/components/schemas/GeoreferenceInfo'
+            - type: 'null'
+        started_at:
+          type: [string, 'null']
+          format: date-time
+          description: Время старта воркера; время в очереди сюда не входит.
+        finished_at:
+          type: [string, 'null']
+          format: date-time
+
+    ProjectResponse:
+      type: object
+      description: Изменение — `status` и `job.stage` перечислениями.
+      required: [id, name, description, created_at, updated_at, status, job]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ProjectStatus'
+        job:
+          $ref: '#/components/schemas/JobStatus'
+
+    Explanation:
+      type: object
+      description: |
+        Обоснование результата обработки. Нормы собраны в справочник `norms`, проверки ссылаются
+        на них по `norm_id`.
+      required: [norms, plantings, rejected]
+      properties:
+        norms:
+          type: object
+          description: Справочник норм, ключ — `norm_id`.
+          additionalProperties:
+            $ref: '#/components/schemas/Norm'
+        plantings:
+          type: array
+          description: Все посадки результата, по одной записи на точку из `/planting`.
+          items:
+            $ref: '#/components/schemas/PlantingExplanation'
+        rejected:
+          type: array
+          description: |
+            Места-кандидаты, которые правило посадки рассматривало, но отклонило из-за
+            нормативного отступа. Не путать с зонами запрета из `/zones`.
+          items:
+            $ref: '#/components/schemas/RejectedSite'
+
+    Norm:
+      type: object
+      required: [act, clause, text]
+      properties:
+        act:
+          type: string
+          description: Акт полностью, например «ПП Москвы от 10.09.2002 № 743-ПП».
+        clause:
+          type: [string, 'null']
+          description: |
+            Пункт, таблица или строка таблицы, например «прил. 1, табл. 2, стр. 4». `null`, если
+            пункт не сопоставлен: сейчас в `norms/default.yaml` номеров пунктов нет. Фронтенд
+            не показывает пункт, которого нет.
+        text:
+          type: string
+          description: Текст нормы по-русски.
+
+    PlantingExplanation:
+      type: object
+      required: [id, plant_type, rule, position, checks]
+      properties:
+        id:
+          type: string
+          description: Как в `/planting` и в XDATA `GREENPLAN` DXF, например «TREE_ROW_CURB-00001».
+        plant_type:
+          $ref: '#/components/schemas/PlantType'
+        rule:
+          $ref: '#/components/schemas/PlantingRuleRef'
+        position:
+          $ref: '#/components/schemas/Position'
+        checks:
+          type: array
+          description: |
+            Проверки отступов от объектов, ближайших к посадке, по одной на каждый тип объекта,
+            для которого есть норма. У посадки все проверки пройдены: `actual_m >= required_m`.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Check'
+
+    PlantingRuleRef:
+      type: object
+      required: [id, name_ru]
+      properties:
+        id:
+          type: string
+          description: Идентификатор правила из `layout/default.yaml`, например «TREE_ROW_CURB».
+        name_ru:
+          type: string
+
+    RejectedSite:
+      type: object
+      required: [position, plant_type, failed_checks]
+      properties:
+        position:
+          $ref: '#/components/schemas/Position'
+        plant_type:
+          $ref: '#/components/schemas/PlantType'
+        failed_checks:
+          type: array
+          description: Проверки, которые не пройдены (`actual_m < required_m`).
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Check'
+
+    Position:
+      type: object
+      required: [x, y, lon, lat]
+      properties:
+        x:
+          type: number
+          description: Локальная координата чертежа, м — та же система, что у окружностей в DXF.
+        y:
+          type: number
+          description: Локальная координата чертежа, м.
+        lon:
+          type: [number, 'null']
+          description: Долгота WGS84; `null`, если геопривязки нет.
+        lat:
+          type: [number, 'null']
+          description: Широта WGS84; `null`, если геопривязки нет.
+
+    Check:
+      type: object
+      required: [obstacle, required_m, actual_m, norm_id]
+      properties:
+        obstacle:
+          $ref: '#/components/schemas/Obstacle'
+        required_m:
+          type: number
+          description: Нормативный отступ для этого типа посадки, м.
+        actual_m:
+          type: number
+          description: |
+            Фактическое расстояние от точки посадки до ближайшей точки объекта, м, округлено
+            до 0,01.
+        norm_id:
+          type: string
+          description: Ключ в `Explanation.norms`.
+
+    Obstacle:
+      type: object
+      description: Объект подосновы, от которого считается отступ.
+      required: [category, subtype, label_ru, layer, handle]
+      properties:
+        category:
+          type: string
+          description: Как `obstacle_category` в `/zones`, например `underground_utilities`, `road_edge`.
+        subtype:
+          type: [string, 'null']
+          description: |
+            Как `obstacle_subtype` в `/zones`, например `gas`, `water`. `null` у категорий без
+            подтипа (`road_edge` в `norms/default.yaml`).
+        label_ru:
+          type: string
+          description: Название типа объекта, например «газопровод».
+        layer:
+          type: [string, 'null']
+          description: Слой исходного DXF.
+        handle:
+          type: [string, 'null']
+          description: |
+            Handle сущности DXF. `null` для сущностей из xref и взорванных блоков — у них нет
+            handle (см. `greenplan/model.py`, `Feature.handle`).
+
+    RunRequest:
+      type: object
+      description: Все поля необязательны; не заданное берётся из `GET /processing-defaults`.
+      properties:
+        root_dxf:
+          type: string
+          description: |
+            Главный DXF — путь внутри архива, один из `job.error.candidates` после
+            `ambiguous_root_dxf`. Не задан — определяется автоматически, как при upload.
+            Путь не из архива — 422.
+        plant_types:
+          type: array
+          description: Какие типы посадок размещать. По умолчанию все. Пустой список — 422.
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/PlantType'
+        planting_rules:
+          type: object
+          description: |
+            Переопределения правил посадки, ключ — `rule_id`. Неизвестный `rule_id`, значение
+            вне диапазона из `/processing-defaults` или `offset_m` у правила без отступа — 422.
+          additionalProperties:
+            $ref: '#/components/schemas/PlantingRuleOverride'
+
+    PlantingRuleOverride:
+      type: object
+      properties:
+        spacing_m:
+          type: number
+          description: Шаг посадки и минимальное расстояние между посадками правила, м.
+        offset_m:
+          type: number
+          description: Отступ ряда от бортового камня, м. Только для правил вдоль борта.
+
+    ProcessingDefaults:
+      type: object
+      required: [plant_types, planting_rules]
+      properties:
+        plant_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlantType'
+        planting_rules:
+          type: object
+          description: Ключ — `rule_id`; порядок правил важен, как в `layout/default.yaml`.
+          additionalProperties:
+            $ref: '#/components/schemas/PlantingRuleDefaults'
+      example:
+        plant_types: [tree, shrub]
+        planting_rules:
+          TREE_ROW_CURB:
+            name_ru: Рядовая/аллейная посадка вдоль борта
+            plant_type: tree
+            spacing_m: { default: 6, min: 4, max: 12 }
+            offset_m: { default: 2.2, min: 0.7, max: 5 }
+          TREE_FILL_LAWN:
+            name_ru: Групповая/одиночная посадка на свободном газоне
+            plant_type: tree
+            spacing_m: { default: 5, min: 4, max: 15 }
+            offset_m: null
+          SHRUB_HEDGE_CURB:
+            name_ru: Живая изгородь вдоль борта
+            plant_type: shrub
+            spacing_m: { default: 1.5, min: 0.3, max: 3 }
+            offset_m: { default: 0.8, min: 0.5, max: 3 }
+          SHRUB_FILL_LAWN:
+            name_ru: Групповая посадка кустарников на свободном газоне
+            plant_type: shrub
+            spacing_m: { default: 3, min: 1, max: 6 }
+            offset_m: null
+
+    PlantingRuleDefaults:
+      type: object
+      required: [name_ru, plant_type, spacing_m, offset_m]
+      properties:
+        name_ru:
+          type: string
+        plant_type:
+          $ref: '#/components/schemas/PlantType'
+        spacing_m:
+          $ref: '#/components/schemas/NumberRange'
+        offset_m:
+          description: |
+            `null` у правил заполнения газона (`placement: grid_fill`): отступ от борта у них
+            не используется.
+          anyOf:
+            - $ref: '#/components/schemas/NumberRange'
+            - type: 'null'
+
+    NumberRange:
+      type: object
+      description: Значение по умолчанию и допустимый диапазон, м. `min`/`max` — предложение фронтенда.
+      required: [default, min, max]
+      properties:
+        default:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+
+    PointGeometry:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          const: Point
+        coordinates:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: number
+
+    PolygonGeometry:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          const: Polygon
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: number
+
+    MultiPolygonGeometry:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          const: MultiPolygon
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: array
+                items:
+                  type: number
+
+    CrsMetadata:
+      type: object
+      required: [crs]
+      properties:
+        crs:
+          type: string
+          description: |
+            Метка системы координат геометрии. Без геопривязки —
+            «local drawing coordinates, no geo-reference available», с геопривязкой —
+            `WGS84_CRS_LABEL` из `greenplan.georeference.apply`. Этого модуля нет в репозитории,
+            поэтому точное значение метки — вопрос к бэкенду.
+
+    ZonesFeatureCollection:
+      type: object
+      required: [type, metadata, features]
+      properties:
+        type:
+          const: FeatureCollection
+        metadata:
+          allOf:
+            - $ref: '#/components/schemas/CrsMetadata'
+            - type: object
+              required: [used_site_boundary, uncovered_categories]
+              properties:
+                used_site_boundary:
+                  type: boolean
+                  description: '`false` — граница работ не найдена, взят весь газон.'
+                uncovered_categories:
+                  type: array
+                  description: Категории объектов без нормы; отступ от них не строился.
+                  items:
+                    type: object
+                    required: [category, subtype]
+                    properties:
+                      category:
+                        type: string
+                      subtype:
+                        type: [string, 'null']
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/ZoneFeature'
+
+    ZoneFeature:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type:
+          const: Feature
+        geometry:
+          oneOf:
+            - $ref: '#/components/schemas/PolygonGeometry'
+            - $ref: '#/components/schemas/MultiPolygonGeometry'
+        properties:
+          oneOf:
+            - $ref: '#/components/schemas/ExtentZoneProperties'
+            - $ref: '#/components/schemas/AllowedZoneProperties'
+            - $ref: '#/components/schemas/ProhibitedZoneProperties'
+
+    ExtentZoneProperties:
+      type: object
+      description: Диагностические контуры — граница работ, газон и их пересечение.
+      required: [zone_type]
+      properties:
+        zone_type:
+          type: string
+          enum: [site_boundary, lawn_raw, base_area]
+
+    AllowedZoneProperties:
+      type: object
+      required: [zone_type, plant_type]
+      properties:
+        zone_type:
+          const: allowed
+        plant_type:
+          $ref: '#/components/schemas/PlantType'
+
+    ProhibitedZoneProperties:
+      type: object
+      description: Объединение отступов от всех объектов одного типа для одного типа посадки.
+      required:
+        [zone_type, plant_type, obstacle_category, obstacle_subtype, distance_m, citation, reason]
+      properties:
+        zone_type:
+          const: prohibited
+        plant_type:
+          $ref: '#/components/schemas/PlantType'
+        obstacle_category:
+          type: string
+        obstacle_subtype:
+          type: [string, 'null']
+        distance_m:
+          type: number
+        citation:
+          type: string
+          description: Строка из `norms/default.yaml`, например «743-ПП — газопровод».
+        reason:
+          type: string
+
+    PlantingFeatureCollection:
+      type: object
+      required: [type, metadata, features]
+      properties:
+        type:
+          const: FeatureCollection
+        metadata:
+          $ref: '#/components/schemas/CrsMetadata'
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlantingFeature'
+
+    PlantingFeature:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type:
+          const: Feature
+        geometry:
+          $ref: '#/components/schemas/PointGeometry'
+        properties:
+          type: object
+          required: [id, plant_type, rule_id]
+          properties:
+            id:
+              type: string
+            plant_type:
+              $ref: '#/components/schemas/PlantType'
+            rule_id:
+              type: string
