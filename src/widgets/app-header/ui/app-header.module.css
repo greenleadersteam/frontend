@@ -1,0 +1,44 @@
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xl);
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-xl);
+  border-radius: var(--mantine-radius-lg);
+  background-color: var(--app-surface);
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  color: var(--app-text);
+  text-decoration: none;
+}
+
+.brandName {
+  font-size: var(--mantine-font-size-lg);
+  font-weight: 600;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link {
+  color: var(--app-text-muted);
+  font-size: var(--mantine-font-size-md);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--app-text);
+  }
+
+  &[aria-current='page'] {
+    color: var(--app-accent);
+    font-weight: 600;
+  }
+}

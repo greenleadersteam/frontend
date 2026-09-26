@@ -1,0 +1,27 @@
+/*
+ * Фон «дневной свет» — единственный декоративный приём продукта (design.md, «Страница и фон»):
+ * пятно света в левом верхнем углу и три мягкие полосы под 118° светлее фона.
+ */
+body {
+  --app-daylight: color-mix(in srgb, var(--app-surface) 50%, transparent);
+  --app-daylight-soft: color-mix(in srgb, var(--app-surface) 45%, transparent);
+
+  background-color: var(--app-bg);
+  background-image:
+    radial-gradient(circle at 0 0, var(--app-daylight) 0, transparent 38%),
+    linear-gradient(
+      118deg,
+      transparent 14%,
+      var(--app-daylight-soft) 21%,
+      transparent 28%,
+      transparent 42%,
+      var(--app-daylight) 50%,
+      transparent 58%,
+      transparent 70%,
+      var(--app-daylight-soft) 76%,
+      transparent 82%
+    );
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  color: var(--app-text);
+}
