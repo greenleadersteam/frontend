@@ -1,4 +1,5 @@
-import { MantineProvider } from '@mantine/core';
+import { MantineProvider, mergeThemeOverrides, Popover } from '@mantine/core';
+import { Notifications } from '@mantine/notifications';
 import { configureStore } from '@reduxjs/toolkit';
 import {
   render,
@@ -14,6 +15,15 @@ import { RouterProvider } from 'react-router/dom';
 import { baseApi } from '@/shared/api';
 import { theme } from '@/shared/theme';
 
+// В jsdom у всех элементов нулевые размеры, и floating-ui считает опорный элемент меню
+// скрытым: с hideDetached Mantine прячет выпадающее меню (display: none), и его пункты
+// пропадают из дерева доступности. В браузере размеры настоящие, поэтому правка только здесь.
+const testTheme = mergeThemeOverrides(theme, {
+  components: { Popover: Popover.extend({ defaultProps: { hideDetached: false } }) },
+});
+
+export { enterViewport } from './intersection-observer';
+export { buildZip } from './zip-fixture';
 export { resetMockDb, server } from '@/shared/api/mocks/node';
 
 const createTestStore = () =>
@@ -26,7 +36,8 @@ export function renderWithProviders(routes: RouteObject[], initialPath: string):
   const router = createMemoryRouter(routes, { initialEntries: [initialPath] });
 
   return render(
-    <MantineProvider theme={theme}>
+    <MantineProvider theme={testTheme}>
+      <Notifications />
       <Provider store={createTestStore()}>
         <RouterProvider router={router} />
       </Provider>
@@ -35,7 +46,7 @@ export function renderWithProviders(routes: RouteObject[], initialPath: string):
 }
 
 export const renderWithTheme = (ui: ReactElement): RenderResult =>
-  render(<MantineProvider theme={theme}>{ui}</MantineProvider>);
+  render(<MantineProvider theme={testTheme}>{ui}</MantineProvider>);
 
 export function renderHookWithStore<Result>(hook: () => Result): RenderHookResult<Result, unknown> {
   const store = createTestStore();

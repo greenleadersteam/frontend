@@ -1,11 +1,15 @@
 import '@testing-library/jest-dom/vitest';
 
+import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
+
 import { cleanup } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 
 import { resetMockDb, server } from '@/shared/api/mocks/node';
 import { loadRuntimeConfig } from '@/shared/config';
+
+import { installIntersectionObserver } from './intersection-observer';
 
 // Без globals: true Testing Library не очищает DOM сама.
 afterEach(cleanup);
@@ -29,6 +33,12 @@ afterAll(() => {
   server.close();
 });
 
+// Blob и File — из Node, а не из jsdom: перехватчик XHR в MSW не читает тело-jsdom-Blob
+// (приходит строка «undefined»), а Request из Node его не принимает. Так файл, выбранный
+// через user-event, доходит до обработчика MSW целиком, как в браузере.
+vi.stubGlobal('Blob', NodeBlob);
+vi.stubGlobal('File', NodeFile);
+
 // В браузере new Request('/api/x') разрешается от адреса документа, в Node — падает.
 // RTK Query создаёт Request сам, поэтому окружение приводится к поведению браузера.
 const NodeRequest = globalThis.Request;
@@ -40,6 +50,18 @@ vi.stubGlobal(
     }
   },
 );
+
+installIntersectionObserver();
+
+// jsdom не рисует на canvas и пишет в консоль «Not implemented» на каждый getContext.
+// null — законный ответ браузера, код превью его обрабатывает.
+vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+// jsdom не реализует document.fonts, а Textarea с autosize подписывается на загрузку шрифтов.
+Object.defineProperty(document, 'fonts', {
+  configurable: true,
+  value: { ready: Promise.resolve(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
+});
 
 // jsdom не реализует matchMedia и ResizeObserver, а Mantine их использует.
 vi.stubGlobal('matchMedia', (query: string) => ({

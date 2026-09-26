@@ -1,6 +1,8 @@
 import type { SerializedError } from '@reduxjs/toolkit';
 import type { FetchBaseQueryError } from '@reduxjs/toolkit/query';
 
+import { formatFileSize } from '@/shared/lib/format';
+
 import { MAX_ARCHIVE_BYTES } from './archive-limit';
 
 // not-ready ставит не toAppError, а сущность: 404 результата означает «ещё не готово»
@@ -64,16 +66,13 @@ export function toAppError(error: FetchBaseQueryError | SerializedError | undefi
 }
 
 // МиБ показываются как «МБ»: так их называет copy.md, а лимит бэкенда задан в МиБ.
-const formatMegabytes = (bytes: number): string =>
-  `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(bytes / 2 ** 20)}\u00A0МБ`;
-
 function describeHttpStatus(status: number): string {
   if (status === 404) return 'Данные не найдены: возможно, их удалили. Обновите страницу.';
   if (status === 409) {
     return 'Действие недоступно в текущем состоянии проекта. Обновите страницу и проверьте статус.';
   }
   if (status === 413) {
-    return `Архив больше ${formatMegabytes(MAX_ARCHIVE_BYTES)}. Уменьшите архив или уберите из него лишние файлы.`;
+    return `Архив больше ${formatFileSize(MAX_ARCHIVE_BYTES)}. Уменьшите архив или уберите из него лишние файлы.`;
   }
   if (status === 429) return 'Сервер обрабатывает другие проекты. Повторите через минуту.';
   if (status >= 500) {

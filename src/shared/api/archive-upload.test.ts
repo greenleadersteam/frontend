@@ -1,15 +1,9 @@
-import { File as NodeFile } from 'node:buffer';
-
 import { delay, http, HttpResponse } from 'msw';
 import { describe, expect, test, vi } from 'vitest';
 
 import { MAX_ARCHIVE_BYTES } from './archive-limit';
 import { uploadArchive } from './archive-upload';
 import { server } from './mocks/node';
-
-// Перехватчик XHR в MSW не читает тело, если это File из jsdom (приходит строка «undefined»),
-// а File из Node передаёт целиком. На код модуля подмена не влияет: он лишь передаёт файл в send.
-vi.stubGlobal('File', NodeFile);
 
 const DRAFT_ID = '9a1c3e5b7d2f4a6c8e0b2d4f6a8c1e3b';
 const READY_ID = '5c0b7f2e9a3d4e61b8f0c2a7d9e4b1f3';
