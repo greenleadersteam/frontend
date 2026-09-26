@@ -1,10 +1,10 @@
 import { Alert, Button, Card, Group, Skeleton, Stack, Text, Title } from '@mantine/core';
-import { type JSX, useRef } from 'react';
-import { Link } from 'react-router';
+import { type JSX, useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router';
 
 import { useProjectsWithPolling } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
-import { paths } from '@/shared/config';
+import { isFocusProjectsHeading, paths } from '@/shared/config';
 import { formatCount } from '@/shared/lib/format';
 import { EmptyState } from '@/shared/ui';
 
@@ -31,6 +31,12 @@ export function ProjectList(): JSX.Element {
   const { data, error, isFetching, fulfilledTimeStamp, refetch, pollingStalled, checkAgain } =
     useProjectsWithPolling();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const navigationState: unknown = useLocation().state;
+
+  // Проект удалён с его экрана: фокус с исчезнувшей кнопки переходит на заголовок списка.
+  useEffect(() => {
+    if (isFocusProjectsHeading(navigationState)) headingRef.current?.focus();
+  }, [navigationState]);
   const projects =
     data === undefined
       ? undefined

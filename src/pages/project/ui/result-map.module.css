@@ -1,0 +1,41 @@
+/* Карта — от шапки до низа окна, не ниже 480px (design.md, «Страница и фон»). */
+.area {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 30rem;
+}
+
+.fill {
+  flex: 1;
+}
+
+.topLeft,
+.topRight {
+  position: absolute;
+  top: var(--mantine-spacing-lg);
+}
+
+.topLeft {
+  left: var(--mantine-spacing-lg);
+}
+
+.topRight {
+  right: var(--mantine-spacing-lg);
+}
+
+/* Панели поверх карты: белые, радиус lg, тень md, поля 12–16px (design.md, «Карта»). */
+.panel {
+  width: calc(var(--app-card-min-width) * 0.9);
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-lg);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--app-surface);
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.below {
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-lg);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--app-surface);
+  box-shadow: var(--mantine-shadow-sm);
+}

@@ -245,9 +245,10 @@ describe('загрузка и обработка', () => {
     await waitForText('В очереди');
     await advance(10_000);
 
-    expect(
-      screen.getByText('В архиве несколько главных чертежей. Выберите нужный.'),
-    ).toBeInTheDocument();
+    const choice = 'В архиве несколько главных чертежей. Выберите нужный.';
+    expect(screen.getByRole('radiogroup', { name: choice })).toBeInTheDocument();
+    // Подпись выбора без role="alert": скринридеру ошибку объявляет aria-live.
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent(choice);
     fireEvent.click(screen.getByRole('radio', { name: 'Генплан_корр.dxf' }));
     fireEvent.click(screen.getByRole('button', { name: 'Продолжить обработку' }));
     await waitForText('В очереди');

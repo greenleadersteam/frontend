@@ -69,10 +69,19 @@ export function createPlanProjection({
   };
 }
 
-// Радиусы крон — как у окружностей в DXF: ../backend/greenplan/io/dxf_sink.py:19-20.
-// На мелком масштабе радиус не меньше минимального, иначе посадки не видны.
-const CROWN_RADIUS_M = { tree: 1.5, shrub: 0.35 };
-const MIN_RADIUS_PX = { tree: 2, shrub: 1.25 };
+// В /planting размера кроны нет, у правил посадки тоже: радиус берётся по типу посадки,
+// как у окружностей в DXF (../backend/greenplan/io/dxf_sink.py:19-20).
+export const CROWN_RADIUS_M = { tree: 1.5, shrub: 0.35 } as const;
 
-export const crownRadiusPx = (plantType: 'tree' | 'shrub', pixelsPerMeter: number): number =>
-  Math.max(CROWN_RADIUS_M[plantType] * pixelsPerMeter, MIN_RADIUS_PX[plantType]);
+// Мельче посадку на мелком масштабе не видно. Одно правило для превью и для карты.
+export const MIN_CROWN_RADIUS_PX = 1.5;
+
+export const crownRadiusPx = (radiusM: number, pixelsPerMeter: number): number =>
+  Math.max(radiusM * pixelsPerMeter, MIN_CROWN_RADIUS_PX);
+
+// Веб-Меркатор MapLibre: мир на zoom z — 512 · 2^z пикселей по экватору, на широте φ
+// метр длиннее в 1 / cos φ раз.
+const EARTH_CIRCUMFERENCE_M = 40_075_016.686;
+
+export const pixelsPerMeterAtZoom = (zoom: number, latitude: number): number =>
+  (512 * 2 ** zoom) / (EARTH_CIRCUMFERENCE_M * Math.cos((latitude * Math.PI) / 180));

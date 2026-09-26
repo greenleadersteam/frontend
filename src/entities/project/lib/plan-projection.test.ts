@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
-import { createPlanProjection, crownRadiusPx, extentOf, isGeographic } from './plan-projection';
+import {
+  createPlanProjection,
+  CROWN_RADIUS_M,
+  crownRadiusPx,
+  extentOf,
+  isGeographic,
+  pixelsPerMeterAtZoom,
+} from './plan-projection';
 
 describe('extentOf', () => {
   test('охват всех точек', () => {
@@ -64,12 +71,17 @@ test('isGeographic — по метке CRS бэкенда', () => {
 
 describe('crownRadiusPx', () => {
   test('радиус кроны в масштабе', () => {
-    expect(crownRadiusPx('tree', 10)).toBe(15);
-    expect(crownRadiusPx('shrub', 10)).toBeCloseTo(3.5);
+    expect(crownRadiusPx(CROWN_RADIUS_M.tree, 10)).toBe(15);
+    expect(crownRadiusPx(CROWN_RADIUS_M.shrub, 10)).toBeCloseTo(3.5);
   });
 
-  test('на мелком масштабе — не меньше минимального', () => {
-    expect(crownRadiusPx('tree', 0.1)).toBe(2);
-    expect(crownRadiusPx('shrub', 0.1)).toBe(1.25);
+  test('на мелком масштабе — не меньше 1,5 пикселя', () => {
+    expect(crownRadiusPx(CROWN_RADIUS_M.tree, 0.1)).toBe(1.5);
+    expect(crownRadiusPx(CROWN_RADIUS_M.shrub, 0.1)).toBe(1.5);
   });
+});
+
+test('pixelsPerMeterAtZoom: на экваторе zoom 0 — весь мир в 512 пикселях', () => {
+  expect(pixelsPerMeterAtZoom(0, 0) * 40_075_016.686).toBeCloseTo(512);
+  expect(pixelsPerMeterAtZoom(18, 60)).toBeCloseTo(2 * pixelsPerMeterAtZoom(18, 0) * 2 ** 0, 6);
 });

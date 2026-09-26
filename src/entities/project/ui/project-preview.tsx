@@ -1,15 +1,15 @@
-import { useInViewport, useMergedRef, useResizeObserver } from '@mantine/hooks';
+import { useInViewport } from '@mantine/hooks';
 import {
   type Icon as TablerIcon,
   IconAlertTriangle,
   IconFileZip,
   IconLoader2,
 } from '@tabler/icons-react';
-import { type JSX, useEffect, useRef, useState } from 'react';
+import { type JSX, useState } from 'react';
 
 import { useGetPlantingQuery, useGetZonesQuery } from '../api/project-result-api';
 import type { Project } from '../model/project';
-import { drawPlan } from './draw-plan';
+import { PlanCanvas } from './plan-canvas';
 import classes from './project-preview.module.css';
 
 type ProjectPreviewProps = {
@@ -29,10 +29,7 @@ const PLACEHOLDER_ICONS: Record<Project['state']['kind'], TablerIcon> = {
 // Превью 4:3. У готового проекта — мини-план из его /planting и /zones, у остальных —
 // заглушка с иконкой. Ошибка загрузки плана даёт тихую заглушку: список не должен пестрить.
 export function ProjectPreview({ project }: ProjectPreviewProps): JSX.Element {
-  const { ref: viewportRef, inViewport } = useInViewport<HTMLDivElement>();
-  const [sizeRef, rect] = useResizeObserver<HTMLDivElement>();
-  const rootRef = useMergedRef(viewportRef, sizeRef);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { ref: rootRef, inViewport } = useInViewport<HTMLDivElement>();
 
   // Данные запрашиваются только после первого появления карточки в области видимости.
   const [seen, setSeen] = useState(false);
@@ -45,24 +42,13 @@ export function ProjectPreview({ project }: ProjectPreviewProps): JSX.Element {
   const plantingData = planting.data;
   const zonesData = zones.data;
 
-  // Перерисовка — синхронизация холста с данными и размером; повторного запроса нет.
-  useEffect(() => {
-    if (canvasRef.current === null || plantingData === undefined || zonesData === undefined) return;
-    drawPlan(
-      canvasRef.current,
-      { planting: plantingData, zones: zonesData },
-      rect.width,
-      rect.height,
-    );
-  }, [plantingData, zonesData, rect.width, rect.height]);
-
   const failed = planting.isError || zones.isError;
   const PlaceholderIcon = PLACEHOLDER_ICONS[project.state.kind];
 
   return (
     <div ref={rootRef} className={classes.root}>
       {ready && plantingData !== undefined && zonesData !== undefined && !failed ? (
-        <canvas ref={canvasRef} className={classes.canvas} aria-hidden />
+        <PlanCanvas planting={plantingData} zones={zonesData} />
       ) : (
         (!ready || failed) && (
           <PlaceholderIcon

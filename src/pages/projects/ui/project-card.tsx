@@ -4,6 +4,7 @@ import { type JSX, useId, useState } from 'react';
 import { Link } from 'react-router';
 
 import {
+  archiveAction,
   getProcessingDurationMs,
   isProcessing,
   JOB_ERROR_LABELS,
@@ -11,11 +12,11 @@ import {
   ProjectPreview,
   ProjectStatusBadge,
 } from '@/entities/project';
+import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
 import { projectPath, projectUploadPath } from '@/shared/config';
 import { formatDate, formatDuration } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
-import { DeleteProjectModal, PROCESSING_HANG_MINUTES } from './delete-project-modal';
 import classes from './project-card.module.css';
 
 type ProjectCardProps = {
@@ -41,19 +42,10 @@ export function ProjectCard({
   const hintId = useId();
   const { state, job } = project;
   const processing = isProcessing(state);
-  // Бэкенд удаляет проект в любом статусе: ../backend/greenplan/api/app.py:87-94.
-  // Предохранитель один на весь список, поэтому удаление открывается только у тех проектов,
-  // чья обработка к моменту последнего ответа шла дольше 30 минут. Сравниваются часы сервера
-  // и клиента: расхождение в минуты на таком пороге не важно.
-  const hangs =
-    stalled &&
-    job.started_at != null &&
-    checkedAt - Date.parse(job.started_at) >= PROCESSING_HANG_MINUTES * 60 * 1000;
-  const deleteLocked = processing && !hangs;
-  // Архив можно загрузить без архива и после ошибки. При ambiguous_root_dxf вместо нового
-  // архива предлагается выбор главного DXF — тот же мастер, сразу на шаге выбора.
-  const chooseRoot = state.kind === 'failed' && state.error?.code === 'ambiguous_root_dxf';
-  const canUpload = state.kind === 'draft' || (state.kind === 'failed' && !chooseRoot);
+  // Предохранитель один на весь список: удаление открывается только у тех проектов,
+  // чья обработка к моменту последнего ответа шла дольше порога.
+  const deletion = deleteAvailability(project, { stalled, checkedAt });
+  const archive = archiveAction(state);
   const duration = state.kind === 'ready' ? getProcessingDurationMs(job) : null;
 
   return (
@@ -72,26 +64,21 @@ export function ProjectCard({
             </ActionIcon>
           </Menu.Target>
           <Menu.Dropdown>
-            {canUpload && (
+            {archive !== null && (
               <Menu.Item component={Link} to={projectUploadPath(project.id)}>
-                Загрузить архив
-              </Menu.Item>
-            )}
-            {chooseRoot && (
-              <Menu.Item component={Link} to={projectUploadPath(project.id)}>
-                Выбрать главный чертёж
+                {archive === 'upload' ? 'Загрузить архив' : 'Выбрать главный чертёж'}
               </Menu.Item>
             )}
             <Menu.Item
-              disabled={deleteLocked}
-              aria-describedby={deleteLocked ? hintId : undefined}
+              disabled={deletion.locked}
+              aria-describedby={deletion.locked ? hintId : undefined}
               onClick={() => {
                 setDeleteOpened(true);
               }}
             >
               Удалить проект
             </Menu.Item>
-            {deleteLocked && (
+            {deletion.locked && (
               <Text id={hintId} size="xs" c="dimmed" className={classes.menuHint}>
                 Удалить можно после завершения обработки
               </Text>
@@ -141,13 +128,7 @@ export function ProjectCard({
         onClose={() => {
           setDeleteOpened(false);
         }}
-        hang={
-          processing && hangs
-            ? state.kind === 'processing' && state.stage === 'queued'
-              ? 'queued'
-              : 'processing'
-            : null
-        }
+        hang={deletion.locked ? null : deletion.hang}
         onDeleted={onDeleted}
       />
     </Card>

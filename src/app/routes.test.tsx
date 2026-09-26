@@ -20,8 +20,8 @@ describe('маршруты', () => {
   });
 
   test('корректный projectId показывает проект', async () => {
-    expect(await headingAt('/projects/fdc8a4aa1d8d42a9b7fb3ccd70f5d5a6')).toHaveTextContent(
-      /^Проект$/,
+    expect(await headingAt('/projects/9a1c3e5b7d2f4a6c8e0b2d4f6a8c1e3b')).toHaveTextContent(
+      'Улица Маросейка, 7–9',
     );
   });
 

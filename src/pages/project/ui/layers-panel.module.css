@@ -1,0 +1,29 @@
+.title {
+  font-size: var(--mantine-font-size-md);
+  font-weight: 600;
+}
+
+/* Строка: условный знак, название, счётчик — и переключатель у правого края. */
+.row {
+  justify-content: space-between;
+}
+
+.labelWrapper {
+  flex: 1;
+}
+
+.label {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  align-items: center;
+  cursor: pointer;
+}
+
+.name {
+  flex: 1;
+}
+
+.count {
+  color: var(--app-text-muted);
+  font-variant-numeric: tabular-nums;
+}

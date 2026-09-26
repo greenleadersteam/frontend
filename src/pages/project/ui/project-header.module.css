@@ -1,0 +1,23 @@
+.header {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  width: 100%;
+  max-width: var(--app-content-width);
+  margin-inline: auto;
+}
+
+/* Тихая ссылка выровнена по тексту заголовка, а не по своей подложке наведения. */
+.back {
+  justify-self: start;
+  margin-inline-start: calc(var(--mantine-spacing-md) * -1);
+}
+
+.summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.menuHint {
+  max-width: calc(var(--app-card-min-width) * 0.8);
+  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-sm);
+}

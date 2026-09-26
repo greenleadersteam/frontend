@@ -1,0 +1,16 @@
+/* Карта и всё, что стоит на её месте, — на всю ширину, от шапки до низа окна, не ниже 480px. */
+.area {
+  flex: 1;
+  min-height: 30rem;
+}
+
+.fallback {
+  flex: 1;
+
+  & [data-plan] {
+    overflow: hidden;
+    border-radius: var(--mantine-radius-xl);
+    background: var(--app-map-earth);
+    box-shadow: var(--mantine-shadow-sm);
+  }
+}

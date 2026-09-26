@@ -1,6 +1,7 @@
 import type { PlantingFeatureCollection, ZonesFeatureCollection } from '../api/project-result-api';
 import {
   createPlanProjection,
+  CROWN_RADIUS_M,
   crownRadiusPx,
   extentOf,
   isGeographic,
@@ -50,7 +51,8 @@ export function drawPlan(
     extent,
     width,
     height,
-    geographic: isGeographic(planting.metadata.crs),
+    // Метка CRS — из /zones: задеплоенный бэкенд пока не отдаёт metadata в /planting.
+    geographic: isGeographic(zones.metadata.crs),
   });
 
   context.globalAlpha = 0.25;
@@ -73,7 +75,7 @@ export function drawPlan(
   );
   for (const { geometry, properties } of byType) {
     const [x, y] = projection.project(geometry.coordinates);
-    const radius = crownRadiusPx(properties.plant_type, projection.pixelsPerMeter);
+    const radius = crownRadiusPx(CROWN_RADIUS_M[properties.plant_type], projection.pixelsPerMeter);
     fillCircle(context, x, y, radius, colors[properties.plant_type]);
     if (properties.plant_type === 'tree') {
       fillCircle(context, x - radius * 0.3, y - radius * 0.3, radius * 0.45, colors.highlight);

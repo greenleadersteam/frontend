@@ -5,10 +5,8 @@ import { type JSX, useState } from 'react';
 import { type Project, useDeleteProjectMutation } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
 
+import { PROCESSING_HANG_MINUTES, type ProcessingHang } from '../model/delete-availability';
 import classes from './delete-project-modal.module.css';
-
-// Порог зависшей обработки: столько же длится предохранитель опроса (api.md).
-export const PROCESSING_HANG_MINUTES = 30;
 
 type DeleteProjectModalProps = {
   project: Pick<Project, 'id' | 'name'>;
@@ -17,7 +15,7 @@ type DeleteProjectModalProps = {
   onDeleted: () => void;
   // Проект с зависшей обработкой: где он застрял. Про прерывание обработки ничего не
   // обещаем — бэкенд при DELETE её не останавливает (../backend/greenplan/api/storage.py:133).
-  hang: 'queued' | 'processing' | null;
+  hang: ProcessingHang | null;
 };
 
 export function DeleteProjectModal({
@@ -73,7 +71,7 @@ export function DeleteProjectModal({
             </Text>
           )}
           {error !== undefined && (
-            <Text size="sm" className={classes.error}>
+            <Text size="sm" role="alert" className={classes.error}>
               {describeAppError(toAppError(error))}
             </Text>
           )}

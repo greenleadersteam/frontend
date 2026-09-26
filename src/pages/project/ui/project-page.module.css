@@ -1,0 +1,14 @@
+/* Экран проекта растянут на всю ширину ради карты; шапка и карточки состояний — в ширине
+   контента, как на остальных экранах (design.md, «Страница и фон»). */
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xl);
+}
+
+.content {
+  width: 100%;
+  max-width: var(--app-content-width);
+  margin-inline: auto;
+}

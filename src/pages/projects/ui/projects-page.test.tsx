@@ -4,6 +4,7 @@ import { http, HttpResponse } from 'msw';
 import type { RouteObject } from 'react-router';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { enterViewport, renderWithProviders, resetMockDb, server } from '@/shared/lib/test';
 
 import { ProjectsPage } from './projects-page';
@@ -180,6 +181,22 @@ describe('удаление', () => {
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Удалить проект' }));
     return screen.findByRole('dialog', { name: 'Удалить проект?' });
   };
+
+  test('переход после удаления с экрана проекта — фокус на заголовке списка', async () => {
+    renderWithProviders(routes, { pathname: '/', state: FOCUS_PROJECTS_HEADING });
+
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Проекты' });
+    await waitFor(() => {
+      expect(heading).toHaveFocus();
+    });
+  });
+
+  test('обычный переход к списку фокус не трогает', async () => {
+    renderPage();
+
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Проекты' });
+    expect(heading).not.toHaveFocus();
+  });
 
   test('подтверждение, загрузка, уведомление и обновление списка', async () => {
     // Запрос держится «воротами», пока тест проверяет состояние загрузки; обработчик ничего

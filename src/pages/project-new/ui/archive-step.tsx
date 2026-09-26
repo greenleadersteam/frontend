@@ -78,7 +78,7 @@ export function ArchiveStep({
                 Перетащите архив с подосновой или выберите файл
               </Text>
               <Text size="sm" c="dimmed">
-                {`ZIP до ${formatFileSize(MAX_ARCHIVE_BYTES)} с главным DXF генплана и связанными файлами`}
+                {`ZIP до ${formatFileSize(MAX_ARCHIVE_BYTES)} с главным чертежом генплана в DXF и связанными файлами`}
               </Text>
             </Stack>
           </Dropzone>

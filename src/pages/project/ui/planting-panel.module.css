@@ -1,0 +1,12 @@
+.panel {
+  overflow-wrap: anywhere;
+}
+
+.title {
+  font-size: var(--mantine-font-size-md);
+  font-weight: 600;
+}
+
+.id {
+  font-variant-numeric: tabular-nums;
+}

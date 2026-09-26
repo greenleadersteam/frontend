@@ -1,0 +1,44 @@
+/* Те же цвета, что у слоёв на карте: shared/theme/map.ts. */
+.symbol {
+  flex: none;
+  width: var(--mantine-spacing-lg);
+  height: var(--mantine-spacing-lg);
+}
+
+.tree {
+  fill: var(--mantine-color-sage-7);
+}
+
+.treeHighlight {
+  fill: var(--mantine-color-sage-6);
+}
+
+.shrub {
+  fill: var(--mantine-color-sage-4);
+}
+
+.zone {
+  fill: var(--mantine-color-clay-3);
+  fill-opacity: 0.25;
+}
+
+.zoneHatch {
+  stroke: var(--mantine-color-clay-3);
+  stroke-width: 1;
+}
+
+.earth {
+  fill: var(--app-map-earth);
+  stroke: var(--app-map-road-casing);
+  stroke-width: 0.5;
+}
+
+.roadCasing {
+  stroke: var(--app-map-road-casing);
+  stroke-width: 4;
+}
+
+.road {
+  stroke: var(--app-map-road);
+  stroke-width: 2.5;
+}

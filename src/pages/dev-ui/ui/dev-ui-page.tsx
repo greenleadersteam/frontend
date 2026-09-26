@@ -97,7 +97,7 @@ export function DevUiPage(): JSX.Element {
               defaultValue="Благоустройство сквера, этап 1"
             />
             <Select
-              label="Главный DXF"
+              label="Главный чертёж"
               description="Бэкенд нашёл несколько подходящих файлов"
               data={['ГП/Генплан.dxf', 'ГП/Генплан_изм2.dxf', 'Сети/Сводный_план.dxf']}
               defaultValue="ГП/Генплан.dxf"

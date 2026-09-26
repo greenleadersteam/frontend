@@ -16,6 +16,7 @@ export type UploadErrorCode = ApiComponents['schemas']['UploadErrorCode'];
 // Значения статуса есть только в контракте-предложении: в спецификации бэкенда это строка.
 type KnownStatus = ProposedApiComponents['schemas']['ProjectStatus'];
 export type ProcessingStage = Exclude<KnownStatus, 'draft' | 'ready' | 'failed'>;
+export type PlantType = ProposedApiComponents['schemas']['PlantType'];
 
 export type ProjectState =
   | { kind: 'draft' }
@@ -95,6 +96,14 @@ export const isProcessing = (state: ProjectState): boolean =>
 export function getProcessingDurationMs(job: Job): number | null {
   if (job.started_at == null || job.finished_at == null) return null;
   return Date.parse(job.finished_at) - Date.parse(job.started_at);
+}
+
+// Архив принимается без архива и после ошибки обработки (../backend/greenplan/api/jobs.py:52).
+// После ambiguous_root_dxf вместо нового архива выбирается главный чертёж из уже загруженного.
+export function archiveAction(state: ProjectState): 'upload' | 'choose-root' | null {
+  if (state.kind === 'draft') return 'upload';
+  if (state.kind !== 'failed') return null;
+  return state.error?.code === 'ambiguous_root_dxf' ? 'choose-root' : 'upload';
 }
 
 // Бэкенд отвечает 404 и на «проекта нет», и на «результат ещё не готов», а текст detail

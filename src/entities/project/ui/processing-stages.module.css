@@ -1,0 +1,31 @@
+/* Этапы — список с отметкой слева: галочка у пройденного, индикатор у текущего,
+   у будущих отметки нет (точки-индикаторы запрещены design.md). */
+.stages {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stage {
+  display: flex;
+  gap: var(--mantine-spacing-md);
+  align-items: center;
+  color: var(--app-text);
+
+  &[data-status='pending'] {
+    color: var(--app-text-muted);
+  }
+
+  &[data-status='current'] {
+    font-weight: 600;
+  }
+}
+
+.stageMark {
+  display: grid;
+  place-items: center;
+  width: var(--mantine-spacing-xl);
+  color: var(--app-accent);
+}

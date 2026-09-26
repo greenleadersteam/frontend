@@ -1,0 +1,8 @@
+.candidates {
+  padding-top: var(--mantine-spacing-sm);
+  overflow-wrap: anywhere;
+}
+
+.error {
+  color: var(--app-error);
+}

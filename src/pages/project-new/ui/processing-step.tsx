@@ -1,28 +1,18 @@
-import {
-  Alert,
-  Button,
-  Group,
-  Loader,
-  Progress,
-  Radio,
-  Stack,
-  Text,
-  VisuallyHidden,
-} from '@mantine/core';
-import { useReducedMotion } from '@mantine/hooks';
-import { IconCheck, IconCircleCheck } from '@tabler/icons-react';
-import { type JSX, useState } from 'react';
+import { Button, Group, Loader, Stack, Text, VisuallyHidden } from '@mantine/core';
+import { IconCircleCheck } from '@tabler/icons-react';
+import type { JSX } from 'react';
 import { Link } from 'react-router';
 
 import {
   getProcessingDurationMs,
   JOB_ERROR_LABELS,
-  PROCESSING_STAGES,
+  PollingStalledAlert,
+  ProcessingStages,
   type Project,
   STAGE_LABELS,
   useProjectWithPolling,
-  useRunProjectMutation,
 } from '@/entities/project';
+import { ChooseRootDxf } from '@/features/choose-root-dxf';
 import { describeAppError, toAppError } from '@/shared/api';
 import { paths, projectPath } from '@/shared/config';
 import { formatDuration } from '@/shared/lib/format';
@@ -101,9 +91,9 @@ function announcementOf({ state }: Project): string {
   switch (state.kind) {
     case 'ready':
       return 'План посадок готов';
-    // Ошибку объявляет role="alert" у её текста — второй раз не повторяем.
+    // Остальные ошибки объявляет role="alert" у их текста, а эта — подпись выбора.
     case 'failed':
-      return '';
+      return state.error?.code === 'ambiguous_root_dxf' ? JOB_ERROR_LABELS.ambiguous_root_dxf : '';
     case 'processing':
       return STAGE_LABELS[state.stage];
     case 'draft':
@@ -137,7 +127,9 @@ function ProcessingState({
     case 'draft':
     case 'processing':
     case 'unknown':
-      return <ProcessingStages project={project} stalled={stalled} onCheckAgain={onCheckAgain} />;
+      return (
+        <ProcessingInProgress project={project} stalled={stalled} onCheckAgain={onCheckAgain} />
+      );
     default: {
       const unexpected: never = project.state;
       return unexpected;
@@ -145,69 +137,21 @@ function ProcessingState({
   }
 }
 
-type ProcessingStagesProps = {
+type ProcessingInProgressProps = {
   project: Project;
   stalled: boolean;
   onCheckAgain: () => void;
 };
 
-function ProcessingStages({ project, stalled, onCheckAgain }: ProcessingStagesProps): JSX.Element {
-  const reduceMotion = useReducedMotion();
-  const current = project.state.kind === 'processing' ? project.state.stage : null;
-
-  // Геопривязка идёт, только если у проекта есть область участка: этап показывается,
-  // когда бэкенд до него дошёл. Опрос раз в 2 с может его проскочить — поэтому запоминаем.
-  const [sawGeoreferencing, setSawGeoreferencing] = useState(false);
-  if (current === 'georeferencing' && !sawGeoreferencing) setSawGeoreferencing(true);
-  const stages = PROCESSING_STAGES.filter(
-    (stage) => stage !== 'georeferencing' || sawGeoreferencing,
-  );
-  const currentIndex = current === null ? -1 : stages.indexOf(current);
-
+function ProcessingInProgress({
+  project,
+  stalled,
+  onCheckAgain,
+}: ProcessingInProgressProps): JSX.Element {
   return (
     <Stack gap="lg">
-      {stalled && (
-        <Alert color="ochre" variant="light">
-          <Group justify="space-between" gap="md">
-            <Text size="sm">
-              {current === 'queued'
-                ? 'Обработка не началась за 30 минут.'
-                : 'Обработка идёт дольше обычного.'}
-            </Text>
-            <Button variant="default" size="xs" onClick={onCheckAgain}>
-              Проверить снова
-            </Button>
-          </Group>
-        </Alert>
-      )}
-
-      <ol className={classes.stages} aria-label="Этапы обработки">
-        {stages.map((stage, index) => {
-          const status =
-            index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'pending';
-          return (
-            <li key={stage} className={classes.stage} data-status={status}>
-              <span className={classes.stageMark} aria-hidden>
-                {status === 'done' && <IconCheck size={20} stroke={1.5} />}
-                {status === 'current' && (
-                  <Loader size="xs" color="sage.7" type={reduceMotion ? 'dots' : 'oval'} />
-                )}
-              </span>
-              <Text component="span" size="md">
-                {STAGE_LABELS[stage]}
-              </Text>
-              {status !== 'pending' && (
-                <VisuallyHidden component="span">
-                  {status === 'done' ? ', пройден' : ', выполняется'}
-                </VisuallyHidden>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-
-      <Progress value={project.job.progress_pct} aria-label="Ход обработки" />
-
+      {stalled && <PollingStalledAlert project={project} onCheckAgain={onCheckAgain} />}
+      <ProcessingStages project={project} />
       <Stack gap="xs">
         <Group gap="sm">
           <Button component={Link} to={projectPath(project.id)}>
@@ -250,10 +194,15 @@ function ProcessingFailed({ project, onUploadAnother }: ProcessingFailedProps): 
   const error = project.state.kind === 'failed' ? project.state.error : null;
   if (error?.code === 'ambiguous_root_dxf') {
     return (
-      <RootDxfChoice
+      <ChooseRootDxf
         projectId={project.id}
         candidates={error.candidates ?? []}
-        onUploadAnother={onUploadAnother}
+        secondaryAction={
+          // Второй путь — новый архив: /runs пока есть только в контракте-предложении.
+          <Button variant="default" onClick={onUploadAnother}>
+            Загрузить другой архив
+          </Button>
+        }
       />
     );
   }
@@ -263,60 +212,6 @@ function ProcessingFailed({ project, onUploadAnother }: ProcessingFailedProps): 
         {JOB_ERROR_LABELS[error?.code ?? 'other']}
       </Text>
       <Button onClick={onUploadAnother}>Загрузить другой архив</Button>
-    </Stack>
-  );
-}
-
-type RootDxfChoiceProps = {
-  projectId: string;
-  candidates: string[];
-  onUploadAnother: () => void;
-};
-
-// Выбор главного DXF — повторная обработка через POST /runs с root_dxf (контракт-предложение).
-// Кандидаты — только из ответа бэкенда, пути выводятся текстом.
-function RootDxfChoice({
-  projectId,
-  candidates,
-  onUploadAnother,
-}: RootDxfChoiceProps): JSX.Element {
-  const [rootDxf, setRootDxf] = useState<string | null>(null);
-  const [runProject, { isLoading, error }] = useRunProjectMutation();
-
-  return (
-    <Stack gap="md" align="flex-start">
-      <Radio.Group
-        label={JOB_ERROR_LABELS.ambiguous_root_dxf}
-        value={rootDxf}
-        onChange={setRootDxf}
-      >
-        <Stack gap="sm" className={classes.candidates}>
-          {candidates.map((path) => (
-            <Radio key={path} value={path} label={path} />
-          ))}
-        </Stack>
-      </Radio.Group>
-      {error !== undefined && (
-        <Text size="sm" role="alert" className={classes.error}>
-          {describeAppError(toAppError(error))}
-        </Text>
-      )}
-      {/* Второй путь — новый архив: /runs пока есть только в контракте-предложении. */}
-      <Group gap="sm">
-        <Button
-          disabled={rootDxf === null}
-          loading={isLoading}
-          onClick={() => {
-            if (rootDxf !== null)
-              void runProject({ id: projectId, request: { root_dxf: rootDxf } });
-          }}
-        >
-          Продолжить обработку
-        </Button>
-        <Button variant="default" onClick={onUploadAnother}>
-          Загрузить другой архив
-        </Button>
-      </Group>
     </Stack>
   );
 }

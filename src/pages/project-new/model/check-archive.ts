@@ -43,7 +43,8 @@ export async function checkArchive(file: File): Promise<ArchiveCheck> {
     case 'empty':
       return {
         kind: 'rejected',
-        message: 'Архив пустой. Добавьте в него главный DXF генплана и выберите архив снова.',
+        message:
+          'Архив пустой. Добавьте в него главный чертёж генплана в DXF и выберите архив снова.',
       };
     case 'unreadable':
       return { kind: 'accepted', archive: { file, entries: null } };
@@ -52,7 +53,7 @@ export async function checkArchive(file: File): Promise<ArchiveCheck> {
         return {
           kind: 'rejected',
           message:
-            'В архиве нет чертежей DXF. Добавьте главный DXF генплана и загрузите архив снова.',
+            'В архиве нет чертежей DXF. Добавьте главный чертёж генплана в DXF и выберите архив снова.',
         };
       }
       return { kind: 'accepted', archive: { file, entries: listing.entries } };

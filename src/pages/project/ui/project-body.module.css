@@ -1,0 +1,14 @@
+.content {
+  width: 100%;
+  max-width: var(--app-content-width);
+  margin-inline: auto;
+}
+
+/* Узкая колонка 720px — как у мастера загрузки, по левому краю шапки. */
+.narrow {
+  max-width: var(--app-narrow-width);
+}
+
+.errorIcon {
+  color: var(--app-error);
+}
