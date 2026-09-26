@@ -1,0 +1,11 @@
+.numbers {
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  color: var(--app-error);
+}
+
+.title {
+  font-weight: 600;
+}

@@ -1,0 +1,52 @@
+/* design.md, «Зона загрузки»: пунктир stone.4, полупрозрачная подложка stone.2, радиус xl,
+   в центре круглая белая плашка с иконкой. */
+.dropzone {
+  border: 1.5px dashed var(--mantine-color-stone-4);
+  border-radius: var(--mantine-radius-xl);
+  background-color: color-mix(in srgb, var(--app-surface-muted) 50%, transparent);
+
+  &[data-accept],
+  &:hover {
+    border-color: var(--app-accent);
+  }
+}
+
+.dropzoneInner {
+  padding: calc(var(--mantine-spacing-xl) * 2) var(--mantine-spacing-xl);
+  text-align: center;
+}
+
+.plate {
+  display: grid;
+  place-items: center;
+  width: calc(var(--mantine-spacing-xl) * 2);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background-color: var(--app-surface);
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.icon {
+  color: var(--app-icon);
+}
+
+.error {
+  color: var(--app-error);
+}
+
+.summaryTitle {
+  min-width: 0;
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.fileName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.paths {
+  overflow-wrap: anywhere;
+}

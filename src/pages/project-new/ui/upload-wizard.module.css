@@ -1,0 +1,11 @@
+/* Узкая колонка мастера по центру. */
+.root {
+  width: 100%;
+  max-width: var(--app-narrow-width);
+  margin-inline: auto;
+}
+
+/* Фокус на заголовок ставится программно при смене шага; рамка ему не нужна. */
+.heading:focus {
+  outline: none;
+}

@@ -68,3 +68,9 @@
 .progressTrack {
   background-color: var(--app-surface-muted);
 }
+
+.stepLabel {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  text-transform: none;
+}

@@ -15,7 +15,8 @@ export interface paths {
         put?: never;
         /**
          * Создать проект
-         * @description Изменение — `bbox_user` необязателен (см. `ProjectCreateRequest`).
+         * @description Изменения — `bbox_user` необязателен; у `name` и `description` появились ограничения
+         *     длины (см. `ProjectCreateRequest`).
          */
         post: operations["create_project"];
         delete?: never;
@@ -194,7 +195,12 @@ export interface components {
          */
         ProjectStatus: "draft" | "queued" | "extracting" | "parsing" | "georeferencing" | "zoning_layout" | "exporting" | "ready" | "failed";
         ProjectCreateRequest: {
+            /**
+             * @description Изменение: 1–120 символов после обрезки пробелов по краям. Строка из одних
+             *     пробелов отклоняется с 422.
+             */
             name: string;
+            /** @description Изменение: необязательное описание, до 1000 символов. */
             description?: string | null;
             /**
              * @description Изменение: необязателен. Примерные границы участка

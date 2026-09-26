@@ -13,7 +13,8 @@ info:
       и фактическим расстоянием;
     - `POST /projects/{project_id}/runs` — повторная обработка загруженного архива с параметрами;
     - `GET /processing-defaults` — параметры обработки по умолчанию и допустимые диапазоны;
-    - перечисления для `status`, `job.stage`; необязательный `bbox_user`; тело и коды ответов
+    - перечисления для `status`, `job.stage`; необязательный `bbox_user`; лимиты длины
+      `name` и `description`; тело и коды ответов
       `upload`; файл в ответе `dxf`; схемы ответов `zones` и `planting` (описывают текущий вывод
       бэкенда, формат не меняется);
     - `ErrorResponse` для всех ошибок, кроме 422.
@@ -25,7 +26,9 @@ paths:
   /projects:
     post:
       summary: Создать проект
-      description: Изменение — `bbox_user` необязателен (см. `ProjectCreateRequest`).
+      description: |
+        Изменения — `bbox_user` необязателен; у `name` и `description` появились ограничения
+        длины (см. `ProjectCreateRequest`).
       operationId: create_project
       requestBody:
         required: true
@@ -309,8 +312,15 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 120
+          description: |
+            Изменение: 1–120 символов после обрезки пробелов по краям. Строка из одних
+            пробелов отклоняется с 422.
         description:
           type: [string, 'null']
+          maxLength: 1000
+          description: 'Изменение: необязательное описание, до 1000 символов.'
         bbox_user:
           description: |
             Изменение: необязателен. Примерные границы участка
