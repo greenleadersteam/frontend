@@ -1,8 +1,10 @@
 import '@mantine/core/styles.layer.css';
+import '@mantine/notifications/styles.layer.css';
 import './styles/fonts.css';
 import './styles/global.css';
 
 import { MantineProvider } from '@mantine/core';
+import { Notifications } from '@mantine/notifications';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider } from 'react-redux';
@@ -20,6 +22,7 @@ export function renderApp(container: HTMLElement): void {
   createRoot(container).render(
     <StrictMode>
       <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver}>
+        <Notifications />
         <Provider store={store}>
           <RouterProvider router={router} />
         </Provider>

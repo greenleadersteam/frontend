@@ -1,0 +1,24 @@
+/* Заголовок получает фокус программно — после удаления карточки, — рамка ему не нужна. */
+.heading:focus {
+  outline: none;
+}
+
+/* Сетка карточек: не уже --app-card-min-width, промежуток 18px (design.md: 16–18px). */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--app-card-min-width), 1fr));
+  gap: calc(var(--mantine-spacing-lg) + var(--mantine-spacing-xs) / 2);
+  align-items: start;
+}
+
+.skeletonPreview {
+  width: auto;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  margin: var(--app-preview-inset);
+  border-radius: var(--mantine-radius-md);
+}
+
+.skeletonBody {
+  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-lg);
+}

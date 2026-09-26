@@ -7,6 +7,4 @@ import { defineConfig } from 'steiger';
 export default defineConfig([
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- см. комментарий выше
   ...fsd.configs.recommended,
-  // Данные сущности готовы раньше экранов: потребители появятся в проходе с UI. Снять вместе с ним.
-  { files: ['./src/entities/project/**'], rules: { 'fsd/insignificant-slice': 'off' } },
 ]);

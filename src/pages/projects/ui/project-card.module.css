@@ -1,0 +1,93 @@
+/* design.md, «Карточка проекта»: белая, радиус lg, тень sm; при наведении подъём и тень md. */
+.card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  transition:
+    transform var(--app-duration) ease,
+    box-shadow var(--app-duration) ease;
+
+  &:hover {
+    transform: translateY(calc(-1 * var(--app-card-lift)));
+    box-shadow: var(--mantine-shadow-md);
+  }
+
+  /* Фокус с клавиатуры на растянутой ссылке показывается рамкой всей карточки. */
+  &:has(.link:focus-visible) {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:hover {
+      transform: none;
+    }
+  }
+}
+
+.preview {
+  position: relative;
+  margin: var(--app-preview-inset);
+}
+
+/* Кнопка меню лежит над ::after ссылки, поэтому её клик не ведёт на проект. */
+.menuButton {
+  position: absolute;
+  z-index: 1;
+  top: var(--mantine-spacing-sm);
+  right: var(--mantine-spacing-sm);
+  border: none;
+  border-radius: calc(var(--ai-size) / 2);
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.menuHint {
+  max-width: calc(var(--app-card-min-width) * 0.8);
+  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-sm);
+}
+
+.body {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-lg);
+}
+
+.status {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  align-items: center;
+  min-width: 0;
+}
+
+.duration {
+  white-space: nowrap;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--mantine-font-size-lg);
+  font-weight: 600;
+  line-height: var(--mantine-h3-line-height);
+}
+
+.link {
+  color: inherit;
+  text-decoration: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+.error {
+  color: var(--app-error);
+}

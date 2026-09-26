@@ -200,6 +200,7 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
     '--app-content-width': '80rem',
     '--app-preview-inset': '0.625rem',
     '--app-card-lift': '0.125rem',
+    '--app-card-min-width': '17.5rem',
   },
   // Приложение только светлое: роли Mantine по умолчанию переводятся на палитру. Фон body
   // не трогаем: его задаёт global.css, а белый --mantine-color-body нужен Card, Modal и Paper.
