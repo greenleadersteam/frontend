@@ -1,7 +1,7 @@
 import { Badge } from '@mantine/core';
 import type { JSX } from 'react';
 
-import type { StatusVariant } from '@/shared/config';
+import type { StatusVariant } from '@/shared/theme';
 
 import { STAGE_LABELS, STATE_LABELS } from '../config/labels';
 import type { ProjectState } from '../model/project';

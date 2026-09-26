@@ -12,7 +12,7 @@ import { createMemoryRouter, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
 import { baseApi } from '@/shared/api';
-import { theme } from '@/shared/config';
+import { theme } from '@/shared/theme';
 
 export { resetMockDb, server } from '@/shared/api/mocks/node';
 

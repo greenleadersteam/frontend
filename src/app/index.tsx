@@ -9,7 +9,7 @@ import { Provider } from 'react-redux';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
-import { cssVariablesResolver, theme } from '@/shared/config';
+import { cssVariablesResolver, theme } from '@/shared/theme';
 
 import { store } from './model/store';
 import { routes } from './routes';
