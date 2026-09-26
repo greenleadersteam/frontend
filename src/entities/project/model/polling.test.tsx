@@ -207,6 +207,27 @@ describe('useProjectWithPolling', () => {
   });
 });
 
+test('проект удалён во время опроса — «не найден», опрос останавливается', async () => {
+  const requests = countRequests(`/api/projects/${PROCESSING_ID}`);
+  const { result } = renderHookWithStore(() => useProjectWithPolling(PROCESSING_ID));
+  await loaded(() => result.current.data);
+  expect(result.current.notFound).toBe(false);
+
+  await act(async () => {
+    await fetch(`/api/projects/${PROCESSING_ID}`, { method: 'DELETE' });
+  });
+  await wait(POLLING_INTERVAL_MS);
+  await act(() =>
+    vi.waitFor(() => {
+      expect(result.current.notFound).toBe(true);
+    }),
+  );
+
+  const afterNotFound = requests.count;
+  await wait(10 * POLLING_INTERVAL_MS);
+  expect(requests.count).toBe(afterNotFound);
+});
+
 describe('useProjectsWithPolling', () => {
   test('опрашивает список одним запросом, пока в нём есть идущие обработки', async () => {
     const listRequests = countRequests('/api/projects');

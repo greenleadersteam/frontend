@@ -2,11 +2,12 @@ import { type ApiComponents, baseApi, type ProposedApiComponents } from '@/share
 
 import { type Project, type ProjectResponse, toProject } from '../model/project';
 
-type ProjectCreateRequest = ApiComponents['schemas']['ProjectCreateRequest'];
+// По контракту-предложению bbox_user необязателен; задеплоенный бэкенд пока требует его (422).
+type ProjectCreateRequest = ProposedApiComponents['schemas']['ProjectCreateRequest'];
 type ProjectUpdateRequest = ApiComponents['schemas']['ProjectUpdateRequest'];
 // Этих эндпоинтов у бэкенда ещё нет: типы из contracts/openapi.proposed.yaml.
-export type RunRequest = ProposedApiComponents['schemas']['RunRequest'];
-export type ProcessingDefaults = ProposedApiComponents['schemas']['ProcessingDefaults'];
+type RunRequest = ProposedApiComponents['schemas']['RunRequest'];
+type ProcessingDefaults = ProposedApiComponents['schemas']['ProcessingDefaults'];
 
 const LIST = { type: 'Project', id: 'LIST' } as const;
 const projectTag = (id: string) => ({ type: 'Project', id }) as const;
@@ -93,6 +94,7 @@ export const {
   useDeleteProjectMutation,
   useGetProcessingDefaultsQuery,
   useGetProjectQuery,
+  useLazyGetProjectQuery,
   useListProjectsQuery,
   useRunProjectMutation,
   useUpdateProjectMutation,

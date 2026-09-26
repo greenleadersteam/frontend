@@ -26,6 +26,23 @@ export type ProjectState =
 
 export type Project = Omit<ProjectResponse, 'status'> & { state: ProjectState };
 
+// Порядок этапов обработки у бэкенда: ../backend/greenplan/api/jobs.py:40-48.
+export const PROCESSING_STAGES = [
+  'queued',
+  'extracting',
+  'parsing',
+  'georeferencing',
+  'zoning_layout',
+  'exporting',
+] as const satisfies readonly ProcessingStage[];
+
+// Формат id бэкенд не документирует; реальные id — 32 hex-символа, правило взято с запасом.
+const PROJECT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+// Параметры маршрута и адреса — недоверенные данные: проверяются до запроса.
+export const isProjectId = (value: string | null | undefined): value is string =>
+  value !== null && value !== undefined && PROJECT_ID_PATTERN.test(value);
+
 // satisfies требует все значения контракта: новый статус без разбора ниже — ошибка типов.
 const KNOWN_STATUSES = {
   draft: true,

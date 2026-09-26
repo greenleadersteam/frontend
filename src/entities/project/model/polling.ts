@@ -54,16 +54,25 @@ const pollingOptions = (active: boolean, expired: boolean) => ({
 
 // Опрос включается, только пока идёт обработка. Прочитать состояние до подписки с опросом
 // позволяет useQueryState: обе подписки смотрят в одну запись кэша.
-export function useProjectWithPolling(
-  id: string,
-): TypedUseQueryHookResult<Project, string, AppBaseQuery> & PollingControl {
-  const { data } = projectApi.endpoints.getProject.useQueryState(id);
-  const active = data !== undefined && isProcessing(data.state);
+export function useProjectWithPolling(id: string): TypedUseQueryHookResult<
+  Project,
+  string,
+  AppBaseQuery
+> &
+  PollingControl & {
+    // Проект удалён или не существовал: бэкенд ответил 404, данные из кэша устарели.
+    notFound: boolean;
+  } {
+  const { data, error } = projectApi.endpoints.getProject.useQueryState(id);
+  // После 404 в кэше остаются прежние данные: по ним опрос не продолжается.
+  const notFound = error !== undefined && 'status' in error && error.status === 404;
+  const active = !notFound && data !== undefined && isProcessing(data.state);
   const limit = usePollingLimit(active, id);
   const query = useGetProjectQuery(id, pollingOptions(active, limit.expired));
 
   return {
     ...query,
+    notFound,
     pollingStalled: limit.expired,
     checkAgain: () => {
       limit.reset();
