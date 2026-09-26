@@ -18,7 +18,9 @@ afterEach(cleanup);
 // Запрос, для которого нет обработчика, — ошибка теста, а не выход в сеть.
 beforeAll(async () => {
   server.listen({ onUnhandledRequest: 'error' });
-  server.use(http.get('/config.json', () => HttpResponse.json({ apiBaseUrl: '/api' })));
+  server.use(
+    http.get('/config.json', () => HttpResponse.json({ apiBaseUrl: '/api', basemapUrl: null })),
+  );
   await loadRuntimeConfig();
   server.resetHandlers();
   resetMockDb();
@@ -55,7 +57,15 @@ installIntersectionObserver();
 
 // jsdom не рисует на canvas и пишет в консоль «Not implemented» на каждый getContext.
 // null — законный ответ браузера, код превью его обрабатывает.
-vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+// Свойство, а не vi.spyOn: restoreAllMocks в тестах иначе снял бы подмену.
+Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+  configurable: true,
+  value: () => null,
+});
+
+// jsdom не реализует scrollIntoView, а Combobox Mantine прокручивает к пункту при навигации
+// стрелками.
+Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
 
 // jsdom не реализует document.fonts, а Textarea с autosize подписывается на загрузку шрифтов.
 Object.defineProperty(document, 'fonts', {

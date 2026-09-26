@@ -1,1 +1,1 @@
-{ "apiBaseUrl": "/api" }
+{ "apiBaseUrl": "/api", "basemapUrl": "/basemap/moscow.pmtiles" }

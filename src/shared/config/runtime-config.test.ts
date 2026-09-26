@@ -13,10 +13,11 @@ afterEach(() => {
 
 describe('loadRuntimeConfig', () => {
   test('принимает относительный путь и отдаёт его через getRuntimeConfig', async () => {
-    const fetchMock = respondWith(JSON.stringify({ apiBaseUrl: '/api' }));
+    const config = { apiBaseUrl: '/api', basemapUrl: '/basemap/moscow.pmtiles' };
+    const fetchMock = respondWith(JSON.stringify(config));
 
-    await expect(loadRuntimeConfig()).resolves.toEqual({ apiBaseUrl: '/api' });
-    expect(getRuntimeConfig()).toEqual({ apiBaseUrl: '/api' });
+    await expect(loadRuntimeConfig()).resolves.toEqual(config);
+    expect(getRuntimeConfig()).toEqual(config);
     expect(fetchMock).toHaveBeenCalledWith(
       '/config.json',
       expect.objectContaining({ cache: 'no-store' }),
@@ -24,20 +25,34 @@ describe('loadRuntimeConfig', () => {
     expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  test.each([
-    ['абсолютный URL', 'https://evil.example/api'],
-    ['протокол-относительный URL', '//evil.example/api'],
-    ['обратная косая после слеша', '/\\evil.example/api'],
-    ['неразбираемый URL', '//'],
-    ['javascript:', 'javascript:alert(1)'],
-  ])('отклоняет %s', async (_, apiBaseUrl) => {
-    respondWith(JSON.stringify({ apiBaseUrl }));
+  test('basemapUrl: null выключает подложку', async () => {
+    respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null }));
 
-    await expect(loadRuntimeConfig()).rejects.toThrow(RuntimeConfigError);
+    await expect(loadRuntimeConfig()).resolves.toEqual({ apiBaseUrl: '/api', basemapUrl: null });
+  });
+
+  test('отклоняет конфиг без basemapUrl', async () => {
+    respondWith(JSON.stringify({ apiBaseUrl: '/api' }));
+
+    await expect(loadRuntimeConfig()).rejects.toThrow('basemapUrl');
+  });
+
+  describe.each(['apiBaseUrl', 'basemapUrl'])('%s', (field) => {
+    test.each([
+      ['абсолютный URL', 'https://evil.example/api'],
+      ['протокол-относительный URL', '//evil.example/api'],
+      ['обратная косая после слеша', '/\\evil.example/api'],
+      ['неразбираемый URL', '//'],
+      ['javascript:', 'javascript:alert(1)'],
+    ])('отклоняет %s', async (_, value) => {
+      respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null, [field]: value }));
+
+      await expect(loadRuntimeConfig()).rejects.toThrow(RuntimeConfigError);
+    });
   });
 
   test('отклоняет лишнее поле', async () => {
-    respondWith(JSON.stringify({ apiBaseUrl: '/api', apiBaseURL: '/other' }));
+    respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null, apiBaseURL: '/other' }));
 
     await expect(loadRuntimeConfig()).rejects.toThrow('apiBaseURL');
   });

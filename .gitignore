@@ -37,6 +37,9 @@ secrets/
 *.geojson
 !**/__fixtures__/**
 
+# Local development data: the basemap and similar large derived files.
+.data/
+
 # Logs
 *.log
 npm-debug.log*

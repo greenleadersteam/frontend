@@ -17,12 +17,16 @@ const isSameOrigin = (value: string): boolean => {
   }
 };
 
+const sameOriginPath = z
+  .string()
+  .startsWith('/')
+  .refine(isSameOrigin, { message: 'должен быть путём на том же origin' });
+
 // strictObject: опечатка в имени поля конфига контура должна быть ошибкой, а не молча игнорироваться.
 const runtimeConfigSchema = z.strictObject({
-  apiBaseUrl: z
-    .string()
-    .startsWith('/')
-    .refine(isSameOrigin, { message: 'должен быть путём на том же origin' }),
+  apiBaseUrl: sameOriginPath,
+  // Архив подложки PMTiles; null — карта без подложки.
+  basemapUrl: sameOriginPath.nullable(),
 });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
