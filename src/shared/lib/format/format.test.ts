@@ -5,6 +5,8 @@ import {
   formatDate,
   formatDuration,
   formatFileSize,
+  formatMeters,
+  formatNumber,
   formatTransferred,
 } from './format';
 
@@ -85,4 +87,15 @@ describe('formatCount', () => {
   ])('%i — «%s»', (count, expected) => {
     expect(formatCount(count, forms)).toBe(expected);
   });
+});
+
+test('formatNumber — разряды через неразрывный пробел', () => {
+  expect(formatNumber(1204)).toBe('1\u00A0204');
+  expect(formatNumber(24)).toBe('24');
+});
+
+test('formatMeters — запятая и неразрывный пробел перед «м»', () => {
+  expect(formatMeters(1.5)).toBe('1,5\u00A0м');
+  expect(formatMeters(0.35)).toBe('0,35\u00A0м');
+  expect(formatMeters(12)).toBe('12\u00A0м');
 });

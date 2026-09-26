@@ -70,3 +70,11 @@ export function formatCount(count: number, forms: CountForms): string {
   const word = category === 'one' ? forms.one : category === 'few' ? forms.few : forms.many;
   return `${integer.format(count)} ${word}`;
 }
+
+// Счётчики на карте: «1 204» с неразрывным пробелом между разрядами.
+export const formatNumber = (value: number): string => integer.format(value);
+
+const meters = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 });
+
+// Расстояния хранятся в метрах числом (api.md): «1,5 м», «0,35 м».
+export const formatMeters = (value: number): string => `${meters.format(value)}${NBSP}м`;

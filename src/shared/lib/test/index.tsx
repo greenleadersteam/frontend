@@ -9,7 +9,7 @@ import {
 } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { Provider } from 'react-redux';
-import { createMemoryRouter, type RouteObject } from 'react-router';
+import { createMemoryRouter, type InitialEntry, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
 import { baseApi } from '@/shared/api';
@@ -32,8 +32,11 @@ const createTestStore = () =>
     middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(baseApi.middleware),
   });
 
-export function renderWithProviders(routes: RouteObject[], initialPath: string): RenderResult {
-  const router = createMemoryRouter(routes, { initialEntries: [initialPath] });
+export function renderWithProviders(
+  routes: RouteObject[],
+  initialEntry: InitialEntry,
+): RenderResult {
+  const router = createMemoryRouter(routes, { initialEntries: [initialEntry] });
 
   return render(
     <MantineProvider theme={testTheme}>
