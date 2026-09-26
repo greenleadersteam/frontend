@@ -1,0 +1,11 @@
+.root {
+  padding-block: calc(var(--mantine-spacing-xl) * 2);
+}
+
+.title {
+  font-size: var(--mantine-font-size-display);
+  font-weight: 300;
+  line-height: var(--mantine-h1-line-height);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
