@@ -18,7 +18,13 @@ import { theme } from '@/shared/theme';
 // В jsdom у всех элементов нулевые размеры, и floating-ui считает опорный элемент меню
 // скрытым: с hideDetached Mantine прячет выпадающее меню (display: none), и его пункты
 // пропадают из дерева доступности. В браузере размеры настоящие, поэтому правка только здесь.
+//
+// Переходы Mantine в jsdom идут цепочкой requestAnimationFrame → requestAnimationFrame →
+// setTimeout (core/components/Transition/use-transition.mjs). Под нагрузкой меню не успевало
+// появиться за таймаут findBy, а таймер, не сработавший к концу файла, стрелял после сноса jsdom
+// («window is not defined»). С уменьшенным движением переход синхронный.
 const testTheme = mergeThemeOverrides(theme, {
+  respectReducedMotion: true,
   components: { Popover: Popover.extend({ defaultProps: { hideDetached: false } }) },
 });
 

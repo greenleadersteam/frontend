@@ -36,7 +36,7 @@ async function start(): Promise<void> {
 
   await loadRuntimeConfig();
   const { renderApp } = await import('@/app');
-  renderApp(container);
+  await renderApp(container);
 }
 
 start().catch(showStartupError);

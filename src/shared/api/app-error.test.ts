@@ -87,7 +87,6 @@ describe('describeAppError', () => {
     [{ kind: 'http', status: 409, message: null } as const, 'в текущем состоянии проекта'],
     [{ kind: 'http', status: 413, message: null } as const, 'Архив больше 100\u00A0МБ.'],
     [{ kind: 'http', status: 429, message: null } as const, 'Повторите через минуту.'],
-    [{ kind: 'not-ready' } as const, 'Результат ещё не готов.'],
     [{ kind: 'validation', fields: { name: 'x' } } as const, 'Сервер не принял данные.'],
     [{ kind: 'unknown' } as const, 'Что-то пошло не так.'],
   ])('%o', (error, expected) => {

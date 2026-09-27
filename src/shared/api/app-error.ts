@@ -5,14 +5,11 @@ import { formatFileSize } from '@/shared/lib/format';
 
 import { MAX_ARCHIVE_BYTES } from './archive-limit';
 
-// not-ready ставит не toAppError, а сущность: 404 результата означает «ещё не готово»
-// только при известном статусе проекта, по тексту detail это не различить.
 export type AppError =
   | { kind: 'network' }
   | { kind: 'timeout' }
   | { kind: 'http'; status: number; message: string | null }
   | { kind: 'validation'; fields: Record<string, string> }
-  | { kind: 'not-ready' }
   | { kind: 'unknown' };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -92,8 +89,6 @@ export function describeAppError(error: AppError): string {
       return describeHttpStatus(error.status);
     case 'validation':
       return 'Сервер не принял данные. Проверьте отмеченные поля и повторите попытку.';
-    case 'not-ready':
-      return 'Результат ещё не готов. Дождитесь окончания обработки.';
     case 'unknown':
       return 'Что-то пошло не так. Обновите страницу. Если ошибка повторяется, сообщите администратору.';
     default: {

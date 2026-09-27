@@ -1,9 +1,9 @@
 import type { LayerSpecification } from 'maplibre-gl';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { basemapColors } from '@/shared/theme';
 
-import { BASEMAP_SOURCE, basemapLayers, basemapStyle } from './basemap-style';
+import { BASEMAP_SOURCE, basemapLayers, basemapStyle, loadStreetLabelFont } from './basemap-style';
 
 const COLOR = /^(#|rgba?\(|hsla?\()/i;
 
@@ -88,4 +88,18 @@ describe('basemapStyle', () => {
       { id: 'background', type: 'background', paint: { 'background-color': basemapColors.earth } },
     ]);
   });
+});
+
+test('шрифт подписей: начертание 600 для латиницы и кириллицы', async () => {
+  const load = vi.fn(() => Promise.resolve([]));
+  Object.defineProperty(document.fonts, 'load', { configurable: true, value: load });
+
+  try {
+    await loadStreetLabelFont();
+
+    expect(load).toHaveBeenCalledWith('600 16px "Mulish Variable"', 'Aa');
+    expect(load).toHaveBeenCalledWith('600 16px "Mulish Variable"', 'Аа');
+  } finally {
+    Reflect.deleteProperty(document.fonts, 'load');
+  }
 });

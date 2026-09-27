@@ -73,9 +73,11 @@ Object.defineProperty(document, 'fonts', {
   value: { ready: Promise.resolve(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
 });
 
-// jsdom не реализует matchMedia и ResizeObserver, а Mantine их использует.
+// jsdom не реализует matchMedia и ResizeObserver, а Mantine их использует. Пользователь в тестах
+// «просит уменьшить движение»: вместе с respectReducedMotion в тестовой теме это делает переходы
+// Mantine мгновенными (см. shared/lib/test/index.tsx).
 vi.stubGlobal('matchMedia', (query: string) => ({
-  matches: false,
+  matches: query.includes('prefers-reduced-motion: reduce'),
   media: query,
   onchange: null,
   addListener: vi.fn(),

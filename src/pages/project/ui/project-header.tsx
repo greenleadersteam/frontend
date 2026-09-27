@@ -104,9 +104,10 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
-          {archive !== null && (
+          {/* Выбор главного чертежа стоит на самом экране: пункт, уводящий в мастер, не нужен. */}
+          {archive === 'upload' && (
             <Menu.Item component={Link} to={projectUploadPath(project.id)}>
-              {archive === 'upload' ? 'Загрузить архив' : 'Выбрать главный чертёж'}
+              Загрузить архив
             </Menu.Item>
           )}
           <Menu.Item

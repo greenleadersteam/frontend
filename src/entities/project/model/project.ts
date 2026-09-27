@@ -1,12 +1,4 @@
-import type { SerializedError } from '@reduxjs/toolkit';
-import type { FetchBaseQueryError } from '@reduxjs/toolkit/query';
-
-import {
-  type ApiComponents,
-  type AppError,
-  type ProposedApiComponents,
-  toAppError,
-} from '@/shared/api';
+import type { ApiComponents, ProposedApiComponents } from '@/shared/api';
 
 export type ProjectResponse = ApiComponents['schemas']['ProjectResponse'];
 export type Job = ApiComponents['schemas']['JobStatus'];
@@ -104,18 +96,4 @@ export function archiveAction(state: ProjectState): 'upload' | 'choose-root' | n
   if (state.kind === 'draft') return 'upload';
   if (state.kind !== 'failed') return null;
   return state.error?.code === 'ambiguous_root_dxf' ? 'choose-root' : 'upload';
-}
-
-// Бэкенд отвечает 404 и на «проекта нет», и на «результат ещё не готов», а текст detail
-// не контракт. Различаем по статусу проекта, который уже есть у вызывающего кода.
-export function toResultError(
-  error: FetchBaseQueryError | SerializedError | undefined,
-  state: ProjectState,
-): AppError {
-  const appError = toAppError(error);
-  // «Дождитесь окончания» уместно, только пока обработка идёт: у draft и failed ждать нечего.
-  if (appError.kind === 'http' && appError.status === 404 && isProcessing(state)) {
-    return { kind: 'not-ready' };
-  }
-  return appError;
 }

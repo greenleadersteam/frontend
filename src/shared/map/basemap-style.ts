@@ -12,6 +12,15 @@ export const BASEMAP_SOURCE = 'basemap';
 const STREET_LABEL_FONT = ['Mulish Variable SemiBold', 'Mulish Variable'];
 const FONT = 'Mulish Variable';
 
+// Глиф растеризуется один раз и кэшируется: если начертание к этому моменту не загружено,
+// подпись навсегда останется запасным шрифтом. Образцы текста выбирают по unicode-range
+// файлы подмножеств latin и cyrillic.
+export async function loadStreetLabelFont(): Promise<void> {
+  await Promise.all(
+    ['Aa', 'Аа'].map((sample) => document.fonts.load(`600 16px "${FONT}"`, sample)),
+  );
+}
+
 // Цвета — design.md, «Карта». Классы, которых нет в таблице, приведены к ближайшей роли:
 // аэродромы и военные территории — кварталы, пляжи и пески — земля, железные дороги — обводка дорог.
 const FLAVOR: Flavor = {

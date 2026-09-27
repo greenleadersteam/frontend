@@ -9,8 +9,8 @@ const resultTag = (id: string) => [{ type: 'ProjectResult', id }] as const;
 const resultUrl = (id: string, resource: string) =>
   `/projects/${encodeURIComponent(id)}/${resource}`;
 
-// Результат обработки проекта. Готов только в статусе ready: до этого бэкенд отвечает 404,
-// различать его с «проекта нет» — через toResultError.
+// Результат обработки проекта. Запрашивается только у проекта в статусе ready: до этого
+// бэкенд отвечает 404 так же, как на «проекта нет» (../backend/greenplan/api/app.py:48-54).
 export const projectResultApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     getExplanation: build.query<Explanation, string>({

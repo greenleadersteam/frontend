@@ -15,7 +15,7 @@ import { type JSX, type ReactNode, useEffect, useEffectEvent, useRef, useState }
 import { BASEMAP_BOUNDS, getRuntimeConfig, MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '@/shared/config';
 import { Icon } from '@/shared/ui';
 
-import { BASEMAP_SOURCE, basemapStyle } from './basemap-style';
+import { BASEMAP_SOURCE, basemapStyle, loadStreetLabelFont } from './basemap-style';
 import classes from './map-view.module.css';
 import { openBasemapArchive } from './pmtiles-protocol';
 
@@ -127,9 +127,16 @@ export function MapView({
     if (container === null) return;
     let created: MapLibreMap | null = null;
     let cancelled = false;
-    void openBasemapArchive(getRuntimeConfig().basemapUrl).then((archiveUrl) => {
-      if (!cancelled) created = create(container, archiveUrl);
-    });
+    // Подписи есть только у подложки: без неё шрифт не ждём.
+    void openBasemapArchive(getRuntimeConfig().basemapUrl)
+      .then(async (archiveUrl) => {
+        // Не загрузился шрифт — карта всё равно нужна, подписи возьмут запасной.
+        if (archiveUrl !== null) await loadStreetLabelFont().catch(() => undefined);
+        return archiveUrl;
+      })
+      .then((archiveUrl) => {
+        if (!cancelled) created = create(container, archiveUrl);
+      });
     return () => {
       cancelled = true;
       created?.remove();

@@ -19,7 +19,22 @@ import { routes } from './routes';
 
 const router = createBrowserRouter(routes);
 
-export function renderApp(container: HTMLElement): void {
+// SSR нет, «гидратировать» нечего: первый экран дожидается своего ленивого маршрута и
+// рисуется сразу целиком, без HydrateFallback. Сбой загрузки маршрута тоже завершает
+// инициализацию — его покажет граница ошибок маршрута.
+function routerInitialized(): Promise<void> {
+  if (router.state.initialized) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = router.subscribe((state) => {
+      if (!state.initialized) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+export async function renderApp(container: HTMLElement): Promise<void> {
+  await routerInitialized();
   createRoot(container).render(
     <StrictMode>
       <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver}>

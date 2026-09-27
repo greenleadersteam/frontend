@@ -127,7 +127,7 @@ describe('шапка', () => {
   test.each([
     [DRAFT_ID, 'Загрузить архив'],
     [FAILED_ID, 'Загрузить архив'],
-    [AMBIGUOUS_ID, 'Выбрать главный чертёж'],
+    [AMBIGUOUS_ID, null],
     [READY_ID, null],
   ])('меню проекта %s: пункт %s', async (id, item) => {
     renderProject(id);
@@ -418,6 +418,28 @@ describe('панель «Посадка»', () => {
       { source: 'result-planting', id: 'TREE_ROW_CURB-00001' },
       { selected: true },
     );
+  });
+
+  // /processing-defaults есть только в контракте-предложении: настоящий бэкенд отвечает 404.
+  test('без /processing-defaults панель работает, строки правила нет и ошибки нет', async () => {
+    const defaults = vi.fn();
+    server.use(
+      http.get('/api/processing-defaults', () => {
+        defaults();
+        return HttpResponse.json({ detail: 'Not Found' }, { status: 404 });
+      }),
+    );
+    renderProject(READY_ID);
+
+    const panel = await selectFirstTree();
+    await waitFor(() => {
+      expect(defaults).toHaveBeenCalled();
+    });
+
+    expect(within(panel).getByText('Дерево')).toBeInTheDocument();
+    expect(within(panel).getByText('Радиус кроны 1,5 м')).toBeInTheDocument();
+    expect(within(panel).queryByText(/вдоль борта|на свободном газоне/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   test('закрывается по Esc, когда фокус в панели, и снимает выделение', async () => {

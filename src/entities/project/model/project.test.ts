@@ -7,7 +7,6 @@ import {
   type JobError,
   parseProjectState,
   toProject,
-  toResultError,
 } from './project';
 
 const job = (fields: Partial<Job> = {}): Job => ({ stage: 'draft', progress_pct: 0, ...fields });
@@ -87,36 +86,5 @@ describe('getProcessingDurationMs', () => {
   test('обработка не завершена — длительности нет', () => {
     expect(getProcessingDurationMs(job({ started_at: '2026-09-20T10:00:01Z' }))).toBeNull();
     expect(getProcessingDurationMs(job())).toBeNull();
-  });
-});
-
-describe('toResultError', () => {
-  const notFound = { status: 404, data: { detail: 'Project data not available yet' } };
-
-  test('404 во время обработки — результат ещё не готов', () => {
-    expect(toResultError(notFound, { kind: 'processing', stage: 'parsing' })).toEqual({
-      kind: 'not-ready',
-    });
-    expect(toResultError(notFound, { kind: 'unknown' })).toEqual({ kind: 'not-ready' });
-  });
-
-  test.each([
-    { kind: 'ready' } as const,
-    { kind: 'draft' } as const,
-    { kind: 'failed', error: null } as const,
-  ])('404 в состоянии %o — данных нет, ждать нечего', (state) => {
-    expect(toResultError(notFound, state)).toEqual({
-      kind: 'http',
-      status: 404,
-      message: 'Project data not available yet',
-    });
-  });
-
-  test('другие ошибки не подменяются', () => {
-    expect(toResultError({ status: 500, data: null }, { kind: 'draft' })).toEqual({
-      kind: 'http',
-      status: 500,
-      message: null,
-    });
   });
 });
