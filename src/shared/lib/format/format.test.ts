@@ -94,9 +94,18 @@ describe('formatCount', () => {
   });
 });
 
-test('formatNumber — разряды через неразрывный пробел', () => {
-  expect(formatNumber(1204)).toBe('1\u00A0204');
+test('formatNumber — разряды с пяти знаков через неразрывный пробел, четырёхзначное слитно', () => {
+  expect(formatNumber(1204)).toBe('1204');
+  expect(formatNumber(9999)).toBe('9999');
+  expect(formatNumber(12048)).toBe('12\u00A0048');
+  expect(formatNumber(1234567)).toBe('1\u00A0234\u00A0567');
+  expect(formatNumber(-12048)).toBe('-12\u00A0048');
   expect(formatNumber(24)).toBe('24');
+});
+
+test('порог разрядов — по округлённому числу: 9999,6 м² — это «10 000»', () => {
+  expect(formatSquareMeters(9999.6)).toBe('10\u00A0000\u00A0м²');
+  expect(formatSquareMeters(9999.4)).toBe('9999\u00A0м²');
 });
 
 test('formatMeters — запятая и неразрывный пробел перед «м»', () => {
@@ -120,7 +129,8 @@ test('меньше шага округления — «менее», а не н�
 });
 
 test('formatSquareMeters — разряды и единица через неразрывный пробел', () => {
-  expect(formatSquareMeters(1240.4)).toBe(`1${NBSP}240${NBSP}м²`);
+  expect(formatSquareMeters(1240.4)).toBe(`1240${NBSP}м²`);
+  expect(formatSquareMeters(12400.4)).toBe(`12${NBSP}400${NBSP}м²`);
   expect(formatSquareMeters(80)).toBe(`80${NBSP}м²`);
 });
 

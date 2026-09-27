@@ -487,7 +487,7 @@ describe('панель «Слои»', () => {
     renderProject(READY_ID);
 
     // Газон мока — 60 × 20 м.
-    const lawn = await screen.findByRole('switch', { name: /^Газон, площадь 1\s200\sм²$/ });
+    const lawn = await screen.findByRole('switch', { name: /^Газон, площадь 1200\sм²$/ });
     const boundary = screen.getByRole('switch', { name: 'Граница участка' });
     expect(lawn).toBeChecked();
     expect(boundary).toBeChecked();
@@ -1145,7 +1145,7 @@ describe('отклонённые места, газон и изгородь', ()
     clickMap(null, null, null, { lawn: true });
 
     const panel = await screen.findByRole('region', { name: 'Газон' });
-    expect(within(panel).getByText('Площадь 1 200 м²')).toBeVisible();
+    expect(within(panel).getByText('Площадь 1200 м²')).toBeVisible();
     expect(within(panel).getByText(/^На газоне \d+ дерев\S* и \d+ кустарник/)).toBeVisible();
     expect(within(panel).getByText(/^Для деревьев — \d+ % площади$/)).toBeVisible();
     expect(within(panel).getByText(/^Для кустарников — \d+ % площади$/)).toBeVisible();

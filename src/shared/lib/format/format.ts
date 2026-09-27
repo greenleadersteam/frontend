@@ -1,7 +1,27 @@
 const LOCALE = 'ru-RU';
 const NBSP = '\u00A0';
 
-const integer = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
+type NumberFormat = { format: (value: number) => string };
+
+// Разряды по copy.md: четырёхзначное число без пробела («5000»), с пяти знаков в целой части —
+// группы через неразрывный пробел («12 345»). Порог задаётся здесь, а не локалью: ru-RU в
+// CLDR 47 (Node 24, свежие браузеры) группирует и «5 000», в старых версиях — нет. Так правило
+// одно во всех движках и не зависит от useGrouping из Intl.NumberFormat v3.
+export function numberFormat(options: Intl.NumberFormatOptions): NumberFormat {
+  const plain = new Intl.NumberFormat(LOCALE, { ...options, useGrouping: false });
+  const grouped = new Intl.NumberFormat(LOCALE, { ...options, useGrouping: true });
+  return {
+    format: (value) => {
+      const integerDigits = plain
+        .formatToParts(value)
+        .filter(({ type }) => type === 'integer')
+        .reduce((count, { value: digits }) => count + digits.length, 0);
+      return integerDigits >= 5 ? grouped.format(value) : plain.format(value);
+    },
+  };
+}
+
+const integer = numberFormat({ maximumFractionDigits: 0 });
 const twoDigits = new Intl.NumberFormat(LOCALE, { minimumIntegerDigits: 2 });
 
 // Intl.DurationFormat не используется: его нет в Firefox ESR 128 и в lib ES2023 TypeScript.
@@ -50,7 +70,7 @@ export const formatDateTime = (iso: string): string => dateTime.format(new Date(
 
 const MEBIBYTE = 2 ** 20;
 const KIBIBYTE = 2 ** 10;
-const oneDecimal = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+const oneDecimal = numberFormat({ maximumFractionDigits: 1 });
 
 // Размеры в двоичных единицах, подписанных «МБ» и «КБ» (copy.md), как лимит бэкенда в МиБ.
 // Мелкие файлы — в КБ, чтобы список файлов архива не пестрел «0 МБ».
@@ -82,12 +102,12 @@ export function formatCount(count: number, forms: CountForms): string {
   return `${integer.format(count)} ${word}`;
 }
 
-// Счётчики на карте: «1 204» с неразрывным пробелом между разрядами.
+// Счётчики на карте: «1204», «12 048» — разряды с пяти знаков через неразрывный пробел.
 export const formatNumber = (value: number): string => integer.format(value);
 
 const meters = {
-  1: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }),
-  2: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 }),
+  1: numberFormat({ maximumFractionDigits: 1 }),
+  2: numberFormat({ maximumFractionDigits: 2 }),
 };
 
 // Расстояния хранятся в метрах числом (api.md): «1,5 м», «0,35 м». Подписи на карте — с одним
@@ -100,7 +120,7 @@ export function formatMeters(value: number, fractionDigits: 1 | 2 = 2): string {
     : `${meters[fractionDigits].format(value)}${NBSP}м`;
 }
 
-const squareMeters = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
+const squareMeters = numberFormat({ maximumFractionDigits: 0 });
 
 // Площадь зоны: «1 240 м²»; крошечный обрезок — «менее 1 м²».
 export const formatSquareMeters = (value: number): string =>

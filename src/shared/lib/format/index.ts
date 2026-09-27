@@ -12,4 +12,5 @@ export {
   formatPercent,
   formatSquareMeters,
   formatTransferred,
+  numberFormat,
 } from './format';

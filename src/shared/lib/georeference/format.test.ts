@@ -21,8 +21,10 @@ const { check } = portedGroup(13);
 check('num: разряды неразрывным пробелом', () => {
   expect(formatDecimal(1234567.5, 1)).toBe(`1${NBSP}234${NBSP}567,5`);
 });
-check('num: четырёхзначное тоже с разрядом', () => {
-  expect(formatDecimal(5000, 0)).toBe(`5${NBSP}000`);
+// Ожидание изменено в Г2 (разряды по copy.md): в прототипе «5 000».
+check('num: четырёхзначное слитно, с пяти знаков — разряды', () => {
+  expect(formatDecimal(5000, 0)).toBe('5000');
+  expect(formatDecimal(12345, 0)).toBe(`12${NBSP}345`);
 });
 check('num: десятичная запятая', () => {
   expect(formatDecimal(0.5, 2)).toBe('0,50');
@@ -36,8 +38,9 @@ check('num: не число', () => {
 check('len: единица через неразрывный пробел', () => {
   expect(formatLength(342.5)).toBe(`342,5${NBSP}м`);
 });
+// Ожидание изменено в Г2: в прототипе «5 000 м».
 check('len: тысячи метров без дробной части', () => {
-  expect(formatLength(5000)).toBe(`5${NBSP}000${NBSP}м`);
+  expect(formatLength(5000)).toBe(`5000${NBSP}м`);
 });
 check('deg: градус примыкает к числу', () => {
   expect(formatDegrees(42.5)).toBe('42,5°');
@@ -52,8 +55,10 @@ check('latlon: южная и западная', () => {
     `33,868820°${NBSP}ю.${NBSP}ш., 70,500000°${NBSP}з.${NBSP}д.`,
   );
 });
-check('scale: знаменатель с разрядами', () => {
-  expect(formatMapScale(5000)).toBe(`1:5${NBSP}000`);
+// Ожидание изменено в Г2: в прототипе «1:5 000».
+check('scale: знаменатель по правилу разрядов', () => {
+  expect(formatMapScale(5000)).toBe('1:5000');
+  expect(formatMapScale(10000)).toBe(`1:10${NBSP}000`);
 });
 check('mpp: метры на пиксель', () => {
   expect(formatMetersPerPixel(0.298)).toBe(`0,30${NBSP}м/пикс`);

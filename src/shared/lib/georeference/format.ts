@@ -1,20 +1,18 @@
-// Форматирование чисел модуля геопривязки. Перенесено из прототипа ../geojson/js/ns.js:33-112.
-// Отличие от shared/lib/format: разряды отделяются и у четырёхзначных чисел («5 000»), а точность
-// задаёт вызывающая сторона — так выглядят координаты, допуски и масштабы в панели привязки.
+import { numberFormat } from '../format';
+
+// Форматирование чисел модуля геопривязки. Перенесено из прототипа ../geojson/js/ns.js:33-112;
+// разряды — по правилу продукта (copy.md): «5000», но «12 345». Точность задаёт вызывающая
+// сторона — так выглядят координаты, допуски и масштабы в панели привязки.
 
 const NBSP = '\u00A0';
 export const DASH = '—';
 
-const formatters = new Map<number, Intl.NumberFormat>();
+const formatters = new Map<number, ReturnType<typeof numberFormat>>();
 
-function formatter(digits: number): Intl.NumberFormat {
+function formatter(digits: number): ReturnType<typeof numberFormat> {
   let found = formatters.get(digits);
   if (found === undefined) {
-    found = new Intl.NumberFormat('ru-RU', {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-      useGrouping: 'always',
-    });
+    found = numberFormat({ minimumFractionDigits: digits, maximumFractionDigits: digits });
     formatters.set(digits, found);
   }
   return found;
@@ -25,26 +23,13 @@ function formatter(digits: number): Intl.NumberFormat {
 //
 // Округляет toFixed, как в прототипе: по точному двоичному значению. Intl округляет по кратчайшей
 // десятичной записи, и на «половинках» вроде 1845018.0394575 последний знак расходится. Поэтому
-// Intl получает уже округлённую строку — её он читает как точное десятичное число — и только
-// раскладывает её по разрядам.
+// Intl получает уже округлённое число и только раскладывает его по разрядам. До 15 значащих
+// цифр такое число записывается ровно теми же цифрами, и Intl их не меняет.
 export function formatDecimal(value: number, digits = 0): string {
   if (!Number.isFinite(value)) return DASH;
-  // toFixed конечного числа всегда даёт числовую запись: «1234.50» или «1e+21».
-  const rounded = Math.abs(value).toFixed(digits) as `${number}`;
-  const body = formatter(digits)
-    .formatToParts(rounded)
-    .map((part) => {
-      switch (part.type) {
-        case 'group':
-          return NBSP;
-        case 'decimal':
-          return ',';
-        default:
-          return part.value;
-      }
-    })
-    .join('');
-  return value < 0 && Number(rounded) !== 0 ? `−${body}` : body;
+  const rounded = Number(Math.abs(value).toFixed(digits));
+  const body = formatter(digits).format(rounded);
+  return value < 0 && rounded !== 0 ? `−${body}` : body;
 }
 
 // formatLength(342.5) → «342,5 м». Без явной точности она подбирается по величине.

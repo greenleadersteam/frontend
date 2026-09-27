@@ -15,8 +15,8 @@ vi.mock('@/shared/config', async (importOriginal) => ({
 }));
 
 // Карта в jsdom не рисуется. Подмена — карта 1000 × 400 px, которая, как MapLibre, вписывает
-// bounds по меньшей стороне. Начальный вид — центр Москвы, 0,04° по широте ≈ 4 453 м: рамка
-// 70 % высоты — 3 117 × 3 117 м.
+// bounds по меньшей стороне. Начальный вид — центр Москвы, 0,04° по широте ≈ 4453 м: рамка
+// 70 % высоты — 3117 × 3117 м.
 const mapMock = vi.hoisted(() => ({ basemap: true, handlers: new Map<string, () => void>() }));
 const LON_PER_M = 1 / 62_780;
 const LAT_PER_M = 1 / 111_330;
@@ -101,7 +101,7 @@ test('новый проект: шаг «Участок» — рамка по ц�
   const bodies = createdBodies();
   await toSiteStep();
 
-  expect(await screen.findByText(/^Область: 3 1\d\d × 3 1\d\d м$/)).toBeInTheDocument();
+  expect(await screen.findByText(/^Область: 31\d\d × 31\d\d м$/)).toBeInTheDocument();
   expect(screen.getByText(/^Приблизьте карту к участку/)).toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Далее: файлы' }));
   await chooseArchive();
