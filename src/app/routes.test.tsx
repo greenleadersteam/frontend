@@ -7,10 +7,14 @@ import { routes } from './routes';
 
 const headingAt = async (path: string) => {
   renderWithProviders(routes, path);
-  return screen.findByRole('heading', { level: 1 });
+  // Маршрут ленивый: первое открытие грузит и трансформирует модуль страницы, под нагрузкой
+  // это дольше секунды ожидания по умолчанию.
+  return screen.findByRole('heading', { level: 1 }, { timeout: 5000 });
 };
 
-describe('маршруты', () => {
+// Предел теста больше ожидания ленивого маршрута ниже: иначе раньше срабатывает таймаут
+// Vitest, а прерванный тест продолжает работать и мешает следующим.
+describe('маршруты', { timeout: 15_000 }, () => {
   test('/ показывает список проектов', async () => {
     expect(await headingAt('/')).toHaveTextContent('Проекты');
   });

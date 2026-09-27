@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
 
+import { notifications } from '@mantine/notifications';
 import { cleanup } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
@@ -10,9 +11,6 @@ import { resetMockDb, server } from '@/shared/api/mocks/node';
 import { loadRuntimeConfig } from '@/shared/config';
 
 import { installIntersectionObserver } from './intersection-observer';
-
-// Без globals: true Testing Library не очищает DOM сама.
-afterEach(cleanup);
 
 // Тесты ходят в API через те же обработчики MSW, что и режим dev:mock.
 // Запрос, для которого нет обработчика, — ошибка теста, а не выход в сеть.
@@ -27,6 +25,12 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
+  // Без globals: true Testing Library не очищает DOM сама. Хуки afterEach в Vitest идут
+  // в обратном порядке, поэтому очистка — в одном хуке: сначала размонтирование, потом
+  // хранилище уведомлений Mantine. Оно модульное: без очистки уведомление одного теста
+  // остаётся в следующем и попадает в его запросы role="alert".
+  cleanup();
+  notifications.clean();
   server.resetHandlers();
   resetMockDb();
 });
