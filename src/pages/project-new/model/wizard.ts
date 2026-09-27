@@ -28,7 +28,7 @@ export type WizardState = {
   archive: CheckedArchive | null;
   project: WizardProject | null;
   upload: UploadState;
-  // Сообщение на шаге «Архив» после 413 или ошибки обработки.
+  // Сообщение на шаге «Файлы» после 413 или ошибки обработки.
   archiveNotice: string | null;
 };
 

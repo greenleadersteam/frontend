@@ -80,7 +80,7 @@ export function DetailsStep({ initial, onSubmit, blockedReason }: DetailsStepPro
             disabled={blockedReason !== null}
             aria-describedby={blockedReason === null ? undefined : 'create-blocked'}
           >
-            Далее: архив
+            Далее: файлы
           </Button>
         </Group>
       </Stack>

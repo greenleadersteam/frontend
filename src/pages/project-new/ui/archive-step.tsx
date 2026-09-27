@@ -1,12 +1,12 @@
 import { Alert, Button, Card, Group, List, Stack, Text } from '@mantine/core';
 import { Dropzone } from '@mantine/dropzone';
-import { IconFileZip } from '@tabler/icons-react';
+import { IconFiles } from '@tabler/icons-react';
 import { type JSX, useState } from 'react';
 
 import { MAX_ARCHIVE_BYTES } from '@/shared/api';
 import { formatCount, formatFileSize } from '@/shared/lib/format';
 
-import { checkArchive, type CheckedArchive, dxfEntriesOf } from '../model/check-archive';
+import { type CheckedArchive, checkSelection, dxfEntriesOf } from '../model/check-archive';
 import classes from './archive-step.module.css';
 
 const FILE_FORMS = { one: 'файл', few: 'файла', many: 'файлов' };
@@ -32,10 +32,10 @@ export function ArchiveStep({
   const [rejection, setRejection] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
-  const check = async (file: File) => {
+  const check = async (files: File[]) => {
     setChecking(true);
     // Файл мог стать недоступным после выбора (сетевой диск, файл изменён): чтение бросает.
-    const result = await checkArchive(file).catch(() => ({
+    const result = await checkSelection(files).catch(() => ({
       kind: 'rejected' as const,
       message: 'Не удалось прочитать файл. Выберите его снова.',
     }));
@@ -59,26 +59,20 @@ export function ArchiveStep({
       {archive === null ? (
         <Stack gap="xs">
           <Dropzone
-            multiple={false}
             loading={checking}
-            onDrop={([file]) => {
-              if (file !== undefined) void check(file);
-            }}
-            onReject={() => {
-              setRejection('Выберите один архив ZIP.');
-            }}
+            onDrop={(files) => void check(files)}
             className={classes.dropzone}
             aria-describedby={rejection === null ? undefined : 'archive-rejection'}
           >
             <Stack gap="sm" align="center" className={classes.dropzoneInner}>
               <span className={classes.plate}>
-                <IconFileZip size={24} stroke={1.5} aria-hidden className={classes.icon} />
+                <IconFiles size={24} stroke={1.5} aria-hidden className={classes.icon} />
               </span>
               <Text className={classes.strong}>
-                Перетащите архив с подосновой или выберите файл
+                Перетащите ZIP, один или несколько DXF и связанные файлы
               </Text>
               <Text size="sm" c="dimmed">
-                {`ZIP до ${formatFileSize(MAX_ARCHIVE_BYTES)} с главным чертежом генплана в DXF и связанными файлами`}
+                {`До ${formatFileSize(MAX_ARCHIVE_BYTES)}. Сервер читает только DXF: главный чертёж генплана и его внешние ссылки (xref).`}
               </Text>
             </Stack>
           </Dropzone>
@@ -116,7 +110,7 @@ type ArchiveSummaryProps = {
 // Имена файлов из архива — недоверенные данные: выводятся только текстом.
 function ArchiveSummary({ archive, onReplace }: ArchiveSummaryProps): JSX.Element {
   const [showAll, setShowAll] = useState(false);
-  const { file, entries } = archive;
+  const { file, packed, entries } = archive;
   const indexed = entries?.map((entry, index) => ({ ...entry, index })) ?? null;
   const files = indexed?.filter(({ isDirectory }) => !isDirectory) ?? null;
   const dxf = indexed === null ? [] : dxfEntriesOf(indexed);
@@ -126,7 +120,7 @@ function ArchiveSummary({ archive, onReplace }: ArchiveSummaryProps): JSX.Elemen
       <Stack gap="md">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Stack gap="xs" className={classes.summaryTitle}>
-            <Text className={classes.fileName}>{file.name}</Text>
+            <Text className={classes.fileName}>{packed ? 'Выбранные файлы' : file.name}</Text>
             <Text size="sm" c="dimmed">
               {files === null
                 ? formatFileSize(file.size)
@@ -134,7 +128,7 @@ function ArchiveSummary({ archive, onReplace }: ArchiveSummaryProps): JSX.Elemen
             </Text>
           </Stack>
           <Button variant="subtle" onClick={onReplace}>
-            Заменить архив
+            {packed ? 'Заменить файлы' : 'Заменить архив'}
           </Button>
         </Group>
 

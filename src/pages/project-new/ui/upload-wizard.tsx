@@ -18,7 +18,7 @@ const CREATE_UNSUPPORTED =
   'Сервер не принимает проект без области участка, а задать её в мастере нельзя. Архив можно загрузить в черновик, созданный раньше, — из списка проектов.';
 
 type UploadWizardProps = {
-  // Существующий проект из списка: мастер начинается с шага «Архив» или с выбора главного DXF.
+  // Существующий проект из списка: мастер начинается с шага «Файлы» или с выбора главного DXF.
   entry: WizardEntry | null;
 };
 
@@ -51,7 +51,7 @@ export function UploadWizard({ entry }: UploadWizardProps): JSX.Element {
 
       <Stepper active={STEP_INDEX[step]} allowNextStepsSelect={false}>
         <Stepper.Step label="Описание" />
-        <Stepper.Step label="Архив" />
+        <Stepper.Step label="Файлы" />
         <Stepper.Step label="Загрузка и обработка" />
       </Stepper>
 

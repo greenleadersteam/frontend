@@ -30,7 +30,7 @@ const chooseArchive = async () => {
 test('новый проект: создание заблокировано на первом шаге, с объяснением', async () => {
   renderWizard('/projects/new');
 
-  const next = await screen.findByRole('button', { name: 'Далее: архив' });
+  const next = await screen.findByRole('button', { name: 'Далее: файлы' });
   expect(next).toBeDisabled();
   expect(next).toHaveAccessibleDescription(REASON);
 });

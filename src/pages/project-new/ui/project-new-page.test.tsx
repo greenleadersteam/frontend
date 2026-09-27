@@ -50,12 +50,14 @@ const fileInput = () => {
 
 async function fillDetails(name = 'Сквер на Покровке') {
   await userEvent.type(await screen.findByLabelText(/Название проекта/), name);
-  await userEvent.click(screen.getByRole('button', { name: 'Далее: архив' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Далее: файлы' }));
 }
 
-async function chooseArchive(file: File) {
+async function chooseArchive(file: File | File[]) {
   await userEvent.upload(fileInput(), file);
 }
+
+const dxf = (name: string) => new File(['0\nSECTION'], name);
 
 const countRequests = (method: string, pattern: RegExp) => {
   const counter = { count: 0 };
@@ -92,7 +94,7 @@ describe('шаг «Описание»', () => {
   test('название обязательно: ошибка при попытке перейти дальше и после ухода из поля', async () => {
     renderWizard();
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Далее: архив' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Далее: файлы' }));
     expect(await screen.findByText('Укажите название проекта.')).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText(/Название проекта/), 'x'.repeat(121));
@@ -107,14 +109,19 @@ describe('шаг «Описание»', () => {
 
     await fillDetails();
 
-    expect(await screen.findByText(/Перетащите архив с подосновой/)).toBeInTheDocument();
+    expect(await screen.findByText(/Перетащите ZIP, один или несколько DXF/)).toBeInTheDocument();
     expect(created.count).toBe(0);
   });
 });
 
-describe('шаг «Архив»', () => {
+describe('шаг «Файлы»', () => {
   test.each([
-    ['не .zip', () => new File(['x'], 'site.rar'), /^Нужен архив ZIP\./],
+    ['не ZIP и не DXF', () => new File(['x'], 'site.rar'), /^Сервер читает только DXF/],
+    [
+      'ZIP вместе с DXF',
+      () => [zip(), new File(['0\nSECTION'], 'Сети.dxf')],
+      /^Загрузите либо один ZIP, либо отдельные файлы\.$/,
+    ],
     ['больше лимита', () => oversized('big.zip'), /^Архив больше 100 МБ\./],
     [
       'не ZIP по содержимому',
@@ -163,6 +170,55 @@ describe('шаг «Архив»', () => {
       'aria-expanded',
       'false',
     );
+  });
+});
+
+describe('отдельные DXF', () => {
+  test('три DXF: сводка как у архива, главный чертёж сервис выберет сам', async () => {
+    renderWizard();
+    await fillDetails();
+
+    await chooseArchive([dxf('Генплан.dxf'), dxf('Сети.DXF'), dxf('Благоустройство.dxf')]);
+
+    expect(await screen.findByText('Выбранные файлы')).toBeInTheDocument();
+    expect(screen.getByText(/, 3 файла$/)).toBeInTheDocument();
+    expect(screen.getByText('Генплан.dxf')).toBeInTheDocument();
+    expect(screen.getByText('Сети.dxf')).toBeInTheDocument();
+    expect(screen.getByText('Благоустройство.dxf')).toBeInTheDocument();
+    expect(screen.getByText(/^Сервис сам определит главный чертёж/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Заменить файлы' })).toBeInTheDocument();
+  });
+
+  test('один DXF: браузер собирает ZIP, сервер принимает его как архив', async () => {
+    const bodies: { filename: string | null; signature: number }[] = [];
+    server.events.on('request:start', ({ request }) => {
+      if (!request.url.endsWith('/upload')) return;
+      void request
+        .clone()
+        .arrayBuffer()
+        .then((body) => {
+          bodies.push({
+            filename: request.headers.get('X-Upload-Filename'),
+            signature: new DataView(body).getUint32(0, true),
+          });
+        });
+    });
+    renderWizard();
+    await fillDetails();
+    await chooseArchive(dxf('Генплан.dxf'));
+    expect(await screen.findByText('Выбранные файлы')).toBeInTheDocument();
+    expect(screen.queryByText(/^Сервис сам определит главный чертёж/)).not.toBeInTheDocument();
+
+    useFakeTime();
+    resetMockDb();
+    fireEvent.click(screen.getByRole('button', { name: 'Загрузить и обработать' }));
+    await waitForText('В очереди');
+    await advance(20_000);
+
+    expect(screen.getByText('План посадок готов', { selector: 'p' })).toBeInTheDocument();
+    expect(bodies).toEqual([
+      { filename: encodeURIComponent('Генплан.zip'), signature: 0x04034b50 },
+    ]);
   });
 });
 
@@ -260,7 +316,7 @@ describe('загрузка и обработка', () => {
     expect(screen.getByText('План посадок готов', { selector: 'p' })).toBeInTheDocument();
   }, 15_000);
 
-  test('ошибка обработки → «Загрузить другой архив» → шаг «Архив» с тем же проектом', async () => {
+  test('ошибка обработки → «Загрузить другой архив» → шаг «Файлы» с тем же проектом', async () => {
     // Подделано только время мока: опрос и user-event идут на настоящих таймерах.
     vi.useFakeTimers({ toFake: ['Date'] });
     resetMockDb();
@@ -315,7 +371,7 @@ describe('загрузка: отказы и отмена', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить и обработать' }));
 
     expect(await screen.findByText(/^Архив больше 100 МБ\./)).toBeInTheDocument();
-    expect(screen.getByText(/Перетащите архив с подосновой/)).toBeInTheDocument();
+    expect(screen.getByText(/Перетащите ZIP, один или несколько DXF/)).toBeInTheDocument();
   });
 
   test('отмена, пока проект создаётся: созданный проект удаляется, загрузка не начинается', async () => {
@@ -399,7 +455,7 @@ describe('409 на загрузку', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить и обработать' }));
 
     expect(await screen.findByRole('list', { name: 'Этапы обработки' })).toBeInTheDocument();
-    expect(screen.queryByText(/Перетащите архив с подосновой/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Перетащите ZIP, один или несколько DXF/)).not.toBeInTheDocument();
   });
 
   test('сбой запроса проекта после 409 — его причина и повтор, а не конфликт', async () => {
@@ -553,13 +609,13 @@ describe('уход со страницы', () => {
 });
 
 describe('существующий проект', () => {
-  test('без архива — мастер со шага «Архив», в заголовке название проекта', async () => {
+  test('без архива — мастер со шага «Файлы», в заголовке название проекта', async () => {
     renderWizard(`/projects/new?project=${DRAFT_ID}`);
 
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Улица Маросейка, 7–9' }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Перетащите архив с подосновой/)).toBeInTheDocument();
+    expect(screen.getByText(/Перетащите ZIP, один или несколько DXF/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Назад' })).not.toBeInTheDocument();
   });
 
@@ -598,7 +654,7 @@ describe('существующий проект', () => {
         name: 'В архиве несколько главных чертежей. Выберите нужный.',
       }),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Перетащите архив с подосновой/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Перетащите ZIP, один или несколько DXF/)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('radio', { name: 'ГП/Генплан.dxf' }));
     await userEvent.click(screen.getByRole('button', { name: 'Продолжить обработку' }));

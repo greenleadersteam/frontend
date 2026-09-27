@@ -30,6 +30,7 @@
     "@protomaps/basemaps": "5.7.2",
     "@reduxjs/toolkit": "2.12.0",
     "@tabler/icons-react": "3.48.0",
+    "fflate": "0.8.3",
     "maplibre-gl": "6.11.2",
     "pmtiles": "4.5.0",
     "react": "19.3.0",

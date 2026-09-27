@@ -8,7 +8,7 @@ import {
   type WizardState,
 } from './wizard';
 
-const archive = { file: new File(['x'], 'site.zip'), entries: [] };
+const archive = { file: new File(['x'], 'site.zip'), packed: false, entries: [] };
 
 describe('wizardReducer', () => {
   test('новый проект начинается с описания, существующий — с архива', () => {
@@ -34,7 +34,7 @@ describe('wizardReducer', () => {
     expect(state.step).toBe('archive');
   });
 
-  test('отмена возвращает на шаг «Архив» с тем же файлом', () => {
+  test('отмена возвращает на шаг «Файлы» с тем же файлом', () => {
     const base: WizardState = {
       ...initialWizardState(null),
       step: 'processing',

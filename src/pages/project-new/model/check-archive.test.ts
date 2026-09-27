@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { MAX_ARCHIVE_BYTES } from '@/shared/api';
 import { buildZip } from '@/shared/lib/test';
 
-import { checkArchive } from './check-archive';
+import { checkSelection } from './check-archive';
 
 // Файл «больше лимита» без выделения 100 МБ: проверка смотрит только на size.
 const oversized = (name: string) => {
@@ -15,9 +15,11 @@ const oversized = (name: string) => {
 const zipFile = (entries: Parameters<typeof buildZip>[0], name = 'site.zip') =>
   new File([buildZip(entries)], name);
 
-describe('checkArchive', () => {
+const checkArchive = (file: File) => checkSelection([file]);
+
+describe('checkSelection', () => {
   test.each([
-    ['не .zip', new File(['x'], 'site.rar'), /^Нужен архив ZIP\./],
+    ['не ZIP и не DXF', new File(['x'], 'site.rar'), /^Сервер читает только DXF, а „site\.rar“/],
     ['больше лимита', oversized('big.zip'), /^Архив больше 100\u00A0МБ\./],
     ['не ZIP по сигнатуре', new File(['%PDF-1.7'], 'site.zip'), /^Файл не похож на архив ZIP/],
     ['пустой архив', zipFile([]), /^Архив пустой\./],
@@ -29,10 +31,19 @@ describe('checkArchive', () => {
     expect(result.kind === 'rejected' && result.message).toMatch(message);
   });
 
-  test('проверки по порядку: расширение раньше размера', async () => {
-    const result = await checkArchive(oversized('big.rar'));
+  test('ZIP вместе с другими файлами — отказ', async () => {
+    const result = await checkSelection([zipFile([{ name: 'a.dxf' }]), new File(['x'], 'b.dxf')]);
 
-    expect(result.kind === 'rejected' && result.message).toMatch(/^Нужен архив ZIP/);
+    expect(result).toEqual({
+      kind: 'rejected',
+      message: 'Загрузите либо один ZIP, либо отдельные файлы.',
+    });
+  });
+
+  test('отдельные DXF упаковываются в архив', async () => {
+    const result = await checkSelection([new File(['x'], 'a.dxf'), new File(['y'], 'b.dxf')]);
+
+    expect(result).toMatchObject({ kind: 'accepted', archive: { packed: true } });
   });
 
   test('архив с DXF (в том числе .DXF) принят со списком файлов', async () => {
@@ -52,6 +63,6 @@ describe('checkArchive', () => {
 
     const result = await checkArchive(new File([bytes], 'big.zip'));
 
-    expect(result).toMatchObject({ kind: 'accepted', archive: { entries: null } });
+    expect(result).toMatchObject({ kind: 'accepted', archive: { packed: false, entries: null } });
   });
 });
