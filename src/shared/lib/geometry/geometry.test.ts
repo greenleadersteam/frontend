@@ -2,11 +2,13 @@ import { describe, expect, test } from 'vitest';
 
 import {
   area,
+  boundaryDistance,
   boundaryIndex,
   isInside,
   type LocalPoint,
   type LocalPolygon,
   nearestOnBoundary,
+  polygonIndex,
 } from './geometry';
 
 const square = (x: number, y: number, size: number): LocalPoint[] => [
@@ -107,5 +109,66 @@ describe('boundaryIndex', () => {
         }
       }
     }
+  });
+});
+
+describe('boundaryDistance', () => {
+  const distance = boundaryDistance([[square(0, 0, 40)]], 5);
+
+  test('совпадает с перебором всей границы, пока граница ближе предела', () => {
+    for (const point of [
+      [3, 17],
+      [20, 20],
+      [39.5, 1],
+      [12.3, 38.2],
+    ] as const) {
+      expect(distance(point, 50)).toBeCloseTo(
+        nearestOnBoundary(point, [[square(0, 0, 40)]])?.distance ?? Number.NaN,
+        9,
+      );
+    }
+  });
+
+  test('граница дальше предела — предел', () => {
+    expect(distance([20, 20], 3)).toBe(3);
+  });
+});
+
+describe('polygonIndex', () => {
+  // Два полигона, у первого — дыра: запросы индекса совпадают с перебором всей границы.
+  const POLYGONS: LocalPolygon[] = [[square(0, 0, 60), square(20, 20, 15)], [square(80, 5, 12)]];
+  const index = polygonIndex(POLYGONS, 5);
+  const points: LocalPoint[] = [];
+  for (let x = -7.3; x < 100; x += 3.1) {
+    for (let y = -4.9; y < 70; y += 2.7) points.push([x, y]);
+  }
+
+  test('«внутри» — как isInside, в том числе в дыре', () => {
+    expect(points.filter((point) => index.contains(point) !== isInside(point, POLYGONS))).toEqual(
+      [],
+    );
+    expect(index.contains([27, 27])).toBe(false);
+  });
+
+  test('ближайшая точка в пределе — как перебор; дальше предела — null', () => {
+    for (const point of points) {
+      const brute = nearestOnBoundary(point, POLYGONS);
+      const fast = index.nearest(point, 6);
+      if (brute !== null && brute.distance <= 6) {
+        expect(fast?.distance).toBeCloseTo(brute.distance, 9);
+      } else {
+        expect(fast).toBeNull();
+      }
+    }
+  });
+
+  test('skip исключает отрезки, как у nearestOnBoundary', () => {
+    const vertical = (a: LocalPoint, b: LocalPoint) => a[0] === b[0];
+    const point: LocalPoint = [2, 30];
+
+    expect(index.nearest(point, 40, vertical)?.distance).toBeCloseTo(
+      nearestOnBoundary(point, POLYGONS, vertical)?.distance ?? Number.NaN,
+      9,
+    );
   });
 });

@@ -1,2 +1,10 @@
-export type { LocalPoint, LocalPolygon, Nearest } from './geometry';
-export { area, boundaryIndex, isInside, nearestOnBoundary, nearestOnSegment } from './geometry';
+export type { LocalPoint, LocalPolygon, Nearest, PolygonIndex } from './geometry';
+export {
+  area,
+  boundaryDistance,
+  boundaryIndex,
+  isInside,
+  nearestOnBoundary,
+  nearestOnSegment,
+  polygonIndex,
+} from './geometry';

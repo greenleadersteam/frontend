@@ -72,6 +72,38 @@ const measured = (check: PlantingCheck | undefined) => {
 };
 
 describe('checksForPlanting', () => {
+  test('глубоко внутри большой зоны — «внутри», хотя граница дальше порога', () => {
+    // Порог — тройная наибольшая норма: 6 м; до края зоны 100 × 100 от центра — 50 м.
+    const prepared = prepareZones(
+      zones([baseArea(rect(-200, -200, 200, 200)), prohibited(rect(-50, -50, 50, 50), 2)]),
+      frame,
+    );
+
+    expect(checksForPlanting([0, 0], 'tree', prepared).map(({ kind }) => kind)).toEqual(['inside']);
+  });
+
+  test('охват зоны рядом, а граница дальше порога — зона не «рядом»', () => {
+    // Г-образная зона: её охват накрывает точку (40, 40), а сама зона — в 30 м от неё.
+    const corner: Ring = [
+      [0, 0],
+      [50, 0],
+      [50, 10],
+      [10, 10],
+      [10, 50],
+      [0, 50],
+      [0, 0],
+    ];
+    const prepared = prepareZones(
+      zones([baseArea(rect(-200, -200, 200, 200)), prohibited(corner, 2)]),
+      frame,
+    );
+
+    expect(checksForPlanting([40, 40], 'tree', prepared)).toEqual([]);
+    expect(checksForPlanting([12, 40], 'tree', prepared).map(({ kind }) => kind)).toEqual([
+      'measured',
+    ]);
+  });
+
   test('тождество буфера: зона — круг R + r, препятствие — круг R', () => {
     // Препятствие — колодец радиусом R = 1 м в (0, 0), норма r = 2 м: зона — круг 3 м.
     const prepared = prepareZones(

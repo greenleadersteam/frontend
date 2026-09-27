@@ -1,10 +1,13 @@
 import {
   area,
+  boundaryDistance,
   boundaryIndex,
   isInside,
   type LocalPoint,
   type LocalPolygon,
   nearestOnBoundary,
+  type PolygonIndex,
+  polygonIndex,
 } from '@/shared/lib/geometry';
 
 import type { Norm, ZonesFeatureCollection } from '../api/project-result-api';
@@ -32,6 +35,10 @@ export type PreparedZones = {
   lawn: LocalPolygon[] | null;
   // Лежит ли точка на границе допустимой области — там буфер срезан краем участка.
   onBaseBoundary: ((point: LocalPoint) => boolean) | null;
+  // Расстояние до границы допустимой области, но не больше limit (по сеточному индексу).
+  distanceToBase: ((point: LocalPoint, limit: number) => number) | null;
+  // Индекс границы зоны: строится при первой проверке рядом с ней.
+  zoneIndex: (zone: ProhibitedZone) => PolygonIndex;
   // Где посадка разрешена: допустимая область за вычетом буферов (zoning/engine.py:131-140).
   allowed: Partial<Record<PlantType, LocalPolygon[]>>;
   // Порог отбора зон по охвату: тройная наибольшая норма для типа посадки.
@@ -83,6 +90,10 @@ export type PlantingCheck =
 export const TOLERANCE_M = 0.02;
 // Ячейка индекса границы: много больше допуска и мельче типичного отрезка.
 const BASE_INDEX_CELL_M = 1;
+// Для расстояния до границы — крупнее: запрос смотрит ячейки в радиусе до зоны, а не соседние.
+const BASE_DISTANCE_CELL_M = 5;
+// Ячейка индекса зоны: запрос в радиусе порога отбора смотрит несколько десятков ячеек.
+const ZONE_INDEX_CELL_M = 5;
 
 const toPolygons = (geometry: ZoneFeature['geometry'], frame: LocalFrame): LocalPolygon[] =>
   (geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates).map((polygon) =>
@@ -130,11 +141,20 @@ export function prepareZones(data: ZonesFeatureCollection, frame: LocalFrame): P
   // Граница допустимой области на крупном участке — десятки тысяч вершин: без индекса
   // проверка срезанных отрезков перебирала бы её целиком для каждого отрезка зоны.
   const nearBase = baseArea === null ? null : boundaryIndex(baseArea, BASE_INDEX_CELL_M);
+  const indexes = new Map<number, PolygonIndex>();
   return {
     zones,
     baseArea,
     lawn,
     onBaseBoundary: nearBase === null ? null : (point: LocalPoint) => nearBase(point, TOLERANCE_M),
+    distanceToBase: baseArea === null ? null : boundaryDistance(baseArea, BASE_DISTANCE_CELL_M),
+    zoneIndex: (zone) => {
+      const known = indexes.get(zone.index);
+      if (known !== undefined) return known;
+      const built = polygonIndex(zone.polygons, ZONE_INDEX_CELL_M);
+      indexes.set(zone.index, built);
+      return built;
+    },
     allowed,
     threshold: { tree: 3 * maxDistance('tree'), shrub: 3 * maxDistance('shrub') },
   };
@@ -159,22 +179,30 @@ const cutEdge =
 function checkZone(
   planting: LocalPoint,
   zone: ProhibitedZone,
+  index: PolygonIndex,
+  // Порог «рядом»: дальше него граница зоны не ищется. Несрезанная часть буфера — если в
+  // пороге её нет, перебором всей границы.
+  limit: number,
   onBaseBoundary: PreparedZones['onBaseBoundary'],
-  distanceToBase: number,
+  // До границы допустимой области, но не дальше limit: дальше точное число не меняет вывода.
+  distanceToBase: (limit: number) => number,
 ): ZoneCheck | null {
-  const anyEdge = nearestOnBoundary(planting, zone.polygons);
-  if (anyEdge === null) return null;
+  // Отбор по охвату грубый: у большой зоны он накрывает весь участок. Граница дальше порога —
+  // зона не рядом, если посадка не стоит внутри неё.
+  const anyEdge = index.nearest(planting, limit);
+  if (anyEdge === null) return index.contains(planting) ? { kind: 'inside', zone } : null;
   // Миллиметры внутри — округление координат при экспорте, а не нарушение: на «Олимпийском»
   // одна посадка из 7 784 стоит в 2 мм за кромкой зоны.
-  if (isInside(planting, zone.polygons) && anyEdge.distance > TOLERANCE_M) {
+  if (anyEdge.distance > TOLERANCE_M && index.contains(planting)) {
     return { kind: 'inside', zone };
   }
 
+  const skip = onBaseBoundary === null ? null : cutEdge(onBaseBoundary);
   const buffered =
-    onBaseBoundary === null
+    skip === null
       ? null
-      : nearestOnBoundary(planting, zone.polygons, cutEdge(onBaseBoundary));
-  if (buffered === null || distanceToBase + TOLERANCE_M < buffered.distance) {
+      : (index.nearest(planting, limit, skip) ?? nearestOnBoundary(planting, zone.polygons, skip));
+  if (buffered === null || distanceToBase(buffered.distance) + TOLERANCE_M < buffered.distance) {
     return {
       kind: 'boundary',
       zone,
@@ -212,7 +240,7 @@ const marginOf = (check: ZoneCheck) => (check.kind === 'inside' ? -Infinity : ch
 export function checksForPlanting(
   planting: LocalPoint,
   plantType: PlantType,
-  { zones, baseArea, onBaseBoundary, threshold }: PreparedZones,
+  { zones, baseArea, onBaseBoundary, distanceToBase: toBase, zoneIndex, threshold }: PreparedZones,
 ): ZoneCheck[] {
   const nearby = zones.filter(
     ({ properties, bounds }) =>
@@ -220,13 +248,21 @@ export function checksForPlanting(
       distanceToBounds(planting, bounds) <= threshold[plantType],
   );
   if (nearby.length === 0) return [];
-  const distanceToBase =
-    baseArea !== null && isInside(planting, baseArea)
-      ? (nearestOnBoundary(planting, baseArea)?.distance ?? 0)
-      : 0;
+  // Граница допустимой области на крупном участке — десятки тысяч вершин: расстояние до неё
+  // ищется по индексу и только в пределах, которые нужны сравнению в checkZone.
+  const insideBase = baseArea !== null && isInside(planting, baseArea);
+  const distanceToBase = (limit: number) =>
+    insideBase && toBase !== null ? toBase(planting, limit) : 0;
   return nearby
     .flatMap((zone) => {
-      const check = checkZone(planting, zone, onBaseBoundary, distanceToBase);
+      const check = checkZone(
+        planting,
+        zone,
+        zoneIndex(zone),
+        threshold[plantType],
+        onBaseBoundary,
+        distanceToBase,
+      );
       return check === null ? [] : [check];
     })
     .sort((a, b) => marginOf(a) - marginOf(b));
