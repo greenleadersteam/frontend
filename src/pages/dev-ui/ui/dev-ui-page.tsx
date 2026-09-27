@@ -198,7 +198,7 @@ export function DevUiPage(): JSX.Element {
             <Icon icon={IconUpload} />
             <Icon icon={IconDownload} />
             <Icon icon={IconFileZip} size={24} />
-            <Icon icon={IconTrees} size={24} accent />
+            <Icon icon={IconTrees} size={24} tone="accent" />
           </Group>
         </Section>
       </Stack>

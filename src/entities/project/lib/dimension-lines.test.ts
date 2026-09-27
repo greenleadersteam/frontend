@@ -37,7 +37,7 @@ const measured = (margin: number, distance: number): PlantingCheck => ({
   obstacle: [margin + distance, 0],
 });
 
-const options = { focused: null, metersPerPixel: 0.01 };
+const options = { focused: null, metersPerPixel: 0.01, crownRadiusM: 0.35 };
 
 describe('dimensionLines', () => {
   test('измеренная проверка: запас, охранная зона, три засечки и две подписи', () => {
@@ -59,10 +59,52 @@ describe('dimensionLines', () => {
     ).toEqual(['2,3\u00A0м', '1,5\u00A0м']);
   });
 
+  test('подпись — у своего отрезка: посередине, за краем кроны или сбоку от неё', () => {
+    // Линия идёт по x: [вдоль, поперёк] в метрах для подписей запаса и охранной зоны.
+    const labels = (
+      margin: number,
+      distance: number,
+      crownRadiusM: number,
+      metersPerPixel = 0.01,
+    ) =>
+      dimensionLines([measured(margin, distance)], frame, {
+        ...options,
+        crownRadiusM,
+        metersPerPixel,
+      })
+        .features.filter(({ properties }) => properties.kind === 'label')
+        .map(({ geometry }) => {
+          if (geometry.type !== 'Point') throw new Error('ожидалась точка');
+          return toMeters(geometry.coordinates);
+        });
+    const near = ([x, y]: LocalPoint | undefined = [NaN, NaN], [ex, ey]: LocalPoint) => {
+      expect(x).toBeCloseTo(ex, 6);
+      expect(y).toBeCloseTo(ey, 6);
+    };
+
+    // Кустарник, запас 4 м: середины отрезков дальше кроны 0,35 м + 20px · 0,01 м.
+    const [margin, setback] = labels(4, 2, 0.35);
+    near(margin, [2, 0]);
+    near(setback, [5, 0]);
+
+    // Дерево, запас 0,3 м: весь отрезок запаса под кроной — подпись сбоку, на 1,5 + 0,2 м от
+    // ствола напротив середины; подпись охранной зоны — на её отрезке, у края кроны.
+    const [besideMargin, shiftedSetback] = labels(0.3, 2, 1.5);
+    near(besideMargin, [0.15, 1.7]);
+    near(shiftedSetback, [1.7, 0]);
+
+    // Мелкий масштаб, 6 px/м: запас кроны с подписью — 1,5 + 20/6 м. Оба отрезка под ним,
+    // подписи — по разные стороны линии, вдоль — не дальше концов своих отрезков.
+    const clearance = 1.5 + 20 / 6;
+    const [marginSide, setbackSide] = labels(0.5, 0.7, 1.5, 1 / 6);
+    near(marginSide, [0.25, clearance]);
+    near(setbackSide, [0.85, -clearance]);
+  });
+
   test('засечка поперёк линии: 0,6 м, на мелком масштабе — не короче 8 пикселей', () => {
     const tickLength = (metersPerPixel: number) => {
       const tick = dimensionLines([measured(2, 1)], frame, {
-        focused: null,
+        ...options,
         metersPerPixel,
       }).features.find(({ properties }) => properties.kind === 'tick');
       if (tick?.geometry.type !== 'LineString') throw new Error('ожидалась засечка');

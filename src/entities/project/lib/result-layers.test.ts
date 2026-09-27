@@ -136,15 +136,27 @@ const zones: ZonesFeatureCollection = {
       geometry: { type: 'Polygon', coordinates: square(30, 50) },
       properties: { zone_type: 'site_boundary' },
     },
+    {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: square(31, 50) },
+      properties: { zone_type: 'lawn_raw' },
+    },
+    {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: square(32, 50) },
+      properties: { zone_type: 'base_area' },
+    },
   ],
 };
 
 describe('источники и слои результата', () => {
-  test('порядок снизу вверх: зоны, штриховка, обводка, кустарники, тени, деревья, блики, размеры, выбор', () => {
+  test('порядок снизу вверх: газон, зоны, граница, посадки, размеры, выбор', () => {
     expect(resultLayers(LAT).map(({ id }) => id)).toEqual([
+      RESULT_LAYER.lawn,
       RESULT_LAYER.zones,
       RESULT_LAYER.zonesHatch,
       RESULT_LAYER.zonesOutline,
+      RESULT_LAYER.siteBoundary,
       RESULT_LAYER.shrubs,
       RESULT_LAYER.treeShadows,
       RESULT_LAYER.trees,
@@ -155,6 +167,28 @@ describe('источники и слои результата', () => {
       RESULT_LAYER.dimensionLabels,
       RESULT_LAYER.selectionOuter,
       RESULT_LAYER.selectionInner,
+    ]);
+  });
+
+  test('газон и граница участка — свой источник, без допустимой области и зон запрета', () => {
+    const { data } = resultSources({ planting, zones }, LAT)[RESULT_SOURCE.site];
+
+    expect(data).toMatchObject({
+      features: [
+        { properties: { zone_type: 'site_boundary' } },
+        { properties: { zone_type: 'lawn_raw' } },
+      ],
+    });
+    const layers = resultLayers(LAT);
+    const filterOf = (id: string) => {
+      const layer = layers.find((candidate) => candidate.id === id);
+      return layer !== undefined && 'filter' in layer ? layer.filter : undefined;
+    };
+    expect(filterOf(RESULT_LAYER.lawn)).toEqual(['==', ['get', 'zone_type'], 'lawn_raw']);
+    expect(filterOf(RESULT_LAYER.siteBoundary)).toEqual([
+      '==',
+      ['get', 'zone_type'],
+      'site_boundary',
     ]);
   });
 

@@ -6,11 +6,13 @@ import { type JSX, lazy, Suspense, useEffect, useEffectEvent, useRef, useState }
 
 import {
   checksForPlanting,
+  CROWN_RADIUS_M,
   dimensionLabelsMinZoom,
   dimensionLines,
   type ExplanationEntry,
   HATCH_IMAGE,
   hatchPattern,
+  lawnArea,
   type LocalFrame,
   pixelsPerMeterAtZoom,
   type PlantingCheck,
@@ -110,6 +112,8 @@ export function ResultMap({
     trees: true,
     shrubs: true,
     zones: true,
+    lawn: true,
+    siteBoundary: true,
     basemap: true,
   });
   const [basemapAvailable, setBasemapAvailable] = useState(false);
@@ -159,7 +163,7 @@ export function ResultMap({
 
   useEffect(() => {
     if (map === null) return;
-    for (const group of ['trees', 'shrubs', 'zones'] as const) {
+    for (const group of ['trees', 'shrubs', 'zones', 'lawn', 'siteBoundary'] as const) {
       for (const layer of RESULT_LAYER_GROUPS[group]) {
         map.setLayoutProperty(layer, 'visibility', visibility[group] ? 'visible' : 'none');
       }
@@ -199,9 +203,12 @@ export function ResultMap({
     const lines = dimensionLines(checks, frame, {
       focused: focusedCheck,
       metersPerPixel: 1 / pixelsPerMeterAtZoom(zoom, latitude),
+      // Без выбранной посадки проверок нет, и радиус не нужен.
+      crownRadiusM:
+        selectedPlanting === undefined ? 0 : CROWN_RADIUS_M[selectedPlanting.properties.plant_type],
     });
     void map?.getSource<GeoJSONSource>(RESULT_SOURCE.dimensions)?.setData(lines);
-  }, [map, checks, frame, focusedCheck, zoom, latitude]);
+  }, [map, checks, frame, focusedCheck, zoom, latitude, selectedPlanting]);
 
   // Переход из ведомости: камера подводится к посадке, когда план уже показан. Вид меняется
   // через URL позже, чем выбор, а ResizeObserver MapLibre сообщит новый размер ещё позже:
@@ -327,6 +334,11 @@ export function ResultMap({
   const layersPanel = (
     <LayersPanel
       counts={counts}
+      lawnArea={lawnArea(prepared)}
+      showSiteBoundary={
+        data.zones.metadata.used_site_boundary &&
+        data.zones.features.some(({ properties }) => properties.zone_type === 'site_boundary')
+      }
       visibility={visibility}
       showBasemap={basemap}
       basemapAvailable={basemapAvailable}

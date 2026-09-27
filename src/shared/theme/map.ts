@@ -28,6 +28,9 @@ export const resultLayerColors = {
   selectionOuter: WHITE,
   selectionInner: stone[9],
   zoneOutline: clay[6],
+  // Газон — где вообще можно сажать; граница участка — линия чертежа, не ошибки.
+  lawn: sage[1],
+  siteBoundary: stone[8],
   // Размерные линии: «запас» до зоны и «охранная зона» до препятствия (design.md, «Карта»).
   dimensionMargin: sage[7],
   dimensionSetback: clay[6],

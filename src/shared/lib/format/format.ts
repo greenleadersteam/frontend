@@ -80,15 +80,20 @@ const meters = {
 };
 
 // Расстояния хранятся в метрах числом (api.md): «1,5 м», «0,35 м». Подписи на карте — с одним
-// знаком: «2,3 м».
-export const formatMeters = (value: number, fractionDigits: 1 | 2 = 2): string =>
-  `${meters[fractionDigits].format(value)}${NBSP}м`;
+// знаком: «2,3 м». Меньше шага округления — «менее 0,1 м», а не «0 м»: ноль читался бы как
+// посадка на самой кромке.
+export function formatMeters(value: number, fractionDigits: 1 | 2 = 2): string {
+  const step = 10 ** -fractionDigits;
+  return value < step
+    ? `менее ${meters[fractionDigits].format(step)}${NBSP}м`
+    : `${meters[fractionDigits].format(value)}${NBSP}м`;
+}
 
 const squareMeters = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 
-// Площадь зоны: «1 240 м²».
+// Площадь зоны: «1 240 м²»; крошечный обрезок — «менее 1 м²».
 export const formatSquareMeters = (value: number): string =>
-  `${squareMeters.format(value)}${NBSP}м²`;
+  value < 1 ? `менее 1${NBSP}м²` : `${squareMeters.format(value)}${NBSP}м²`;
 
 const coordinate = new Intl.NumberFormat(LOCALE, {
   minimumFractionDigits: 6,

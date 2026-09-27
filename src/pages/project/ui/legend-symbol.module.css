@@ -27,6 +27,23 @@
   stroke-width: 1;
 }
 
+/* Как на карте: заливка без обводки поверх земли. */
+.lawnEarth {
+  fill: var(--app-map-earth);
+}
+
+.lawn {
+  fill: var(--mantine-color-sage-1);
+  fill-opacity: 0.7;
+}
+
+/* Тот же ритм, что у линии на карте: штрих и просвет 8 : 3. */
+.siteBoundary {
+  stroke: var(--mantine-color-stone-8);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 1.5;
+}
+
 .earth {
   fill: var(--app-map-earth);
   stroke: var(--app-map-road-casing);

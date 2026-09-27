@@ -19,6 +19,8 @@ export type PreparedZones = {
   zones: ProhibitedZone[];
   // Допустимая область (газон ∩ граница участка): по ней бэкенд обрезает буферы.
   baseArea: LocalPolygon[] | null;
+  // Газон целиком, до обрезки границей участка.
+  lawn: LocalPolygon[] | null;
   // Лежит ли точка на границе допустимой области — там буфер срезан краем участка.
   onBaseBoundary: ((point: LocalPoint) => boolean) | null;
   // Где посадка разрешена: допустимая область за вычетом буферов (zoning/engine.py:131-140).
@@ -79,9 +81,11 @@ function boundsOf(polygons: LocalPolygon[]): ProhibitedZone['bounds'] {
 export function prepareZones(data: ZonesFeatureCollection, frame: LocalFrame): PreparedZones {
   const zones: ProhibitedZone[] = [];
   let baseArea: LocalPolygon[] | null = null;
+  let lawn: LocalPolygon[] | null = null;
   const allowed: PreparedZones['allowed'] = {};
   for (const { geometry, properties } of data.features) {
     if (properties.zone_type === 'base_area') baseArea = toPolygons(geometry, frame);
+    if (properties.zone_type === 'lawn_raw') lawn = toPolygons(geometry, frame);
     if (properties.zone_type === 'allowed') {
       allowed[properties.plant_type] = toPolygons(geometry, frame);
     }
@@ -102,6 +106,7 @@ export function prepareZones(data: ZonesFeatureCollection, frame: LocalFrame): P
   return {
     zones,
     baseArea,
+    lawn,
     onBaseBoundary: nearBase === null ? null : (point: LocalPoint) => nearBase(point, TOLERANCE_M),
     allowed,
     threshold: { tree: 3 * maxDistance('tree'), shrub: 3 * maxDistance('shrub') },
@@ -207,3 +212,7 @@ export function prohibitedArea({ baseArea, allowed }: PreparedZones, plantType: 
   if (baseArea === null) return 0;
   return area(baseArea) - area(allowed[plantType] ?? []);
 }
+
+// Площадь газона, м²; null — газона в данных нет.
+export const lawnArea = ({ lawn }: PreparedZones): number | null =>
+  lawn === null ? null : area(lawn);

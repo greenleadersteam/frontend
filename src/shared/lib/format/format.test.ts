@@ -109,6 +109,15 @@ test('formatMeters с одним знаком — подписи на карте
   expect(formatMeters(2.0, 1)).toBe(`2${NBSP}м`);
 });
 
+test('меньше шага округления — «менее», а не ноль', () => {
+  expect(formatMeters(0.04, 1)).toBe(`менее 0,1${NBSP}м`);
+  expect(formatMeters(0, 1)).toBe(`менее 0,1${NBSP}м`);
+  expect(formatMeters(0.1, 1)).toBe(`0,1${NBSP}м`);
+  expect(formatMeters(0.004)).toBe(`менее 0,01${NBSP}м`);
+  expect(formatSquareMeters(0.4)).toBe(`менее 1${NBSP}м²`);
+  expect(formatSquareMeters(1)).toBe(`1${NBSP}м²`);
+});
+
 test('formatSquareMeters — разряды и единица через неразрывный пробел', () => {
   expect(formatSquareMeters(1240.4)).toBe(`1${NBSP}240${NBSP}м²`);
   expect(formatSquareMeters(80)).toBe(`80${NBSP}м²`);

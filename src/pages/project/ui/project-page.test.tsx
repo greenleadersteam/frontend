@@ -387,6 +387,21 @@ describe('панель «Слои»', () => {
     expect(screen.getByRole('switch', { name: 'Подложка' })).toBeDisabled();
   });
 
+  test('газон с площадью и граница участка — свои строки и слои', async () => {
+    renderProject(READY_ID);
+
+    // Газон мока — 60 × 20 м.
+    const lawn = await screen.findByRole('switch', { name: /^Газон, площадь 1\s200\sм²$/ });
+    const boundary = screen.getByRole('switch', { name: 'Граница участка' });
+    expect(lawn).toBeChecked();
+    expect(boundary).toBeChecked();
+
+    await userEvent.click(lawn);
+    expect(fakeMap.setLayoutProperty).toHaveBeenCalledWith('lawn', 'visibility', 'none');
+    await userEvent.click(boundary);
+    expect(fakeMap.setLayoutProperty).toHaveBeenCalledWith('site-boundary', 'visibility', 'none');
+  });
+
   test('переключатель скрывает слои группы и возвращает их', async () => {
     renderProject(READY_ID);
     const trees = await screen.findByRole('switch', { name: 'Деревья, 19 деревьев' });
@@ -466,7 +481,9 @@ describe('панель «Посадка»', () => {
     expect(checks[1]).toHaveTextContent('2,2 м при норме не менее 0,7 м');
     // До газопровода ближе край участка, чем его зона: точное расстояние неизвестно.
     expect(checks[2]).toHaveTextContent(/до границы зоны 8,\d м/);
-    expect(within(panel).getByText('Сервис не проверял отступы до: колодцы и люки')).toBeVisible();
+    expect(
+      within(panel).getByText('Отступы не проверялись для объектов: колодцы и люки'),
+    ).toBeVisible();
   });
 
   test('размерные линии — у трёх ближайших, наведение выделяет свою', async () => {
@@ -765,6 +782,49 @@ describe('панель «Посадка» — крайние случаи', () =
       ),
     ).toBeInTheDocument();
     expect(within(panel).queryByText('Не проверялось')).not.toBeInTheDocument();
+    // Ни газона, ни границы участка в данных нет — и строк для них нет.
+    expect(screen.queryByRole('switch', { name: /^Газон/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Граница участка' })).not.toBeInTheDocument();
+  });
+
+  test('/explanation с добавочными полями из контракта разбирается как прежде', async () => {
+    mockSinglePlanting({ zoneOverPlanting: false });
+    server.use(
+      http.get('/api/projects/:projectId/explanation', () =>
+        HttpResponse.json([
+          {
+            id: 'TREE-1',
+            plant_type: 'tree',
+            rule_id: 'TREE_FILL_LAWN',
+            rule_name_ru: 'Групповая/одиночная посадка на свободном газоне',
+            x: 1,
+            y: 2,
+            checks: [
+              {
+                category: 'underground_utilities',
+                subtype: 'gas',
+                required_m: 1.5,
+                actual_m: 3.2,
+                citation: '743-ПП — газопровод',
+              },
+            ],
+            // Поле, которого нет даже в контракте: клиент его пропускает.
+            source_layer: 'ГАЗ',
+          },
+        ]),
+      ),
+    );
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: /^План посадок/ });
+
+    clickMap('TREE-1');
+
+    const panel = await screen.findByRole('region', { name: 'Дерево' });
+    expect(
+      within(panel).getByText('Групповая/одиночная посадка на свободном газоне'),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText('В координатах чертежа: X 1,00 м, Y 2,00 м')).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   test('посадка внутри зоны — предупреждение, источник не указан', async () => {

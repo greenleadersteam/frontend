@@ -145,14 +145,14 @@ export function PlantingPanel({
             Не проверялось
           </Title>
           <Text size="sm">
-            {`Сервис не проверял отступы до: ${uncovered
+            {`Отступы не проверялись для объектов: ${uncovered
               .map(({ category, subtype }) => obstacleLabel(category, subtype).toLowerCase())
               .join(', ')}`}
           </Text>
         </Stack>
       )}
       {!usedSiteBoundary && (
-        // Без границы работ бэкенд берёт весь газон (../backend/greenplan/zoning/engine.py:108-111).
+        // Без границы участка бэкенд берёт весь газон (../backend/greenplan/zoning/engine.py:108-111).
         <Text size="sm">
           Граница участка в чертеже не найдена: посадки размещены по всему газону
         </Text>
@@ -192,21 +192,9 @@ function CheckItem({ check, onFocus, onBlur, onShowZone }: CheckItemProps): JSX.
       onBlur={onBlur}
     >
       {check.kind === 'inside' ? (
-        <IconAlertTriangle
-          size={20}
-          stroke={1.5}
-          className={classes.warning}
-          aria-label="Норма нарушена"
-          role="img"
-        />
+        <Icon icon={IconAlertTriangle} tone="error" label="Норма нарушена" />
       ) : (
-        <IconCircleCheck
-          size={20}
-          stroke={1.5}
-          className={classes.passed}
-          aria-label="Норма выполнена"
-          role="img"
-        />
+        <Icon icon={IconCircleCheck} tone="accent" label="Норма выполнена" />
       )}
       <Stack gap="xs">
         <Text fw={600}>{obstacle}</Text>

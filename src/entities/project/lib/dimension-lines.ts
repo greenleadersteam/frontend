@@ -10,6 +10,9 @@ const MAX_DIMENSIONS = 3;
 // 8 пикселей на мелком масштабе.
 const TICK_M = 0.6;
 const TICK_MIN_PX = 8;
+// Подпись не ложится на крону: её точка — не ближе края кроны плюс полширины подписи
+// «0,3 м» (12px Mulish — около 30px).
+const LABEL_CLEARANCE_PX = 20;
 
 type DimensionPart = 'margin' | 'setback';
 type DimensionEmphasis = 'focus' | 'dim' | 'normal';
@@ -26,8 +29,10 @@ type DimensionProperties = {
 type Options = {
   // Ограничение под курсором или в фокусе списка: его линия толще, остальные бледнее.
   focused: number | null;
-  // Метров в пикселе на текущем масштабе: для минимальной длины засечки.
+  // Метров в пикселе на текущем масштабе: для минимальной длины засечки и отступа подписи.
   metersPerPixel: number;
+  // Радиус кроны выбранной посадки на карте, м.
+  crownRadiusM: number;
 };
 
 type Feature = GeoJSON.Feature<GeoJSON.LineString | GeoJSON.Point, DimensionProperties>;
@@ -47,9 +52,10 @@ const dimensionedChecks = (checks: PlantingCheck[]) =>
 export function dimensionLines(
   checks: PlantingCheck[],
   frame: LocalFrame,
-  { focused, metersPerPixel }: Options,
+  { focused, metersPerPixel, crownRadiusM }: Options,
 ): GeoJSON.FeatureCollection<GeoJSON.LineString | GeoJSON.Point, DimensionProperties> {
   const halfTick = Math.max(TICK_M, TICK_MIN_PX * metersPerPixel) / 2;
+  const labelClearance = crownRadiusM + LABEL_CLEARANCE_PX * metersPerPixel;
   const features: Feature[] = [];
 
   const drawn = dimensionedChecks(checks);
@@ -87,31 +93,46 @@ export function dimensionLines(
       },
       properties: properties(part, 'tick'),
     });
-    const label = (
-      from: LocalPoint,
-      to: LocalPoint,
-      part: DimensionPart,
-      length: number,
-    ): Feature => ({
-      type: 'Feature',
-      geometry: {
-        type: 'Point',
-        coordinates: frame.toMap([(from[0] + to[0]) / 2, (from[1] + to[1]) / 2]),
-      },
-      properties: { ...properties(part, 'label'), text: formatMeters(length, 1) },
-    });
+    // Подпись остаётся у своего отрезка. Середина под кроной — подпись сдвигается вдоль
+    // отрезка за край кроны, но не дальше его конца. Весь отрезок под кроной — подпись встаёт
+    // сбоку от кроны напротив середины отрезка: запас по одну сторону линии, охранная зона —
+    // по другую, чтобы подписи не сталкивались. start и end — расстояния концов от посадки.
+    const label = (start: number, end: number, part: DimensionPart, length: number): Feature => {
+      const middle = (start + end) / 2;
+      const side = part === 'margin' ? 1 : -1;
+      const point: LocalPoint =
+        end < labelClearance
+          ? [
+              px + ux * middle - uy * side * labelClearance,
+              py + uy * middle + ux * side * labelClearance,
+            ]
+          : [
+              px + ux * Math.max(middle, labelClearance),
+              py + uy * Math.max(middle, labelClearance),
+            ];
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: frame.toMap(point) },
+        properties: { ...properties(part, 'label'), text: formatMeters(length, 1) },
+      };
+    };
 
     features.push(
       line(check.planting, check.boundary, 'margin'),
       tick(check.planting, 'margin'),
       tick(check.boundary, 'margin'),
-      label(check.planting, check.boundary, 'margin', check.margin),
+      label(0, check.margin, 'margin', check.margin),
     );
     if (check.kind === 'measured' && check.obstacle !== null) {
       features.push(
         line(check.boundary, check.obstacle, 'setback'),
         tick(check.obstacle, 'setback'),
-        label(check.boundary, check.obstacle, 'setback', check.zone.properties.distance_m),
+        label(
+          check.margin,
+          check.margin + check.zone.properties.distance_m,
+          'setback',
+          check.zone.properties.distance_m,
+        ),
       );
     }
   }

@@ -29,7 +29,13 @@ export { createLocalFrame, type LocalFrame } from './lib/local-frame';
 export { toMapData } from './lib/map-data';
 export { CROWN_RADIUS_M, isGeographic, pixelsPerMeterAtZoom } from './lib/plan-projection';
 export type { PlantingCheck, PreparedZones, ProhibitedZone } from './lib/planting-checks';
-export { checksForPlanting, prepareZones, prohibitedArea, zoneArea } from './lib/planting-checks';
+export {
+  checksForPlanting,
+  lawnArea,
+  prepareZones,
+  prohibitedArea,
+  zoneArea,
+} from './lib/planting-checks';
 export type { ResultData, ResultLayerGroup } from './lib/result-layers';
 export {
   dimensionLabelsMinZoom,

@@ -19,6 +19,7 @@ import {
 } from './plan-projection';
 
 export const RESULT_SOURCE = {
+  site: 'result-site',
   planting: 'result-planting',
   highlights: 'result-tree-highlights',
   zones: 'result-prohibited-zones',
@@ -29,9 +30,11 @@ export const HATCH_IMAGE = 'prohibited-hatch';
 
 // Порядок снизу вверх — порядок в массиве слоёв ниже.
 export const RESULT_LAYER = {
+  lawn: 'lawn',
   zones: 'prohibited-zones',
   zonesHatch: 'prohibited-zones-hatch',
   zonesOutline: 'prohibited-zones-outline',
+  siteBoundary: 'site-boundary',
   shrubs: 'shrubs',
   treeShadows: 'tree-shadows',
   trees: 'trees',
@@ -44,12 +47,14 @@ export const RESULT_LAYER = {
   selectionInner: 'planting-selection-inner',
 } as const;
 
-export type ResultLayerGroup = 'trees' | 'shrubs' | 'zones';
+export type ResultLayerGroup = 'trees' | 'shrubs' | 'zones' | 'lawn' | 'siteBoundary';
 
 export const RESULT_LAYER_GROUPS: Record<ResultLayerGroup, readonly string[]> = {
   trees: [RESULT_LAYER.treeShadows, RESULT_LAYER.trees, RESULT_LAYER.treeHighlights],
   shrubs: [RESULT_LAYER.shrubs],
   zones: [RESULT_LAYER.zones, RESULT_LAYER.zonesHatch, RESULT_LAYER.zonesOutline],
+  lawn: [RESULT_LAYER.lawn],
+  siteBoundary: [RESULT_LAYER.siteBoundary],
 };
 
 export const SELECTABLE_LAYERS = [RESULT_LAYER.trees, RESULT_LAYER.shrubs];
@@ -60,6 +65,9 @@ type ZoneFeature = ZonesFeatureCollection['features'][number];
 
 const prohibitedZones = (zones: ZonesFeatureCollection): ZoneFeature[] =>
   zones.features.filter(({ properties }) => properties.zone_type === 'prohibited');
+
+// Газон и граница участка — по одному признаку в /zones (../backend/greenplan/export/zones.py:43-57).
+const SITE_ZONE_TYPES: readonly string[] = ['lawn_raw', 'site_boundary'];
 
 const positionsOf = ({ geometry }: ZoneFeature): Position[] =>
   geometry.type === 'Polygon' ? geometry.coordinates.flat() : geometry.coordinates.flat(2);
@@ -109,6 +117,15 @@ export function resultSources(
     });
 
   return {
+    [RESULT_SOURCE.site]: {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: zones.features.filter(({ properties }) =>
+          SITE_ZONE_TYPES.includes(properties.zone_type),
+        ),
+      },
+    },
     [RESULT_SOURCE.planting]: {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: plantingFeatures },
@@ -203,6 +220,14 @@ function selectionRing(
 export function resultLayers(latitude: number): LayerSpecification[] {
   const radius = crownRadiusExpression({ latitude });
   return [
+    // Газон читается на подложке, но не спорит с её парками: заливка без обводки, полупрозрачная.
+    {
+      id: RESULT_LAYER.lawn,
+      type: 'fill',
+      source: RESULT_SOURCE.site,
+      filter: ['==', ['get', 'zone_type'], 'lawn_raw'],
+      paint: { 'fill-color': colors.lawn, 'fill-opacity': 0.7 },
+    },
     {
       id: RESULT_LAYER.zones,
       type: 'fill',
@@ -223,6 +248,18 @@ export function resultLayers(latitude: number): LayerSpecification[] {
       paint: {
         'line-color': colors.zoneOutline,
         'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 2, 0],
+      },
+    },
+    // Граница участка — над заливками, под посадками; пунктир с длинным штрихом, как на чертеже.
+    {
+      id: RESULT_LAYER.siteBoundary,
+      type: 'line',
+      source: RESULT_SOURCE.site,
+      filter: ['==', ['get', 'zone_type'], 'site_boundary'],
+      paint: {
+        'line-color': colors.siteBoundary,
+        'line-width': 1.5,
+        'line-dasharray': [8, 3],
       },
     },
     {
@@ -341,8 +378,14 @@ function dimensionLayers(latitude: number): LayerSpecification[] {
         'text-font': MAP_LABEL_FONT,
         'text-size': 12,
         'text-offset': [0, -0.9],
-        // Подписи не накладываются: при столкновении остаётся выделенная, затем ближайшая.
-        'symbol-sort-key': ['case', ['==', ['get', 'emphasis'], 'focus'], -1, ['get', 'check']],
+        // Подписи не накладываются: при столкновении остаётся выделенная, затем ближайшая,
+        // у одной проверки — подпись запаса.
+        'symbol-sort-key': [
+          'case',
+          ['==', ['get', 'emphasis'], 'focus'],
+          -1,
+          ['+', ['*', 2, ['get', 'check']], ['case', ['==', ['get', 'part'], 'setback'], 1, 0]],
+        ],
       },
       paint: {
         'text-color': colors.dimensionLabel,

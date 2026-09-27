@@ -4,6 +4,7 @@ import type { ZonesFeatureCollection } from '../api/project-result-api';
 import { createLocalFrame } from './local-frame';
 import {
   checksForPlanting,
+  lawnArea,
   type PlantingCheck,
   prepareZones,
   prohibitedArea,
@@ -204,4 +205,15 @@ describe('prohibitedArea', () => {
     // Для кустарников разрешённой области нет — закрыт весь участок.
     expect(prohibitedArea(prepared, 'shrub')).toBeCloseTo(100);
   });
+});
+
+test('площадь газона — по lawn_raw; газона нет — null', () => {
+  const lawn: Feature = {
+    type: 'Feature',
+    geometry: { type: 'MultiPolygon', coordinates: [[rect(0, 0, 10, 10)], [rect(20, 0, 25, 4)]] },
+    properties: { zone_type: 'lawn_raw' },
+  };
+
+  expect(lawnArea(prepareZones(zones([lawn, baseArea(rect(0, 0, 5, 5))]), frame))).toBeCloseTo(120);
+  expect(lawnArea(prepareZones(zones([baseArea(rect(0, 0, 5, 5))]), frame))).toBeNull();
 });

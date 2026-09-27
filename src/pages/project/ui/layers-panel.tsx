@@ -7,15 +7,21 @@ import {
   RESULT_COUNT_FORMS,
   type ResultLayerGroup,
 } from '@/entities/project';
-import { formatCount, formatNumber } from '@/shared/lib/format';
+import { formatCount, formatNumber, formatSquareMeters } from '@/shared/lib/format';
 
 import classes from './layers-panel.module.css';
 import { LegendSymbol } from './legend-symbol';
 
 export type LayerVisibility = Record<ResultLayerGroup | 'basemap', boolean>;
 
+type CountedGroup = 'trees' | 'shrubs' | 'zones';
+
 type LayersPanelProps = {
-  counts: Record<ResultLayerGroup, number>;
+  counts: Record<CountedGroup, number>;
+  // Площадь газона, м²; null — газона в данных нет, строки нет.
+  lawnArea: number | null;
+  // Граница участка найдена бэкендом и есть в /zones.
+  showSiteBoundary: boolean;
   visibility: LayerVisibility;
   // Без подложки (план в координатах чертежа) строки «Подложка» нет.
   showBasemap: boolean;
@@ -31,7 +37,7 @@ type LayersPanelProps = {
 // На крупном участке посадок тысячи: список показывает первые совпадения поиска.
 const SEARCH_LIMIT = 50;
 
-const ROWS: { group: ResultLayerGroup; label: string }[] = [
+const COUNTED_ROWS: { group: CountedGroup; label: string }[] = [
   { group: 'trees', label: 'Деревья' },
   { group: 'shrubs', label: 'Кустарники' },
   { group: 'zones', label: 'Зоны запрета' },
@@ -39,6 +45,8 @@ const ROWS: { group: ResultLayerGroup; label: string }[] = [
 
 export function LayersPanel({
   counts,
+  lawnArea,
+  showSiteBoundary,
   visibility,
   showBasemap,
   basemapAvailable,
@@ -61,45 +69,51 @@ export function LayersPanel({
       <Title order={2} className={classes.title}>
         Слои
       </Title>
-      {ROWS.map(({ group, label }) => (
-        <Switch
+      {COUNTED_ROWS.map(({ group, label }) => (
+        <LayerSwitch
           key={group}
+          kind={group}
+          label={label}
           checked={visibility[group]}
-          onChange={(event) => {
-            onChange({ ...visibility, [group]: event.currentTarget.checked });
+          onToggle={(checked) => {
+            onChange({ ...visibility, [group]: checked });
           }}
-          labelPosition="left"
-          classNames={{ body: classes.row, labelWrapper: classes.labelWrapper }}
-          label={
-            <span className={classes.label}>
-              <LegendSymbol kind={group} />
-              <span className={classes.name}>{label}</span>
-              {/* Видно число, слышно число со словом: «24 дерева». */}
-              <span className={classes.count} aria-hidden>
-                {formatNumber(counts[group])}
-              </span>
-              <VisuallyHidden component="span">
-                {`, ${formatCount(counts[group], RESULT_COUNT_FORMS[group])}`}
-              </VisuallyHidden>
-            </span>
-          }
+          // Видно число, слышно число со словом: «24 дерева».
+          value={formatNumber(counts[group])}
+          spoken={formatCount(counts[group], RESULT_COUNT_FORMS[group])}
         />
       ))}
+      {lawnArea !== null && (
+        <LayerSwitch
+          kind="lawn"
+          label="Газон"
+          checked={visibility.lawn}
+          onToggle={(checked) => {
+            onChange({ ...visibility, lawn: checked });
+          }}
+          value={formatSquareMeters(lawnArea)}
+          spoken={`площадь ${formatSquareMeters(lawnArea)}`}
+        />
+      )}
+      {showSiteBoundary && (
+        <LayerSwitch
+          kind="siteBoundary"
+          label="Граница участка"
+          checked={visibility.siteBoundary}
+          onToggle={(checked) => {
+            onChange({ ...visibility, siteBoundary: checked });
+          }}
+        />
+      )}
       {showBasemap && (
-        <Switch
+        <LayerSwitch
+          kind="basemap"
+          label="Подложка"
           checked={basemapAvailable && visibility.basemap}
           disabled={!basemapAvailable}
-          onChange={(event) => {
-            onChange({ ...visibility, basemap: event.currentTarget.checked });
+          onToggle={(checked) => {
+            onChange({ ...visibility, basemap: checked });
           }}
-          labelPosition="left"
-          classNames={{ body: classes.row, labelWrapper: classes.labelWrapper }}
-          label={
-            <span className={classes.label}>
-              <LegendSymbol kind="basemap" />
-              <span className={classes.name}>Подложка</span>
-            </span>
-          }
         />
       )}
       <Select
@@ -119,5 +133,52 @@ export function LayersPanel({
         comboboxProps={{ withinPortal: !inPopover }}
       />
     </Stack>
+  );
+}
+
+type LayerSwitchProps = {
+  kind: ResultLayerGroup | 'basemap';
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onToggle: (checked: boolean) => void;
+  // Значение у правого края: видно коротко, скринридер слышит полную форму.
+  value?: string;
+  spoken?: string;
+};
+
+function LayerSwitch({
+  kind,
+  label,
+  checked,
+  disabled = false,
+  onToggle,
+  value,
+  spoken,
+}: LayerSwitchProps): JSX.Element {
+  return (
+    <Switch
+      checked={checked}
+      disabled={disabled}
+      onChange={(event) => {
+        onToggle(event.currentTarget.checked);
+      }}
+      labelPosition="left"
+      classNames={{ body: classes.row, labelWrapper: classes.labelWrapper }}
+      label={
+        <span className={classes.label}>
+          <LegendSymbol kind={kind} />
+          <span className={classes.name}>{label}</span>
+          {value !== undefined && (
+            <span className={classes.count} aria-hidden>
+              {value}
+            </span>
+          )}
+          {spoken !== undefined && (
+            <VisuallyHidden component="span">{`, ${spoken}`}</VisuallyHidden>
+          )}
+        </span>
+      }
+    />
   );
 }

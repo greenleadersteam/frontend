@@ -36,7 +36,7 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
         component={Link}
         to={paths.projects}
         variant="subtle"
-        leftSection={<Icon icon={IconArrowLeft} accent />}
+        leftSection={<Icon icon={IconArrowLeft} tone="accent" />}
         className={classes.back}
       >
         Проекты

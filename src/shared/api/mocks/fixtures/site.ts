@@ -6,16 +6,9 @@ type PlantType = Schemas['PlantType'];
 type ZoneFeature = Schemas['ZoneFeature'];
 
 // Настоящий формат /explanation — плоский список без норм и расстояний
-// (../backend/greenplan/explain/builder.py:17-32), координаты — в метрах чертежа. Схемы
-// ответа в OpenAPI нет; тот же тип у endpoint'а в entities/project (shared его не видит).
-export type ExplanationEntry = {
-  id: string;
-  plant_type: PlantType;
-  rule_id: string;
-  rule_name_ru: string | null;
-  x: number;
-  y: number;
-};
+// (../backend/greenplan/explain/builder.py:17-32), координаты — в метрах чертежа. Необязательных
+// checks из контракта-предложения мок не отдаёт: бэкенд их пока не считает.
+type ExplanationEntry = Schemas['ExplanationEntry'];
 
 export type RunParams = {
   plantTypes: readonly PlantType[];
@@ -38,12 +31,18 @@ type Shape = { kind: 'segment'; from: Point; to: Point } | { kind: 'point'; at: 
 const LAWN: Rect = { x1: 0, y1: 0, x2: 60, y2: 20 };
 const SITE_BOUNDARY: Rect = { x1: 0, y1: -3, x2: 60, y2: 20 };
 
-// Участок на Покровке. Равнопромежуточная проекция точна до сантиметров на 60 м.
+// Участок на Покровке. Метры в градусы — теми же рядами эллипсоида WGS84, что в
+// entities/project/lib/local-frame.ts: иначе «Покровка» и «Шаболовка» (те же метры без
+// геопривязки) расходились бы в расстояниях. shared не импортирует сущность — формула повторена.
 const ORIGIN = { lon: 37.6452, lat: 55.7593 };
-const METERS_PER_DEGREE = 111_320;
+const ORIGIN_RADIANS = (ORIGIN.lat * Math.PI) / 180;
+const METERS_PER_DEGREE = {
+  lat: 111_132.954 - 559.822 * Math.cos(2 * ORIGIN_RADIANS) + 1.175 * Math.cos(4 * ORIGIN_RADIANS),
+  lon: 111_412.84 * Math.cos(ORIGIN_RADIANS) - 93.5 * Math.cos(3 * ORIGIN_RADIANS),
+};
 const toLonLat = (x: number, y: number): [number, number] => [
-  ORIGIN.lon + x / (METERS_PER_DEGREE * Math.cos((ORIGIN.lat * Math.PI) / 180)),
-  ORIGIN.lat + y / METERS_PER_DEGREE,
+  ORIGIN.lon + x / METERS_PER_DEGREE.lon,
+  ORIGIN.lat + y / METERS_PER_DEGREE.lat,
 ];
 
 // Нормы и отступы — ../backend/greenplan/norms/default.yaml. Пунктов в источнике нет.
@@ -159,16 +158,6 @@ const setback = (norm: SiteNorm, plantType: PlantType): number =>
 const violatesSetback = (point: Point, plantType: PlantType): boolean =>
   OBSTACLES.some(({ norm, shape }) => distance(point, shape) < setback(norm, plantType));
 
-const intersect = (a: Rect, b: Rect): Rect | null => {
-  const rect = {
-    x1: Math.max(a.x1, b.x1),
-    y1: Math.max(a.y1, b.y1),
-    x2: Math.min(a.x2, b.x2),
-    y2: Math.min(a.y2, b.y2),
-  };
-  return rect.x1 < rect.x2 && rect.y1 < rect.y2 ? rect : null;
-};
-
 const boundsOf = (shape: Shape, buffer: number): Rect =>
   shape.kind === 'point'
     ? {
@@ -221,6 +210,59 @@ function subtract(base: Rect, holes: Rect[]): Rect[] {
   });
 }
 
+// Дуга буфера — 16 отрезков на полуокружность, как у shapely.buffer по умолчанию
+// (quad_segs=8), которым бэкенд строит зоны (../backend/greenplan/zoning/engine.py:131).
+const ARC_STEPS = 16;
+
+const arc = ([cx, cy]: Point, radius: number, from: number, steps: number): Point[] =>
+  range(0, steps, 1).map((step) => {
+    const angle = from - (step / ARC_STEPS) * Math.PI;
+    return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)] as const;
+  });
+
+// Буфер со скруглёнными концами: у точки — круг, у отрезка — «стадион».
+function bufferOf(shape: Shape, radius: number): Point[] {
+  if (shape.kind === 'point') return arc(shape.at, radius, 0, 2 * ARC_STEPS - 1);
+  const [ax, ay] = shape.from;
+  const [bx, by] = shape.to;
+  // Направление нормали к отрезку: от неё дуга у конца обходит его через продолжение отрезка.
+  const normal = Math.atan2(bx - ax, -(by - ay));
+  return [
+    ...arc(shape.to, radius, normal, ARC_STEPS),
+    ...arc(shape.from, radius, normal - Math.PI, ARC_STEPS),
+  ];
+}
+
+// Выпуклый многоугольник, обрезанный прямоугольником (Сазерленд — Ходжмен).
+function clipToRect(points: Point[], rect: Rect): Point[] {
+  const edges: [(point: Point) => boolean, (a: Point, b: Point) => Point][] = [
+    [([x]) => x >= rect.x1, (a, b) => crossX(a, b, rect.x1)],
+    [([x]) => x <= rect.x2, (a, b) => crossX(a, b, rect.x2)],
+    [([, y]) => y >= rect.y1, (a, b) => crossY(a, b, rect.y1)],
+    [([, y]) => y <= rect.y2, (a, b) => crossY(a, b, rect.y2)],
+  ];
+  return edges.reduce<Point[]>(
+    (polygon, [inside, cross]) =>
+      polygon.flatMap((current, index) => {
+        const previous = polygon[(index + polygon.length - 1) % polygon.length] ?? current;
+        if (inside(current)) {
+          return inside(previous) ? [current] : [cross(previous, current), current];
+        }
+        return inside(previous) ? [cross(previous, current)] : [];
+      }),
+    points,
+  );
+}
+
+const crossX = ([ax, ay]: Point, [bx, by]: Point, x: number): Point => [
+  x,
+  ay + ((by - ay) * (x - ax)) / (bx - ax),
+];
+const crossY = ([ax, ay]: Point, [bx, by]: Point, y: number): Point => [
+  ax + ((bx - ax) * (y - ay)) / (by - ay),
+  y,
+];
+
 function buildZones(plantTypes: readonly PlantType[], project: (point: Point) => number[]) {
   const ring = (points: Point[]): number[][] => [...points, ...points.slice(0, 1)].map(project);
   const rectRing = ({ x1, y1, x2, y2 }: Rect) =>
@@ -234,23 +276,6 @@ function buildZones(plantTypes: readonly PlantType[], project: (point: Point) =>
   const polygon = (rect: Rect): ZoneFeature['geometry'] => ({
     type: 'Polygon',
     coordinates: [rectRing(rect)],
-  });
-
-  // Круг из 32 вершин, прижатый к газону: для выпуклой фигуры и прямоугольника это
-  // приближение пересечения, на масштабе мока неотличимое от точного.
-  const circle = (center: Point, radius: number): ZoneFeature['geometry'] => ({
-    type: 'Polygon',
-    coordinates: [
-      ring(
-        range(0, 31, 1).map((step) => {
-          const angle = (step / 32) * 2 * Math.PI;
-          return [
-            Math.min(LAWN.x2, Math.max(LAWN.x1, center[0] + radius * Math.cos(angle))),
-            Math.min(LAWN.y2, Math.max(LAWN.y1, center[1] + radius * Math.sin(angle))),
-          ] as const;
-        }),
-      ),
-    ],
   });
 
   const extents: ZoneFeature[] = [
@@ -278,12 +303,14 @@ function buildZones(plantTypes: readonly PlantType[], project: (point: Point) =>
   const prohibited: ZoneFeature[] = plantTypes.flatMap((plantType) =>
     OBSTACLES.flatMap(({ norm, obstacle, shape }) => {
       const buffer = setback(norm, plantType);
-      const clipped = intersect(boundsOf(shape, buffer), LAWN);
-      if (clipped === null) return [];
+      // Как у бэкенда: буфер препятствия, обрезанный допустимой областью base_area
+      // (zoning/engine.py:135); в моке она совпадает с газоном.
+      const clipped = clipToRect(bufferOf(shape, buffer), LAWN);
+      if (clipped.length < 3) return [];
       return [
         {
           type: 'Feature',
-          geometry: shape.kind === 'point' ? circle(shape.at, buffer) : polygon(clipped),
+          geometry: { type: 'Polygon', coordinates: [ring(clipped)] },
           // Формат citation и reason — как у бэкенда: ../backend/greenplan/zoning/engine.py:141-151.
           properties: {
             zone_type: 'prohibited',
