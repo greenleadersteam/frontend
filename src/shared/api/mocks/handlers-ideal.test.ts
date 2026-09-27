@@ -159,9 +159,9 @@ describe('обоснование', () => {
 });
 
 describe('правки посадок', () => {
-  const editedFrom = async () => {
+  const editedFrom = async (project = READY_LOCAL) => {
     const { body } = await call<Schemas['PlantingFeatureCollection']>(
-      `/projects/${READY_LOCAL}/planting`,
+      `/projects/${project}/planting`,
     );
     const features: Schemas['EditedPlanting'][] = body.features.map(({ geometry, properties }) => ({
       type: 'Feature',
@@ -175,6 +175,20 @@ describe('правки посадок', () => {
     }));
     return { metadata: body.metadata, features };
   };
+
+  test('неизменённые посадки сервиса остаются allowed и при геопривязке', async () => {
+    const { body } = await put<Schemas['CheckedPlantingsFeatureCollection']>(
+      `/projects/${READY_GEO}/plantings`,
+      { type: 'FeatureCollection', ...(await editedFrom(READY_GEO)) },
+    );
+
+    expect(body.features.length).toBeGreaterThan(0);
+    expect(body.features.filter(({ properties }) => properties.status !== 'allowed')).toEqual([]);
+    const violated = body.features.flatMap(({ properties }) =>
+      properties.checks.filter((check) => check.actual_m < check.required_m),
+    );
+    expect(violated).toEqual([]);
+  });
 
   test('до правок GET /plantings — 204: правок не было', async () => {
     const { response, body } = await call(`/projects/${READY_LOCAL}/plantings`);

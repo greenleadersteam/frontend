@@ -641,7 +641,19 @@ export function checkPlantings(
   plantings: EditedPlanting[],
   placement: Placement | null,
   params: RunParams,
+  original: readonly Schemas['PlantingFeature'][],
 ): CheckedPlanting[] {
+  const originalPoints = new Map(
+    original.map(({ geometry, properties }) => [properties.id, geometry.coordinates]),
+  );
+  // Посадку сервиса, которую не двигали (тот же id, та же точка), раскладка уже поставила
+  // с учётом области и шага; перепроверяются только нормы.
+  const unchanged = ({ geometry, properties }: EditedPlanting) => {
+    const [x, y] = originalPoints.get(properties.id) ?? [];
+    return (
+      properties.origin === 'auto' && x === geometry.coordinates[0] && y === geometry.coordinates[1]
+    );
+  };
   const local = plantings.map(({ geometry }) => {
     const [x = 0, y = 0] = geometry.coordinates;
     return placement === null ? ([x, y] as const) : fromLonLat(placement, [x, y]);
@@ -655,6 +667,9 @@ export function checkPlantings(
 
     if (measured.some(({ violated }) => violated)) {
       return { ...planting, properties: { ...base, status: 'forbidden', rejection: null } };
+    }
+    if (unchanged(planting)) {
+      return { ...planting, properties: { ...base, status: 'allowed', rejection: null } };
     }
     if (!insideRect(point, LAWN)) {
       return {

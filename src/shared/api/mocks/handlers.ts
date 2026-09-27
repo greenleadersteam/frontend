@@ -564,7 +564,12 @@ export const handlers = [
         crs: ready.result.planting.metadata.crs,
         saved_at: new Date().toISOString(),
       },
-      features: checkPlantings(plantings, placement, ready.run.params),
+      features: checkPlantings(
+        plantings,
+        placement,
+        ready.run.params,
+        ready.result.planting.features,
+      ),
     };
     return geoJson(ready.project.edits);
   }),
