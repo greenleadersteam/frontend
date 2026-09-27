@@ -28,6 +28,7 @@ const testTheme = mergeThemeOverrides(theme, {
   components: { Popover: Popover.extend({ defaultProps: { hideDetached: false } }) },
 });
 
+export { contourOf, GEOREFERENCE_SAMPLE, portedGroup, sampleContour } from './georeference';
 export { enterViewport } from './intersection-observer';
 export { buildZip } from './zip-fixture';
 export { resetMockDb, server } from '@/shared/api/mocks/node';

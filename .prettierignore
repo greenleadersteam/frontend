@@ -2,3 +2,5 @@ dist
 coverage
 package-lock.json
 src/shared/api/generated
+# Примеры прототипа ../geojson/examples — копии без изменений.
+src/shared/lib/contour/__fixtures__/*.geojson
