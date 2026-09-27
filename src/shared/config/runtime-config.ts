@@ -22,11 +22,49 @@ const sameOriginPath = z
   .startsWith('/')
   .refine(isSameOrigin, { message: 'должен быть путём на том же origin' });
 
+// Что сервер умеет сверх базового API (контракт-предложение). Фронт не угадывает это по 404,
+// а читает явный список из конфига контура.
+export const CAPABILITIES = [
+  'obstacles',
+  'rejected',
+  'norms',
+  'explanationChecks',
+  'species',
+  'plantingEdits',
+  'editedDxf',
+  'runs',
+  'manualGeoreference',
+  'optionalBbox',
+] as const;
+
+export type Capability = (typeof CAPABILITIES)[number];
+
+const isCapability = (value: string): value is Capability =>
+  (CAPABILITIES as readonly string[]).includes(value);
+
+// Конфиг контура может опережать сборку: неизвестная возможность — предупреждение, а не
+// экран ошибки, иначе новый сервер сломал бы старый фронт.
+const capabilities = z
+  .array(z.string())
+  .default([])
+  .transform((values) => {
+    const unknown = values.filter((value) => !isCapability(value));
+    if (unknown.length > 0) {
+      // eslint-disable-next-line no-console -- предупреждение администратору контура, не лог приложения
+      console.warn(`/config.json: неизвестные serverCapabilities пропущены: ${unknown.join(', ')}`);
+    }
+    return values.filter(isCapability);
+  });
+
 // strictObject: опечатка в имени поля конфига контура должна быть ошибкой, а не молча игнорироваться.
 const runtimeConfigSchema = z.strictObject({
   apiBaseUrl: sameOriginPath,
   // Архив подложки PMTiles; null — карта без подложки.
   basemapUrl: sameOriginPath.nullable(),
+  // Демо на моках для показа. Без поля — выключено: контур заказчика получает демо, только
+  // если его явно включили, и может выключить без пересборки образа.
+  demoMode: z.enum(['available', 'off']).default('off'),
+  serverCapabilities: capabilities,
 });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;

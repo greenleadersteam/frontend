@@ -141,7 +141,9 @@ describe('шапка', () => {
     expect(screen.getByRole('link', { name: 'Проекты' })).toHaveAttribute('href', '/');
     expect(screen.getByText('Готово')).toBeInTheDocument();
     expect(screen.getByText(/^обработано за /)).toBeInTheDocument();
-    expect(screen.getByText('Благоустройство сквера, этап 1')).toBeInTheDocument();
+    expect(
+      screen.getByText('Демонстрационный проект. Благоустройство сквера, этап 1'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Скачать DXF' })).toBeInTheDocument();
     expect(document.title).toBe('Сквер на Покровке — Озеленение');
   });

@@ -13,7 +13,12 @@ afterEach(() => {
 
 describe('loadRuntimeConfig', () => {
   test('принимает относительный путь и отдаёт его через getRuntimeConfig', async () => {
-    const config = { apiBaseUrl: '/api', basemapUrl: '/basemap/moscow.pmtiles' };
+    const config = {
+      apiBaseUrl: '/api',
+      basemapUrl: '/basemap/moscow.pmtiles',
+      demoMode: 'available',
+      serverCapabilities: ['obstacles', 'runs'],
+    };
     const fetchMock = respondWith(JSON.stringify(config));
 
     await expect(loadRuntimeConfig()).resolves.toEqual(config);
@@ -28,7 +33,48 @@ describe('loadRuntimeConfig', () => {
   test('basemapUrl: null выключает подложку', async () => {
     respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null }));
 
-    await expect(loadRuntimeConfig()).resolves.toEqual({ apiBaseUrl: '/api', basemapUrl: null });
+    await expect(loadRuntimeConfig()).resolves.toMatchObject({ basemapUrl: null });
+  });
+
+  test('без demoMode и serverCapabilities — демо выключено, возможностей нет', async () => {
+    respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null }));
+
+    await expect(loadRuntimeConfig()).resolves.toEqual({
+      apiBaseUrl: '/api',
+      basemapUrl: null,
+      demoMode: 'off',
+      serverCapabilities: [],
+    });
+  });
+
+  test('отклоняет неизвестный demoMode', async () => {
+    respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null, demoMode: 'on' }));
+
+    await expect(loadRuntimeConfig()).rejects.toThrow('demoMode');
+  });
+
+  test('неизвестная возможность отбрасывается с предупреждением, а не ошибкой', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    respondWith(
+      JSON.stringify({
+        apiBaseUrl: '/api',
+        basemapUrl: null,
+        serverCapabilities: ['norms', 'teleport', 'species'],
+      }),
+    );
+
+    await expect(loadRuntimeConfig()).resolves.toMatchObject({
+      serverCapabilities: ['norms', 'species'],
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('teleport'));
+  });
+
+  test('отклоняет serverCapabilities не списком строк', async () => {
+    respondWith(
+      JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null, serverCapabilities: 'all' }),
+    );
+
+    await expect(loadRuntimeConfig()).rejects.toThrow('serverCapabilities');
   });
 
   test('отклоняет конфиг без basemapUrl', async () => {

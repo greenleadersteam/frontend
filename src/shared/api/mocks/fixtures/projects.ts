@@ -31,7 +31,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: '5c0b7f2e9a3d4e61b8f0c2a7d9e4b1f3',
     name: 'Сквер на Покровке',
-    description: 'Благоустройство сквера, этап 1',
+    description: 'Демонстрационный проект. Благоустройство сквера, этап 1',
     createdDaysAgo: 12,
     bbox: POKROVKA,
     archive: { filename: 'pokrovka_skver.zip', defect: null },
@@ -40,7 +40,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: '0e8d2b6a4c1f47e9a3b5d7c9e1f2a4b6',
     name: 'Улица Шаболовка, 37',
-    description: null,
+    description: 'Демонстрационный проект',
     createdDaysAgo: 9,
     bbox: null,
     archive: { filename: 'shabolovka_37.zip', defect: null },
@@ -49,7 +49,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: '9a1c3e5b7d2f4a6c8e0b2d4f6a8c1e3b',
     name: 'Улица Маросейка, 7–9',
-    description: 'Озеленение тротуара',
+    description: 'Демонстрационный проект. Озеленение тротуара',
     createdDaysAgo: 1,
     bbox: [37.635, 55.757, 37.638, 55.759],
     archive: null,
@@ -58,7 +58,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: '3f7b1d9c5e2a4b8d6f0c3e5a7b9d1f2c',
     name: 'Чистопрудный бульвар, участок 2',
-    description: null,
+    description: 'Демонстрационный проект',
     createdDaysAgo: 0,
     bbox: [37.642, 55.761, 37.646, 55.764],
     archive: { filename: 'chistye_prudy_2.zip', defect: null },
@@ -67,7 +67,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: '7d2f4b6e8a0c4d1f3b5e7a9c2d4f6b8e',
     name: 'Сквер у Рогожской заставы',
-    description: 'Реконструкция сквера',
+    description: 'Демонстрационный проект. Реконструкция сквера',
     createdDaysAgo: 0,
     bbox: [37.676, 55.745, 37.68, 55.748],
     archive: { filename: 'rogozhskaya.zip', defect: null },
@@ -76,7 +76,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: 'b4e6a8c0d2f44b7e9a1c3e5b7d9f0a2c',
     name: 'Улица Большая Ордынка, 21',
-    description: null,
+    description: 'Демонстрационный проект',
     createdDaysAgo: 5,
     bbox: [37.624, 55.738, 37.627, 55.74],
     archive: { filename: 'ordynka_21.zip', defect: { code: 'bad_archive' } },
@@ -85,7 +85,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: 'c8a0e2b4d6f84c1a3e5b7d9f1b3d5e7a',
     name: 'Лефортовский парк, центральная аллея',
-    description: 'Подосновы нет в архиве',
+    description: 'Демонстрационный проект. Подосновы нет в архиве',
     createdDaysAgo: 4,
     bbox: [37.699, 55.762, 37.705, 55.766],
     archive: { filename: 'lefortovo_alleya.zip', defect: { code: 'no_dxf_found' } },
@@ -94,7 +94,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: 'd1f3b5d7e9a14e2c4b6d8f0a2c4e6b8d',
     name: 'Сквер на Новослободской',
-    description: null,
+    description: 'Демонстрационный проект',
     createdDaysAgo: 3,
     bbox: [37.598, 55.779, 37.601, 55.781],
     archive: {
@@ -109,7 +109,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: 'e5b7d9f1a3c54f6e8a0c2e4b6d8f1a3c',
     name: 'Улица Бахрушина, 11',
-    description: null,
+    description: 'Демонстрационный проект',
     createdDaysAgo: 2,
     bbox: [37.636, 55.733, 37.639, 55.735],
     archive: { filename: 'bakhrushina_11.zip', defect: { code: 'insufficient_geodetic_points' } },
@@ -118,7 +118,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: 'f2c4e6a8b0d24a5c7e9b1d3f5a7c9e1b',
     name: 'Сквер на Трубной площади',
-    description: null,
+    description: 'Демонстрационный проект',
     createdDaysAgo: 2,
     bbox: [37.621, 55.767, 37.624, 55.769],
     archive: { filename: 'trubnaya.zip', defect: null },
@@ -127,7 +127,7 @@ export const projectSeeds: ProjectSeed[] = [
   {
     id: 'a6c8e0b2d4f64a7c9e1b3d5f7a9c1e3d',
     name: 'Кутузовский проспект, 24',
-    description: 'Разделительная полоса',
+    description: 'Демонстрационный проект. Разделительная полоса',
     createdDaysAgo: 1,
     bbox: [37.548, 55.745, 37.552, 55.748],
     archive: { filename: 'kutuzovsky_24.zip', defect: null },

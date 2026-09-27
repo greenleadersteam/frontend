@@ -1,3 +1,10 @@
+/* Шапка и метка режима «Демо» под ней — одним блоком, ближе друг к другу, чем к контенту. */
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+}
+
 .root {
   display: flex;
   align-items: center;

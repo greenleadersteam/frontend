@@ -1,0 +1,21 @@
+/* Метка режима «Демо»: цвета статуса «Идёт обработка» (design.md, ochre.1 и ochre.8, контраст 6,1),
+   13/600, высота 32px. */
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  min-height: calc(var(--mantine-spacing-sm) * 4);
+  padding-inline: var(--mantine-spacing-lg);
+  border-radius: var(--mantine-radius-sm);
+  background-color: var(--mantine-color-ochre-1);
+  color: var(--mantine-color-ochre-8);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+/* Тихая кнопка на охре — тем же цветом, что текст: sage.7 на ochre.1 не проходит по контрасту. */
+.action {
+  color: var(--mantine-color-ochre-8);
+  font-size: var(--mantine-font-size-sm);
+}

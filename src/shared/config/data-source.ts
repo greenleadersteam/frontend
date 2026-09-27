@@ -1,34 +1,44 @@
-// Источник данных в разработке: моки MSW в браузере или настоящий бэкенд через прокси Vite.
-// Весь модуль используется только под import.meta.env.DEV и в production-сборку не попадает.
-export type DataSource = 'mock' | 'server';
+import { getRuntimeConfig, type RuntimeConfig } from './runtime-config';
+
+// Источник данных: демонстрационные данные (моки MSW в браузере) или настоящий бэкенд.
+// Демо — часть показа продукта: оно есть и в сборке, если конфиг контура его разрешает.
+export type DataSource = 'demo' | 'server';
 
 const STORAGE_KEY = 'greenleaders:data-source';
 const URL_PARAM = 'data';
 const MOCK_WORKER_SCRIPT = '/mockServiceWorker.js';
 
-const isDataSource = (value: unknown): value is DataSource =>
-  value === 'mock' || value === 'server';
+// «mock» — прежнее имя демо: старые ссылки и сохранённый выбор продолжают работать.
+function parseDataSource(value: unknown): DataSource | null {
+  if (value === 'demo' || value === 'mock') return 'demo';
+  if (value === 'server') return 'server';
+  return null;
+}
 
 type DataSourceInput = {
   search: string;
   stored: unknown;
   // import.meta.env.MODE: «mock» у npm run dev:mock.
   mode: string;
+  demoMode: RuntimeConfig['demoMode'];
 };
 
-// Параметр адреса важнее сохранённого выбора: так делаются ссылки и скриншоты. Без выбора
-// dev:mock открывается на моках, dev — на сервере.
-export function resolveDataSource({ search, stored, mode }: DataSourceInput): DataSource {
-  const fromUrl = new URLSearchParams(search).get(URL_PARAM);
-  if (isDataSource(fromUrl)) return fromUrl;
-  if (isDataSource(stored)) return stored;
-  return mode === 'mock' ? 'mock' : 'server';
+// Демо выключено в конфиге контура — только сервер, что бы ни было в адресе и хранилище.
+// Иначе параметр адреса важнее сохранённого выбора: так делаются ссылки и скриншоты. Без выбора —
+// сервер: жюри видит факт, демо включают осознанно; dev:mock открывается на демо.
+export function resolveDataSource({ search, stored, mode, demoMode }: DataSourceInput): DataSource {
+  if (demoMode === 'off') return 'server';
+  return (
+    parseDataSource(new URLSearchParams(search).get(URL_PARAM)) ??
+    parseDataSource(stored) ??
+    (mode === 'mock' ? 'demo' : 'server')
+  );
 }
 
 // Хранилище может быть недоступно (приватный режим, запрет сайта): тогда — умолчание.
 function readStored(): unknown {
   try {
-    // eslint-disable-next-line no-restricted-globals -- настройка разработчика, не токен и не данные
+    // eslint-disable-next-line no-restricted-globals -- выбор режима показа, не токен и не данные
     return localStorage.getItem(STORAGE_KEY);
   } catch {
     return null;
@@ -37,14 +47,15 @@ function readStored(): unknown {
 
 let startupSource: DataSource | null = null;
 
-// Источник решается один раз при старте, в main.tsx: MSW запущен или нет до перезагрузки.
-// Параметр адреса теряется при первой навигации, поэтому повторно его не читаем — иначе
-// переключатель показал бы не тот источник, на котором работает страница.
+// Источник решается один раз при старте, в main.tsx после загрузки конфига: MSW запущен или
+// нет до перезагрузки. Параметр адреса теряется при первой навигации, поэтому повторно его не
+// читаем — иначе переключатель показал бы не тот источник, на котором работает страница.
 export function currentDataSource(): DataSource {
   startupSource ??= resolveDataSource({
     search: location.search,
     stored: readStored(),
     mode: import.meta.env.MODE,
+    demoMode: getRuntimeConfig().demoMode,
   });
   return startupSource;
 }
@@ -80,7 +91,7 @@ export async function switchDataSource(
 ): Promise<void> {
   let saved = true;
   try {
-    // eslint-disable-next-line no-restricted-globals -- настройка разработчика, не токен и не данные
+    // eslint-disable-next-line no-restricted-globals -- выбор режима показа, не токен и не данные
     localStorage.setItem(STORAGE_KEY, source);
   } catch {
     saved = false;

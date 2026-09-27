@@ -140,7 +140,7 @@ describe('карточка', () => {
     const card = await cardOf('Улица Маросейка, 7–9');
 
     expect(card.getByText('Архив не загружен')).toBeInTheDocument();
-    expect(card.getByText('Озеленение тротуара')).toBeInTheDocument();
+    expect(card.getByText('Демонстрационный проект. Озеленение тротуара')).toBeInTheDocument();
   });
 
   test.each([

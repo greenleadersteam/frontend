@@ -6,16 +6,24 @@ const KEY = 'greenleaders:data-source';
 
 describe('resolveDataSource', () => {
   test.each([
-    ['без выбора, npm run dev — сервер', '', null, 'development', 'server'],
-    ['без выбора, npm run dev:mock — моки', '', null, 'mock', 'mock'],
+    ['без выбора — сервер: жюри видит факт', '', null, 'development', 'server'],
+    ['без выбора, npm run dev:mock — демо', '', null, 'mock', 'demo'],
     ['сохранённый выбор важнее скрипта', '', 'server', 'mock', 'server'],
-    ['сохранённый выбор важнее скрипта', '', 'mock', 'development', 'mock'],
-    ['параметр адреса важнее сохранённого', '?data=server', 'mock', 'mock', 'server'],
-    ['параметр адреса важнее сохранённого', '?data=mock', 'server', 'development', 'mock'],
-    ['чужое значение параметра не учитывается', '?data=prod', 'mock', 'development', 'mock'],
-    ['чужое сохранённое значение не учитывается', '', 'yes', 'mock', 'mock'],
+    ['сохранённый выбор важнее скрипта', '', 'demo', 'development', 'demo'],
+    ['параметр адреса важнее сохранённого', '?data=server', 'demo', 'mock', 'server'],
+    ['параметр адреса важнее сохранённого', '?data=demo', 'server', 'development', 'demo'],
+    ['?data=mock — прежнее имя демо', '?data=mock', 'server', 'development', 'demo'],
+    ['сохранённое «mock» — прежнее имя демо', '', 'mock', 'development', 'demo'],
+    ['чужое значение параметра не учитывается', '?data=prod', 'demo', 'development', 'demo'],
+    ['чужое сохранённое значение не учитывается', '', 'yes', 'mock', 'demo'],
   ] as const)('%s', (_, search, stored, mode, expected) => {
-    expect(resolveDataSource({ search, stored, mode })).toBe(expected);
+    expect(resolveDataSource({ search, stored, mode, demoMode: 'available' })).toBe(expected);
+  });
+
+  test('демо выключено в конфиге — только сервер, что бы ни было в адресе и хранилище', () => {
+    expect(
+      resolveDataSource({ search: '?data=demo', stored: 'demo', mode: 'mock', demoMode: 'off' }),
+    ).toBe('server');
   });
 });
 
@@ -23,7 +31,7 @@ describe('хранилище и перезагрузка', () => {
   const unregister = vi.fn(() => Promise.resolve(true));
 
   beforeEach(() => {
-    history.replaceState(null, '', '/projects?data=mock');
+    history.replaceState(null, '', '/projects?data=demo');
     // jsdom не реализует Service Worker.
     Object.defineProperty(navigator, 'serviceWorker', {
       configurable: true,
@@ -38,15 +46,20 @@ describe('хранилище и перезагрузка', () => {
   });
 
   afterEach(() => {
+    vi.doUnmock('./runtime-config');
     vi.restoreAllMocks();
     unregister.mockClear();
     Reflect.deleteProperty(navigator, 'serviceWorker');
     history.replaceState(null, '', '/');
   });
 
-  // Источник фиксируется в модуле при старте: каждый запуск — свежий экземпляр модуля.
+  // Источник фиксируется в модуле при старте: каждый запуск — свежий экземпляр модуля
+  // с конфигом, в котором демо разрешено.
   const startApp = async () => {
     vi.resetModules();
+    vi.doMock('./runtime-config', () => ({
+      getRuntimeConfig: () => ({ demoMode: 'available' }),
+    }));
     return (await import('./data-source')).currentDataSource;
   };
 
@@ -55,7 +68,7 @@ describe('хранилище и перезагрузка', () => {
       throw new DOMException('denied', 'SecurityError');
     });
 
-    expect((await startApp())()).toBe('mock');
+    expect((await startApp())()).toBe('demo');
     history.replaceState(null, '', '/projects');
     // В тестах MODE — «test»: как у npm run dev, умолчание — сервер.
     expect((await startApp())()).toBe('server');
@@ -64,9 +77,9 @@ describe('хранилище и перезагрузка', () => {
   test('источник решается при старте: навигация без ?data= его не меняет', async () => {
     const current = await startApp();
 
-    expect(current()).toBe('mock');
+    expect(current()).toBe('demo');
     history.replaceState(null, '', '/projects/abc');
-    expect(current()).toBe('mock');
+    expect(current()).toBe('demo');
   });
 
   test('регистрации недоступны (хранилище запрещено) — ошибки нет', async () => {
@@ -97,13 +110,13 @@ describe('хранилище и перезагрузка', () => {
     expect(reload).toHaveBeenCalledWith(`${location.origin}/projects`);
   });
 
-  test('на моки: воркер не трогается, страница перезагружается', async () => {
+  test('на демо: воркер не трогается, страница перезагружается', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => undefined);
     const reload = vi.fn();
 
-    await switchDataSource('mock', reload);
+    await switchDataSource('demo', reload);
 
-    expect(setItem).toHaveBeenCalledWith(KEY, 'mock');
+    expect(setItem).toHaveBeenCalledWith(KEY, 'demo');
     expect(unregister).not.toHaveBeenCalled();
     expect(reload).toHaveBeenCalledTimes(1);
   });

@@ -5,23 +5,23 @@ import { currentDataSource, type DataSource, switchDataSource } from '@/shared/c
 
 import classes from './data-source-switch.module.css';
 
+// Порядок: сначала факт, потом цель — жюри видит «Сервер» первым.
 const OPTIONS: { value: DataSource; label: string }[] = [
-  { value: 'mock', label: 'Моки' },
   { value: 'server', label: 'Сервер' },
+  { value: 'demo', label: 'Демо' },
 ];
 
 const HINTS: Record<DataSource, string> = {
-  mock: 'Демонстрационные данные в браузере. Перезагрузка страницы сбрасывает изменения',
-  server: `Данные с ${__API_PROXY_HOST__} через прокси`,
+  demo: 'Возможности, которые ещё не реализованы на сервере, показаны на демонстрационных данных. Изменения хранятся до перезагрузки страницы',
+  server: 'Данные и расчёты сервера обработки',
 };
 
-// Инструмент разработки: в production-сборку не попадает (см. app-header.tsx). Режим моков
-// окрашен охрой, чтобы по любому скриншоту было видно, на каких данных он сделан.
+// Режим «Демо» окрашен охрой, чтобы по любому скриншоту было видно, на каких данных он сделан.
 export function DataSourceSwitch(): JSX.Element {
   const source = currentDataSource();
 
   return (
-    <Tooltip label={HINTS[source]} withArrow>
+    <Tooltip label={HINTS[source]} withArrow multiline classNames={{ tooltip: classes.hint }}>
       <SegmentedControl
         size="xs"
         aria-label="Источник данных"

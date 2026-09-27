@@ -1,8 +1,8 @@
-/* Моки — охра (design.md, «Идёт обработка»: ochre.1 и ochre.8), сервер — нейтральный stone.2. */
+/* Демо — охра (design.md, «Идёт обработка»: ochre.1 и ochre.8), сервер — нейтральный stone.2. */
 .root {
   background-color: var(--mantine-color-stone-2);
 
-  &[data-source='mock'] {
+  &[data-source='demo'] {
     background-color: var(--mantine-color-ochre-1);
   }
 }
@@ -15,7 +15,11 @@
     color: var(--mantine-color-stone-9);
   }
 
-  .root[data-source='mock'] &[data-active] {
+  .root[data-source='demo'] &[data-active] {
     color: var(--mantine-color-ochre-8);
   }
+}
+
+.hint {
+  max-width: calc(var(--app-card-min-width) * 1.2);
 }

@@ -7,7 +7,7 @@ import { renderWithTheme } from '@/shared/lib/test';
 
 import { DataSourceSwitch } from './data-source-switch';
 
-const dataSource = vi.hoisted(() => ({ current: 'mock', switch: vi.fn() }));
+const dataSource = vi.hoisted(() => ({ current: 'demo', switch: vi.fn() }));
 
 vi.mock('@/shared/config', async (importOriginal) => ({
   ...(await importOriginal<typeof Config>()),
@@ -22,12 +22,11 @@ beforeEach(() => {
 describe('DataSourceSwitch', () => {
   test.each([
     [
-      'mock',
-      'Моки',
-      'Демонстрационные данные в браузере. Перезагрузка страницы сбрасывает изменения',
+      'demo',
+      'Демо',
+      'Возможности, которые ещё не реализованы на сервере, показаны на демонстрационных данных. Изменения хранятся до перезагрузки страницы',
     ],
-    // Хост — из конфига прокси (API_PROXY_TARGET может быть задан локально).
-    ['server', 'Сервер', `Данные с ${__API_PROXY_HOST__} через прокси`],
+    ['server', 'Сервер', 'Данные и расчёты сервера обработки'],
   ] as const)('режим %s: выбран «%s», подсказка', async (source, label, hint) => {
     dataSource.current = source;
     renderWithTheme(<DataSourceSwitch />);
@@ -40,8 +39,14 @@ describe('DataSourceSwitch', () => {
     expect(await screen.findByText(hint)).toBeInTheDocument();
   });
 
+  test('жаргона разработки нет: «Моки» нигде не видно', () => {
+    renderWithTheme(<DataSourceSwitch />);
+
+    expect(screen.queryByText(/мок/i)).not.toBeInTheDocument();
+  });
+
   test('выбор другого источника записывает его и перезагружает страницу', async () => {
-    dataSource.current = 'mock';
+    dataSource.current = 'demo';
     renderWithTheme(<DataSourceSwitch />);
 
     await userEvent.click(screen.getByRole('radio', { name: 'Сервер' }));
@@ -54,8 +59,8 @@ describe('DataSourceSwitch', () => {
     renderWithTheme(<DataSourceSwitch />);
 
     screen.getByRole('radio', { name: 'Сервер' }).focus();
-    await userEvent.keyboard('{ArrowLeft}');
+    await userEvent.keyboard('{ArrowRight}');
 
-    expect(dataSource.switch).toHaveBeenCalledWith('mock');
+    expect(dataSource.switch).toHaveBeenCalledWith('demo');
   });
 });

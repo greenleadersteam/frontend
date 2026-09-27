@@ -26,20 +26,26 @@ const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-// Воркер MSW раздаёт только dev-сервер прямо из node_modules: в public/ его нет, поэтому в dist
-// он не попадает, а его версия всегда совпадает с установленным msw. Запускается ли он, решает
-// выбранный источник данных (src/shared/config/data-source.ts).
+// Воркер MSW — из node_modules, поэтому его версия всегда совпадает с установленным msw. Dev-сервер
+// раздаёт его напрямую, сборка кладёт в dist рядом с index.html: демо — часть показа продукта.
+// Регистрируется он, только если выбран режим «Демо» (src/shared/config/data-source.ts).
 function mockServiceWorker(): Plugin {
   const workerPath = createRequire(import.meta.url).resolve('msw/mockServiceWorker.js');
   return {
     name: 'mock-service-worker',
-    apply: 'serve',
     configureServer(server) {
       server.middlewares.use('/mockServiceWorker.js', (_request, response, next) => {
         readFile(workerPath).then((worker) => {
           response.setHeader('Content-Type', 'text/javascript');
           response.end(worker);
         }, next);
+      });
+    },
+    async generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'mockServiceWorker.js',
+        source: await readFile(workerPath),
       });
     },
   };
@@ -58,8 +64,6 @@ export default defineConfig(({ mode }) => {
       serveBasemap(fileURLToPath(new URL('.data/basemap', import.meta.url))),
     ],
     resolve: { tsconfigPaths: true },
-    // Адрес бэкенда для подсказки переключателя источника данных; в production не используется.
-    define: { __API_PROXY_HOST__: JSON.stringify(new URL(apiProxyTarget).host) },
     server: {
       // Прокси работает и на моках: запросы /api, которые моки не обработали, MSW обрывает сам
       // (src/shared/api/mocks/browser.ts), до прокси они не доходят.

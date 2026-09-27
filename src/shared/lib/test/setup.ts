@@ -8,7 +8,7 @@ import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 
 import { resetMockDb, server } from '@/shared/api/mocks/node';
-import { loadRuntimeConfig } from '@/shared/config';
+import { CAPABILITIES, loadRuntimeConfig } from '@/shared/config';
 
 import { installIntersectionObserver } from './intersection-observer';
 
@@ -17,7 +17,16 @@ import { installIntersectionObserver } from './intersection-observer';
 beforeAll(async () => {
   server.listen({ onUnhandledRequest: 'error' });
   server.use(
-    http.get('/config.json', () => HttpResponse.json({ apiBaseUrl: '/api', basemapUrl: null })),
+    // Тесты идут против моков, которые реализуют весь контракт-предложение: сервер в них
+    // объявляет все возможности. Отсутствие возможности проверяют отдельные тесты.
+    http.get('/config.json', () =>
+      HttpResponse.json({
+        apiBaseUrl: '/api',
+        basemapUrl: null,
+        demoMode: 'off',
+        serverCapabilities: [...CAPABILITIES],
+      }),
+    ),
   );
   await loadRuntimeConfig();
   server.resetHandlers();
