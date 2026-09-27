@@ -6,6 +6,52 @@
     <meta name="color-scheme" content="light" />
     <link rel="icon" href="data:," />
     <title>Озеленение</title>
+    <!--
+      Экран ошибки старта (src/main.tsx, showStartupError) показывается до загрузки темы и CSS
+      приложения. Это единственное место вне темы: цвета — литералы палитры «Лён и шалфей»
+      (.claude/rules/design.md): фон stone.1, текст stone.9, вторичный stone.7, кнопка sage.7.
+      Шрифт системный: Mulish ещё не загружен. style-src 'unsafe-inline' в CSP уже разрешён.
+    -->
+    <style>
+      .startup-error {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        align-content: center;
+        justify-items: start;
+        gap: 16px;
+        padding: 24px max(24px, calc((100vw - 640px) / 2));
+        background: #f4f2ee;
+        color: #2e2a27;
+        font:
+          15px/1.55 system-ui,
+          sans-serif;
+      }
+      .startup-error p {
+        margin: 0;
+      }
+      .startup-error small {
+        color: #6f6862;
+        font-size: 13px;
+      }
+      .startup-error button {
+        padding: 8px 16px;
+        border: 0;
+        border-radius: 10px;
+        background: #5f6b55;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .startup-error button:hover {
+        background: #48523f;
+      }
+      .startup-error button:focus-visible {
+        outline: 2px solid #5f6b55;
+        outline-offset: 2px;
+      }
+    </style>
   </head>
   <body>
     <noscript>Для работы приложения нужен JavaScript. Включите его в настройках браузера.</noscript>

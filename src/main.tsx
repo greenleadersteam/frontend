@@ -40,7 +40,11 @@ function showStartupError(reason: unknown): void {
     message.textContent = APP_FAILED;
   }
 
-  (document.getElementById('root') ?? document.body).replaceChildren(...nodes);
+  // Стиль экрана — встроенный в index.html: тема и CSS приложения ещё не загружены.
+  const screen = document.createElement('div');
+  screen.className = 'startup-error';
+  screen.append(...nodes);
+  (document.getElementById('root') ?? document.body).replaceChildren(screen);
 }
 
 async function start(): Promise<void> {
