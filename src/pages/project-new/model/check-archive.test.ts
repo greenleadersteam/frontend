@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { MAX_ARCHIVE_BYTES } from '@/shared/api';
 import { buildZip } from '@/shared/lib/test';
+import { readZipListing } from '@/shared/lib/zip';
 
 import { checkSelection } from './check-archive';
 
@@ -46,15 +47,48 @@ describe('checkSelection', () => {
     expect(result).toMatchObject({ kind: 'accepted', archive: { packed: true } });
   });
 
-  test('архив с DXF (в том числе .DXF) принят со списком файлов', async () => {
+  test('архив с DXF принят со списком файлов; .DXF приведено к .dxf в самом архиве', async () => {
     const result = await checkArchive(
       zipFile([{ name: 'ГП/Генплан.DXF' }, { name: 'ГП/сети.dwg' }]),
     );
+    if (result.kind !== 'accepted') throw new Error('архив отклонён');
 
-    expect(result.kind === 'accepted' && result.archive.entries?.map(({ path }) => path)).toEqual([
-      'ГП/Генплан.DXF',
+    expect(result.archive.renamed).toBe(1);
+    expect(result.archive.entries?.map(({ path }) => path)).toEqual([
+      'ГП/Генплан.dxf',
       'ГП/сети.dwg',
     ]);
+    const listing = await readZipListing(result.archive.file);
+    expect(listing.kind === 'listed' && listing.entries.map(({ path }) => path)).toEqual([
+      'ГП/Генплан.dxf',
+      'ГП/сети.dwg',
+    ]);
+  });
+
+  test('«План.dxf» и «План.DXF» после правки совпали бы — отказ', async () => {
+    const result = await checkArchive(zipFile([{ name: 'ГП/План.dxf' }, { name: 'ГП/План.DXF' }]));
+
+    expect(result).toEqual({
+      kind: 'rejected',
+      message:
+        'В архиве „ГП/План.dxf“ и „ГП/План.DXF“ — для сервера один файл. Оставьте один и выберите архив снова.',
+    });
+  });
+
+  test('совпадения без учёта регистра у других файлов и папок сервер переживёт — принят', async () => {
+    const result = await checkArchive(
+      zipFile([{ name: 'ГП/Генплан.dxf' }, { name: 'ГП/Readme.txt' }, { name: 'ГП/README.TXT' }]),
+    );
+
+    expect(result.kind).toBe('accepted');
+  });
+
+  test('имена уже в нижнем регистре — архив загружается как есть', async () => {
+    const file = zipFile([{ name: 'ГП/Генплан.dxf' }]);
+
+    const result = await checkArchive(file);
+
+    expect(result).toMatchObject({ kind: 'accepted', archive: { file, renamed: 0 } });
   });
 
   test('ZIP64 — принят без списка: решение за сервером', async () => {

@@ -1,2 +1,2 @@
-export type { ZipEntry, ZipListing } from './zip';
-export { readZipListing } from './zip';
+export type { ExtensionFix, ZipEntry, ZipListing } from './zip';
+export { lowercaseExtension, readZipListing } from './zip';

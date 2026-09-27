@@ -8,7 +8,7 @@ import {
   type WizardState,
 } from './wizard';
 
-const archive = { file: new File(['x'], 'site.zip'), packed: false, entries: [] };
+const archive = { file: new File(['x'], 'site.zip'), packed: false, renamed: 0, entries: [] };
 
 describe('wizardReducer', () => {
   test('новый проект начинается с описания, существующий — с архива', () => {

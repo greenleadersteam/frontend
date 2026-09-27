@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { buildZip } from '@/shared/lib/test';
 
-import { readZipListing } from './zip';
+import { lowercaseExtension, readZipListing } from './zip';
 
 const blob = (bytes: Uint8Array<ArrayBuffer>) => new Blob([bytes]);
 
@@ -96,5 +96,50 @@ describe('readZipListing', () => {
       kind: 'unreadable',
       reason: 'zip64',
     });
+  });
+});
+
+describe('lowercaseExtension', () => {
+  test('.DXF → .dxf в каталоге и локальных заголовках, данные и остальные имена — как были', async () => {
+    const zip = buildZip([
+      { name: 'ГП/План.DXF', data: '0\nSECTION' },
+      { name: 'Сети.Dxf', data: 'abc', encoding: 'cp866' },
+      { name: 'пояснение.txt', data: 'x' },
+      { name: 'ГП/Генплан.dxf', data: 'y' },
+    ]);
+
+    const result = await lowercaseExtension(blob(zip), '.dxf');
+    if (result.kind !== 'fixed') throw new Error('ожидалась правка');
+    const bytes = new Uint8Array(await result.archive.arrayBuffer());
+
+    expect(result.renamed).toBe(2);
+    expect(bytes.length).toBe(zip.length);
+    const listing = await readZipListing(result.archive);
+    expect(listing.kind === 'listed' && listing.entries.map(({ path }) => path)).toEqual([
+      'ГП/План.dxf',
+      'Сети.dxf',
+      'пояснение.txt',
+      'ГП/Генплан.dxf',
+    ]);
+    // Отличаются только буквы расширений в двух местах записи: «DXF» — три, «Dxf» — одна.
+    const changed = bytes.filter((byte, index) => byte !== zip[index]).length;
+    expect(changed).toBe(2 * 3 + 2 * 1);
+  });
+
+  test('менять нечего или каталог не прочитан — архив как есть', async () => {
+    await expect(lowercaseExtension(blob(buildZip([{ name: 'a.dxf' }])), '.dxf')).resolves.toEqual({
+      kind: 'unchanged',
+    });
+    await expect(lowercaseExtension(new Blob(['%PDF']), '.dxf')).resolves.toEqual({
+      kind: 'unchanged',
+    });
+  });
+
+  test('имя в локальном заголовке не совпало с каталогом — правка невозможна', async () => {
+    const zip = buildZip([{ name: 'План.DXF' }]);
+    // Локальный заголовок — в начале архива: имя с 30-го байта.
+    zip[30] = 0x41;
+
+    await expect(lowercaseExtension(blob(zip), '.dxf')).resolves.toEqual({ kind: 'failed' });
   });
 });

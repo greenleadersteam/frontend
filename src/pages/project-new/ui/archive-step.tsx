@@ -152,6 +152,9 @@ function ArchiveSummary({ archive, onReplace }: ArchiveSummaryProps): JSX.Elemen
                   </List.Item>
                 ))}
               </List>
+              {archive.renamed > 0 && (
+                <Text size="sm">Расширения .DXF приведены к .dxf: иначе сервер их не найдёт.</Text>
+              )}
               {dxf.length > 1 && (
                 <Text size="sm">
                   Сервис сам определит главный чертёж. Если не сможет — попросит выбрать.

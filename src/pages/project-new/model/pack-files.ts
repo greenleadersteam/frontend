@@ -66,6 +66,7 @@ export async function packFiles(files: File[]): Promise<ArchiveCheck> {
     archive: {
       file: new File([bytes], archiveName, { type: 'application/zip' }),
       packed: true,
+      renamed: named.filter(({ file, name }) => file.name !== name).length,
       entries: named.map(({ file, name }) => ({ path: name, size: file.size, isDirectory: false })),
     },
   };

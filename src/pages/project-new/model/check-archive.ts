@@ -1,6 +1,6 @@
 import { MAX_ARCHIVE_BYTES } from '@/shared/api';
 import { formatFileSize } from '@/shared/lib/format';
-import { readZipListing, type ZipEntry } from '@/shared/lib/zip';
+import { lowercaseExtension, readZipListing, type ZipEntry } from '@/shared/lib/zip';
 
 import { packFiles } from './pack-files';
 
@@ -8,6 +8,8 @@ export type CheckedArchive = {
   // Тело загрузки: выбранный ZIP или архив, собранный браузером из отдельных файлов.
   file: File;
   packed: boolean;
+  // Сколько имён .DXF приведено к .dxf: бэкенд ищет rglob("*.dxf") с учётом регистра.
+  renamed: number;
   // null — список файлов прочитать не удалось (ZIP64, повреждённый каталог): архив
   // пропускается с предупреждением, решение принимает сервер.
   entries: ZipEntry[] | null;
@@ -59,7 +61,7 @@ async function checkArchive(file: File): Promise<ArchiveCheck> {
           'Архив пустой. Добавьте в него главный чертёж генплана в DXF и выберите архив снова.',
       };
     case 'unreadable':
-      return { kind: 'accepted', archive: { file, packed: false, entries: null } };
+      return { kind: 'accepted', archive: { file, packed: false, renamed: 0, entries: null } };
     case 'listed':
       if (dxfEntriesOf(listing.entries).length === 0) {
         return {
@@ -68,9 +70,60 @@ async function checkArchive(file: File): Promise<ArchiveCheck> {
             'В архиве нет чертежей DXF. Добавьте главный чертёж генплана в DXF и выберите архив снова.',
         };
       }
-      return { kind: 'accepted', archive: { file, packed: false, entries: listing.entries } };
+      return withLowercaseDxf(file, listing.entries);
     default: {
       const unexpected: never = listing;
+      return unexpected;
+    }
+  }
+}
+
+// Сервер не увидит «ПЛАН.DXF» (../backend/greenplan/io/dxf_source.py:41-45): такие имена
+// правятся в самом архиве, без распаковки (shared/lib/zip, lowercaseExtension). После правки
+// «План.dxf» и «План.DXF» совпали бы, и распаковка на сервере молча оставила бы одну запись.
+async function withLowercaseDxf(file: File, entries: ZipEntry[]): Promise<ArchiveCheck> {
+  const lowered = entries.map((entry) =>
+    !entry.isDirectory && isDxf(entry.path)
+      ? { ...entry, path: entry.path.replace(/\.dxf$/i, '.dxf') }
+      : entry,
+  );
+  const seen = new Map<string, string>();
+  for (const [index, { path, isDirectory }] of lowered.entries()) {
+    if (isDirectory || !isDxf(path)) continue;
+    const key = path.toLowerCase();
+    const original = entries[index]?.path ?? path;
+    const first = seen.get(key);
+    if (first !== undefined) {
+      return {
+        kind: 'rejected',
+        message: `В архиве „${first}“ и „${original}“ — для сервера один файл. Оставьте один и выберите архив снова.`,
+      };
+    }
+    seen.set(key, original);
+  }
+
+  const fixed = await lowercaseExtension(file, '.dxf');
+  switch (fixed.kind) {
+    case 'unchanged':
+      return { kind: 'accepted', archive: { file, packed: false, renamed: 0, entries } };
+    case 'failed':
+      return {
+        kind: 'rejected',
+        message:
+          'Не удалось привести расширения .DXF к .dxf: архив собран необычно. Переименуйте чертежи в .dxf и упакуйте архив снова.',
+      };
+    case 'fixed':
+      return {
+        kind: 'accepted',
+        archive: {
+          file: new File([fixed.archive], file.name, { type: 'application/zip' }),
+          packed: false,
+          renamed: fixed.renamed,
+          entries: lowered,
+        },
+      };
+    default: {
+      const unexpected: never = fixed;
       return unexpected;
     }
   }
