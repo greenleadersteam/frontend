@@ -9,13 +9,9 @@ import { initialWizardState, type WizardEntry, wizardReducer } from '../model/wi
 import { ArchiveStep } from './archive-step';
 import { DetailsStep } from './details-step';
 import { ProcessingStep } from './processing-step';
+import { SiteStep } from './site-step';
 import { UploadProgress } from './upload-progress';
 import classes from './upload-wizard.module.css';
-
-const STEP_INDEX = { details: 0, archive: 1, processing: 2 } as const;
-
-const CREATE_UNSUPPORTED =
-  'Сервер не принимает проект без области участка, а задать её в мастере нельзя. Архив можно загрузить в черновик, созданный раньше, — из списка проектов.';
 
 type UploadWizardProps = {
   // Существующий проект из списка: мастер начинается с шага «Файлы» или с выбора главного DXF.
@@ -28,10 +24,12 @@ export function UploadWizard({ entry }: UploadWizardProps): JSX.Element {
   const { blocker, leaving, leave } = useLeaveGuard(state, upload.abort);
   const { step, project } = state;
   const uploading = state.upload.kind === 'creating' || state.upload.kind === 'uploading';
-  // Сервер без optionalBbox требует область участка (bbox_user), а задать её в мастере пока
-  // нельзя: создание нового проекта заблокировано на первом шаге, а не отказом 422 после
-  // загрузки архива.
-  const optionalBbox = useCapability('optionalBbox');
+  // Сервер без optionalBbox требует область участка (bbox_user): для нового проекта мастер
+  // показывает шаг «Участок». Проект из списка уже создан, и шага у него нет.
+  const withSite = !useCapability('optionalBbox') && entry === null;
+  const steps = withSite
+    ? (['details', 'site', 'archive', 'processing'] as const)
+    : (['details', 'archive', 'processing'] as const);
 
   // При смене шага кнопка, на которой был фокус, исчезает: фокус переходит на заголовок,
   // чтобы клавиатура и скринридер не теряли позицию. Первый показ фокус не трогает.
@@ -49,8 +47,12 @@ export function UploadWizard({ entry }: UploadWizardProps): JSX.Element {
         {entry?.project.name ?? 'Новый проект'}
       </Title>
 
-      <Stepper active={STEP_INDEX[step]} allowNextStepsSelect={false}>
+      <Stepper
+        active={steps.findIndex((candidate) => candidate === step)}
+        allowNextStepsSelect={false}
+      >
         <Stepper.Step label="Описание" />
+        {withSite && <Stepper.Step label="Участок" />}
         <Stepper.Step label="Файлы" />
         <Stepper.Step label="Загрузка и обработка" />
       </Stepper>
@@ -59,9 +61,21 @@ export function UploadWizard({ entry }: UploadWizardProps): JSX.Element {
         <DetailsStep
           initial={state.details}
           onSubmit={(details) => {
-            dispatch({ type: 'detailsSubmitted', details });
+            dispatch({ type: 'detailsSubmitted', details, next: withSite ? 'site' : 'archive' });
           }}
-          blockedReason={optionalBbox ? null : CREATE_UNSUPPORTED}
+          nextLabel={withSite ? 'Далее: участок' : 'Далее: файлы'}
+        />
+      )}
+
+      {step === 'site' && (
+        <SiteStep
+          initial={state.site}
+          onBack={() => {
+            dispatch({ type: 'back' });
+          }}
+          onSubmit={(site) => {
+            dispatch({ type: 'siteChosen', site });
+          }}
         />
       )}
 
@@ -73,7 +87,7 @@ export function UploadWizard({ entry }: UploadWizardProps): JSX.Element {
           onBack={
             project === null
               ? () => {
-                  dispatch({ type: 'backToDetails' });
+                  dispatch({ type: 'back' });
                 }
               : null
           }

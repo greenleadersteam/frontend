@@ -1,0 +1,75 @@
+/* Карта шага — 420px в высоту, радиус xl, как у крупного контейнера (design.md). */
+.map {
+  display: flex;
+  height: 26.25rem;
+}
+
+.fill {
+  flex: 1;
+}
+
+/* Рамка неподвижна по центру карты и не мешает её перетаскивать. Размер — 70 % меньшей стороны
+   карты (FRAME_SHARE в site-step.tsx): cqmin считается от контейнера этого слоя. */
+.viewport {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  container-type: size;
+  pointer-events: none;
+}
+
+.frame {
+  /* Толщина рамки; засечки углов вдвое толще и лежат поверх пунктира. */
+  --frame-line: 2px;
+
+  position: relative;
+  width: 70cqmin;
+  height: 70cqmin;
+  border: var(--frame-line) dashed var(--mantine-color-sage-7);
+  background: color-mix(in srgb, var(--mantine-color-sage-7) 8%, transparent);
+}
+
+/* Углы-засечки: сплошные уголки поверх пунктира. */
+.corner {
+  position: absolute;
+  width: var(--mantine-spacing-md);
+  height: var(--mantine-spacing-md);
+  border: 0 solid var(--mantine-color-sage-7);
+
+  &[data-corner='nw'] {
+    top: calc(var(--frame-line) * -1);
+    left: calc(var(--frame-line) * -1);
+    border-top-width: calc(var(--frame-line) * 2);
+    border-left-width: calc(var(--frame-line) * 2);
+  }
+
+  &[data-corner='ne'] {
+    top: calc(var(--frame-line) * -1);
+    right: calc(var(--frame-line) * -1);
+    border-top-width: calc(var(--frame-line) * 2);
+    border-right-width: calc(var(--frame-line) * 2);
+  }
+
+  &[data-corner='sw'] {
+    bottom: calc(var(--frame-line) * -1);
+    left: calc(var(--frame-line) * -1);
+    border-bottom-width: calc(var(--frame-line) * 2);
+    border-left-width: calc(var(--frame-line) * 2);
+  }
+
+  &[data-corner='se'] {
+    right: calc(var(--frame-line) * -1);
+    bottom: calc(var(--frame-line) * -1);
+    border-right-width: calc(var(--frame-line) * 2);
+    border-bottom-width: calc(var(--frame-line) * 2);
+  }
+}
+
+.size {
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  color: var(--app-error);
+}

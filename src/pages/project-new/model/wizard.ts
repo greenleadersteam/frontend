@@ -1,6 +1,7 @@
 import type { AppError } from '@/shared/api';
 
 import type { CheckedArchive } from './check-archive';
+import type { SiteArea } from './site';
 
 export type ProjectDetails = { name: string; description: string };
 
@@ -23,8 +24,10 @@ export type UploadState =
 export type WizardProject = { id: string; name: string; keepOnLeave: boolean };
 
 export type WizardState = {
-  step: 'details' | 'archive' | 'processing';
+  step: 'details' | 'site' | 'archive' | 'processing';
   details: ProjectDetails | null;
+  // Область участка для bbox_user: только у сервера без optionalBbox.
+  site: SiteArea | null;
   archive: CheckedArchive | null;
   project: WizardProject | null;
   upload: UploadState;
@@ -33,8 +36,10 @@ export type WizardState = {
 };
 
 export type WizardAction =
-  | { type: 'detailsSubmitted'; details: ProjectDetails }
-  | { type: 'backToDetails' }
+  // next — шаг после описания: «Участок», если сервер требует область, иначе «Файлы».
+  | { type: 'detailsSubmitted'; details: ProjectDetails; next: 'site' | 'archive' }
+  | { type: 'siteChosen'; site: SiteArea }
+  | { type: 'back' }
   | { type: 'archiveChecked'; archive: CheckedArchive }
   | { type: 'archiveCleared' }
   | { type: 'uploadRequested' }
@@ -56,6 +61,7 @@ export type WizardEntry = { project: WizardProject; start: 'archive' | 'root-cho
 export const initialWizardState = (entry: WizardEntry | null): WizardState => ({
   step: entry === null ? 'details' : entry.start === 'archive' ? 'archive' : 'processing',
   details: null,
+  site: null,
   archive: null,
   project: entry?.project ?? null,
   // Архив проекта принят ещё до мастера: любые его данные актуальны (acceptedAt = 0).
@@ -66,9 +72,14 @@ export const initialWizardState = (entry: WizardEntry | null): WizardState => ({
 export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   switch (action.type) {
     case 'detailsSubmitted':
-      return { ...state, step: 'archive', details: action.details };
-    case 'backToDetails':
-      return { ...state, step: 'details' };
+      return { ...state, step: action.next, details: action.details };
+    case 'siteChosen':
+      return { ...state, step: 'archive', site: action.site };
+    case 'back':
+      return {
+        ...state,
+        step: state.step === 'archive' && state.site !== null ? 'site' : 'details',
+      };
     case 'archiveChecked':
       return { ...state, archive: action.archive, archiveNotice: null };
     case 'archiveCleared':

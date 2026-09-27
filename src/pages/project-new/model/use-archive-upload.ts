@@ -9,6 +9,7 @@ import {
 import { type AppError, baseApi, describeAppError, toAppError, uploadArchive } from '@/shared/api';
 import { useAppDispatch } from '@/shared/lib/store';
 
+import { toBboxUser } from './site';
 import type { WizardAction, WizardState } from './wizard';
 
 type ArchiveUpload = {
@@ -44,7 +45,7 @@ export function useArchiveUpload(
   );
 
   const start = async () => {
-    const { archive, details, project: existing } = state;
+    const { archive, details, site, project: existing } = state;
     if (archive === null) return;
     // Без проекта мастер всегда проходит шаг «Описание»: details тогда заполнены.
     const toCreate = existing === null ? details : null;
@@ -56,10 +57,11 @@ export function useArchiveUpload(
 
     let project = existing;
     if (toCreate !== null) {
-      // bbox_user не отправляется: по контракту-предложению поле необязательно.
+      // Область участка есть только у сервера без optionalBbox: там bbox_user обязателен.
       const created = await createProject({
         name: toCreate.name,
         description: toCreate.description === '' ? null : toCreate.description,
+        ...(site !== null && { bbox_user: toBboxUser(site) }),
       });
       if ('error' in created) {
         if (isCurrent()) dispatch({ type: 'uploadFailed', error: toAppError(created.error) });
@@ -155,11 +157,12 @@ export function useArchiveUpload(
   return { start, cancel, abort };
 }
 
-// Задеплоенный бэкенд требует bbox_user (../backend/greenplan/api/schemas.py:18), контракт-
-// предложение — нет. Пока форма не умеет задавать область участка, 422 на нём объясняется.
+// Задеплоенный бэкенд требует bbox_user (../backend/greenplan/api/schemas.py:18). Мастер
+// спрашивает область, если сервер не объявил optionalBbox; 422 здесь значит, что конфиг
+// объявил возможность, которой у сервера нет.
 export function describeUploadError(error: AppError): string {
   if (error.kind === 'validation' && 'bbox_user' in error.fields) {
-    return 'Сервер требует указать область участка. Эта возможность появится позже. Обратитесь к администратору.';
+    return 'Сервер требует указать область участка, а настройки говорят, что не требует. Сообщите администратору.';
   }
   return describeAppError(error);
 }
