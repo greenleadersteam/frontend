@@ -7,11 +7,15 @@ export {
 } from './api/project-api';
 export type {
   ExplanationEntry,
+  Norm,
+  ObstaclesFeatureCollection,
   PlantingFeatureCollection,
   ZonesFeatureCollection,
 } from './api/project-result-api';
 export {
   useGetExplanationQuery,
+  useGetNormsQuery,
+  useGetObstaclesQuery,
   useGetPlantingQuery,
   useGetZonesQuery,
 } from './api/project-result-api';
@@ -26,14 +30,18 @@ export {
 export { dimensionLines } from './lib/dimension-lines';
 export { projectFileName } from './lib/file-name';
 export { createLocalFrame, type LocalFrame } from './lib/local-frame';
-export { toMapData } from './lib/map-data';
+export { toMapData, toMapObstacles } from './lib/map-data';
+export type { PreparedObstacle, PreparedObstacles } from './lib/obstacle-checks';
+export { checksAgainstObstacles, prepareObstacles } from './lib/obstacle-checks';
 export { CROWN_RADIUS_M, isGeographic, pixelsPerMeterAtZoom } from './lib/plan-projection';
 export type { PlantingCheck, PreparedZones, ProhibitedZone } from './lib/planting-checks';
 export {
+  allowedArea,
   checksForPlanting,
   lawnArea,
   prepareZones,
   prohibitedArea,
+  TOLERANCE_M,
   zoneArea,
 } from './lib/planting-checks';
 export type { ResultData, ResultLayerGroup } from './lib/result-layers';
@@ -41,6 +49,9 @@ export {
   dimensionLabelsMinZoom,
   HATCH_IMAGE,
   hatchPattern,
+  OBSTACLE_LAYERS,
+  obstacleGroup,
+  plantTypeFilters,
   RESULT_LAYER,
   RESULT_LAYER_GROUPS,
   RESULT_SOURCE,
@@ -49,9 +60,10 @@ export {
   resultLayers,
   resultSources,
   SELECTABLE_LAYERS,
+  utilityStyleOf,
 } from './lib/result-layers';
 export { useProjectsWithPolling, useProjectWithPolling } from './model/polling';
-export type { Project, ProjectState } from './model/project';
+export type { PlantType, Project, ProjectState } from './model/project';
 export { archiveAction, getProcessingDurationMs, isProcessing, isProjectId } from './model/project';
 export { PlanCanvas } from './ui/plan-canvas';
 export { PollingStalledAlert, ProcessingStages } from './ui/processing-stages';

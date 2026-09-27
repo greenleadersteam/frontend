@@ -3,17 +3,23 @@ import { describe, expect, test } from 'vitest';
 
 import { resultLayerColors } from '@/shared/theme';
 
-import type { PlantingFeatureCollection, ZonesFeatureCollection } from '../api/project-result-api';
+import type {
+  ObstaclesFeatureCollection,
+  PlantingFeatureCollection,
+  ZonesFeatureCollection,
+} from '../api/project-result-api';
 import {
   crownRadiusExpression,
   dimensionLabelsMinZoom,
   hatchPattern,
+  plantTypeFilters,
   RESULT_LAYER,
   RESULT_SOURCE,
   resultCounts,
   resultExtent,
   resultLayers,
   resultSources,
+  utilityLabelsMinZoom,
 } from './result-layers';
 
 // Вычислитель ровно тех выражений, что строит crownRadiusExpression.
@@ -146,21 +152,74 @@ const zones: ZonesFeatureCollection = {
       geometry: { type: 'Polygon', coordinates: square(32, 50) },
       properties: { zone_type: 'base_area' },
     },
+    {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: square(33, 50) },
+      properties: { zone_type: 'allowed', plant_type: 'tree' },
+    },
+  ],
+};
+
+const source = { status: 'auto', dxftype: 'LWPOLYLINE', rule_id: '3', handle: '2C7' };
+const line = (y: number) => ({
+  type: 'LineString' as const,
+  coordinates: [
+    [37.599, y],
+    [37.601, y],
+  ],
+});
+const obstacles: ObstaclesFeatureCollection = {
+  type: 'FeatureCollection',
+  metadata: { crs: 'EPSG:4326 (WGS84 lon/lat)' },
+  features: [
+    {
+      type: 'Feature',
+      geometry: line(55.7501),
+      properties: { ...source, category: 'underground_utilities', subtype: 'gas', layer: 'Газ' },
+    },
+    {
+      type: 'Feature',
+      geometry: line(55.7502),
+      properties: {
+        ...source,
+        category: 'underground_utilities',
+        subtype: 'steam',
+        layer: 'Пар',
+      },
+    },
+    {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [37.6, 55.75] },
+      properties: { ...source, category: 'wells_hatches', subtype: null, layer: 'Колодцы' },
+    },
+    {
+      type: 'Feature',
+      geometry: line(55.7503),
+      properties: { ...source, category: 'road_edge', subtype: null, layer: 'Борт' },
+    },
   ],
 };
 
 describe('источники и слои результата', () => {
-  test('порядок снизу вверх: газон, зоны, граница, посадки, размеры, выбор', () => {
+  test('порядок снизу вверх: газон, «можно», здания, зоны, кромки и сети, граница, посадки, подписи сетей, размеры, выбор', () => {
     expect(resultLayers(LAT).map(({ id }) => id)).toEqual([
       RESULT_LAYER.lawn,
+      RESULT_LAYER.allowed,
+      RESULT_LAYER.buildings,
+      RESULT_LAYER.buildingsOutline,
       RESULT_LAYER.zones,
       RESULT_LAYER.zonesHatch,
       RESULT_LAYER.zonesOutline,
+      RESULT_LAYER.edges,
+      RESULT_LAYER.utilitiesSolid,
+      RESULT_LAYER.utilitiesDashed,
+      RESULT_LAYER.utilitiesDashDot,
       RESULT_LAYER.siteBoundary,
       RESULT_LAYER.shrubs,
       RESULT_LAYER.treeShadows,
       RESULT_LAYER.trees,
       RESULT_LAYER.treeHighlights,
+      RESULT_LAYER.utilityLabels,
       RESULT_LAYER.dimensionMargin,
       RESULT_LAYER.dimensionSetback,
       RESULT_LAYER.dimensionSetbackTicks,
@@ -170,13 +229,14 @@ describe('источники и слои результата', () => {
     ]);
   });
 
-  test('газон и граница участка — свой источник, без допустимой области и зон запрета', () => {
-    const { data } = resultSources({ planting, zones }, LAT)[RESULT_SOURCE.site];
+  test('газон, граница участка и «можно» — свой источник, без base_area и зон запрета', () => {
+    const { data } = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.site];
 
     expect(data).toMatchObject({
       features: [
         { properties: { zone_type: 'site_boundary' } },
         { properties: { zone_type: 'lawn_raw' } },
+        { properties: { zone_type: 'allowed', plant_type: 'tree' } },
       ],
     });
     const layers = resultLayers(LAT);
@@ -193,7 +253,7 @@ describe('источники и слои результата', () => {
   });
 
   test('посадки — с promoteId по id и радиусом кроны по типу', () => {
-    const source = resultSources({ planting, zones }, LAT)[RESULT_SOURCE.planting];
+    const source = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.planting];
 
     expect(source.promoteId).toBe('id');
     expect(source.data).toMatchObject({
@@ -205,7 +265,7 @@ describe('источники и слои результата', () => {
   });
 
   test('блик — только у деревьев, к северо-западу от центра кроны', () => {
-    const { data } = resultSources({ planting, zones }, LAT)[RESULT_SOURCE.highlights];
+    const { data } = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.highlights];
     if (typeof data === 'string' || data.type !== 'FeatureCollection') throw new Error('данные');
     const [highlight] = data.features;
     if (highlight?.geometry.type !== 'Point') throw new Error('ожидалась точка');
@@ -219,12 +279,12 @@ describe('источники и слои результата', () => {
   });
 
   test('на карте — только зоны запрета; охват — по ним и по посадкам', () => {
-    const { data } = resultSources({ planting, zones }, LAT)[RESULT_SOURCE.zones];
+    const { data } = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.zones];
 
     expect(data).toMatchObject({
       features: [{ properties: { zone_type: 'prohibited', zone_index: 0 } }],
     });
-    expect(resultSources({ planting, zones }, LAT)[RESULT_SOURCE.zones].promoteId).toBe(
+    expect(resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.zones].promoteId).toBe(
       'zone_index',
     );
     expect(resultExtent({ planting, zones })).toEqual({
@@ -233,7 +293,66 @@ describe('источники и слои результата', () => {
       maxX: 37.601,
       maxY: 55.751,
     });
-    expect(resultCounts({ planting, zones })).toEqual({ trees: 1, shrubs: 1, zones: 1 });
+    expect(resultCounts({ planting, zones })).toEqual({
+      trees: 1,
+      shrubs: 1,
+      zones: 1,
+      zonesByType: { tree: 1, shrub: 0 },
+    });
+  });
+
+  test('«можно» и зоны запрета — для выбранного типа посадки', () => {
+    const layers = resultLayers(LAT);
+    const filterOf = (id: string) => {
+      const layer = layers.find((candidate) => candidate.id === id);
+      return layer !== undefined && 'filter' in layer ? layer.filter : undefined;
+    };
+
+    // По умолчанию — деревья; переключатель подставляет фильтры другого типа.
+    expect(filterOf(RESULT_LAYER.allowed)).toEqual(plantTypeFilters('tree')[RESULT_LAYER.allowed]);
+    expect(filterOf(RESULT_LAYER.zonesHatch)).toEqual(['==', ['get', 'plant_type'], 'tree']);
+    expect(plantTypeFilters('shrub')).toMatchObject({
+      [RESULT_LAYER.allowed]: [
+        'all',
+        ['==', ['get', 'zone_type'], 'allowed'],
+        ['==', ['get', 'plant_type'], 'shrub'],
+      ],
+      [RESULT_LAYER.zones]: ['==', ['get', 'plant_type'], 'shrub'],
+      [RESULT_LAYER.zonesOutline]: ['==', ['get', 'plant_type'], 'shrub'],
+    });
+  });
+
+  test('объекты: сети, кромки и здания с номером, цветом сети и подписью; остальное не рисуется', () => {
+    const { data, promoteId } = resultSources({ planting, zones }, obstacles, LAT)[
+      RESULT_SOURCE.obstacles
+    ];
+
+    expect(promoteId).toBe('obstacle_index');
+    expect(data).toMatchObject({
+      features: [
+        {
+          properties: {
+            obstacle_index: 0,
+            group: 'utilities',
+            utility: 'gas',
+            color: '#8A6A2A',
+            label: 'Газопровод',
+          },
+        },
+        // Подтип без своего цвета — как неопознанная сеть, подпись — по категории.
+        {
+          properties: {
+            obstacle_index: 1,
+            utility: 'other_utility',
+            label: 'Подземная сеть',
+          },
+        },
+        { properties: { obstacle_index: 3, group: 'edges', label: 'Бортовой камень' } },
+      ],
+    });
+    expect(
+      resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.obstacles].data,
+    ).toMatchObject({ features: [] });
   });
 
   test('выбранная посадка — белое кольцо 3px и тёмное 1,5px по feature-state', () => {
@@ -279,4 +398,12 @@ test('подписи размеров — с одного и того же чи�
   );
   const labels = resultLayers(0).find(({ id }) => id === RESULT_LAYER.dimensionLabels);
   expect(labels?.minzoom).toBe(dimensionLabelsMinZoom(0));
+});
+
+test('подписи сетей — с 17-го масштаба в Москве, у экватора — с той же детальности', () => {
+  expect(utilityLabelsMinZoom(55.75)).toBeCloseTo(17, 5);
+  expect(utilityLabelsMinZoom(0) - utilityLabelsMinZoom(55.75)).toBeCloseTo(
+    Math.log2(1 / Math.cos((55.75 * Math.PI) / 180)),
+    5,
+  );
 });

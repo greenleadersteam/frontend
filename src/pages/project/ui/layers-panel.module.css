@@ -27,3 +27,24 @@
   color: var(--app-text-muted);
   font-variant-numeric: tabular-nums;
 }
+
+.section {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+/* Условные знаки сетей под строкой «Сети»: по знаку и подписи на строку, с отступом под
+   условным знаком строки. */
+.legend {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+  margin: 0;
+  padding: 0 0 0 var(--mantine-spacing-lg);
+  list-style: none;
+}
+
+.legendItem {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  align-items: center;
+}

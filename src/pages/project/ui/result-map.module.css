@@ -10,23 +10,42 @@
   flex: 1;
 }
 
+/* Колонки панелей не заходят на подписи и кнопки у нижнего края карты: слева — на подпись
+   о подложке и масштабную линейку, справа — на кнопки масштаба. Длинная панель прокручивается. */
 .topLeft,
 .topRight {
   position: absolute;
   top: var(--mantine-spacing-lg);
+  display: flex;
+  align-items: flex-start;
+
+  /* Колонка выше панели: её пустая часть не должна отнимать у карты щелчки и перетаскивание. */
+  pointer-events: none;
+
+  /* Панель, а на узком экране — кнопка «Слои» с поповером, принимают события как обычно. */
+  & > * {
+    pointer-events: auto;
+  }
+
+  & .panel {
+    max-height: 100%;
+    overflow-y: auto;
+  }
 }
 
 .topLeft {
+  bottom: calc(var(--mantine-spacing-xl) * 3);
   left: var(--mantine-spacing-lg);
 }
 
 .topRight {
   right: var(--mantine-spacing-lg);
+  bottom: calc(var(--mantine-spacing-xl) * 4);
 }
 
 /* Панели поверх карты: белые, радиус lg, тень md, поля 12–16px (design.md, «Карта»). */
 .panel {
-  width: calc(var(--app-card-min-width) * 0.9);
+  width: var(--app-card-min-width);
   padding: var(--mantine-spacing-md) var(--mantine-spacing-lg);
   border-radius: var(--mantine-radius-lg);
   background: var(--app-surface);

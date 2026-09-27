@@ -6,6 +6,7 @@ import { type RouteObject, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { dimensionLabelsMinZoom } from '@/entities/project';
+import type * as Config from '@/shared/config';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { renderWithProviders, server } from '@/shared/lib/test';
 
@@ -17,6 +18,18 @@ type Handler = (event: { point: { x: number; y: number } }) => void;
 type QueryOptions = { layers: string[] };
 
 const mapMock = vi.hoisted(() => ({ unavailable: false }));
+
+// Моки реализуют весь контракт, и сервер в тестах объявляет все возможности. Проверки по зонам
+// запрета — поведение сервера без /obstacles: такие тесты выключают возможность obstacles.
+const serverMock = vi.hoisted(() => ({ obstacles: true }));
+vi.mock('@/shared/config', async (importOriginal) => {
+  const actual = await importOriginal<typeof Config>();
+  return {
+    ...actual,
+    useCapability: (name: Config.Capability) =>
+      name === 'obstacles' ? serverMock.obstacles : actual.useCapability(name),
+  };
+});
 
 function createFakeMap() {
   const handlers = new Map<string, Handler>();
@@ -41,6 +54,7 @@ function createFakeMap() {
     getZoom: vi.fn(() => 19),
     getSource: (id: string) => (id === 'result-dimensions' ? dimensions : undefined),
     setLayoutProperty: vi.fn(),
+    setFilter: vi.fn(),
     setFeatureState: vi.fn(),
     easeTo: vi.fn<(options: { center: number[]; zoom?: number }) => void>(),
     resize: vi.fn(),
@@ -119,6 +133,7 @@ const renderProject = (id: string) => renderWithProviders(routes, `/projects/${i
 beforeEach(() => {
   fakeMap = createFakeMap();
   mapMock.unavailable = false;
+  serverMock.obstacles = true;
 });
 
 afterEach(() => {
@@ -385,7 +400,8 @@ describe('панель «Слои»', () => {
 
     expect(await screen.findByRole('switch', { name: 'Деревья, 19 деревьев' })).toBeChecked();
     expect(screen.getByRole('switch', { name: 'Кустарники, 19 кустарников' })).toBeChecked();
-    expect(screen.getByRole('switch', { name: 'Зоны запрета, 10 зон запрета' })).toBeChecked();
+    // Зоны запрета — для выбранного типа посадки, по умолчанию деревьев.
+    expect(screen.getByRole('switch', { name: 'Зоны запрета, 5 зон запрета' })).toBeChecked();
     expect(screen.getByRole('switch', { name: 'Подложка' })).toBeDisabled();
   });
 
@@ -424,10 +440,16 @@ describe('панель «Слои»', () => {
 // отступ 0,7 м), кабель (y = 4,5, отступ 2 м) и газопровод (y = 12, отступ 1,5 м).
 const FIRST_TREE = 'TREE_ROW_CURB-00001';
 
-const clickMap = (plantingId: string | null, zoneIndex: number | null = null) => {
+const clickMap = (
+  plantingId: string | null,
+  zoneIndex: number | null = null,
+  obstacleIndex: number | null = null,
+) => {
   fakeMap.queryRenderedFeatures.mockImplementation((_point, { layers }) => {
     if (layers.includes('trees'))
       return plantingId === null ? [] : [{ properties: { id: plantingId } }];
+    if (layers.includes('obstacle-utilities-solid'))
+      return obstacleIndex === null ? [] : [{ properties: { obstacle_index: obstacleIndex } }];
     return zoneIndex === null ? [] : [{ properties: { zone_index: zoneIndex } }];
   });
   act(() => {
@@ -465,7 +487,8 @@ describe('панель «Посадка»', () => {
     );
   });
 
-  test('проверки по зонам запрета — по возрастанию запаса, с нормой и источником', async () => {
+  test('без /obstacles — проверки по зонам запрета: по возрастанию запаса, с нормой и источником', async () => {
+    serverMock.obstacles = false;
     renderProject(READY_ID);
     const panel = await selectFirstTree();
 
@@ -490,7 +513,8 @@ describe('панель «Посадка»', () => {
     ).toBeVisible();
   });
 
-  test('размерные линии — у трёх ближайших, наведение выделяет свою', async () => {
+  test('без /obstacles — размерные линии у трёх ближайших зон, наведение выделяет свою', async () => {
+    serverMock.obstacles = false;
     renderProject(READY_ID);
     const panel = await selectFirstTree();
 
@@ -545,6 +569,7 @@ describe('панель «Посадка»', () => {
   });
 
   test('«Показать зону» у проверки открывает панель зоны с клавиатуры', async () => {
+    serverMock.obstacles = false;
     renderProject(READY_ID);
     const panel = await selectFirstTree();
 
@@ -564,16 +589,17 @@ describe('панель «Посадка»', () => {
   });
 
   test('«Показать зону» включает выключенный слой зон', async () => {
+    serverMock.obstacles = false;
     renderProject(READY_ID);
     const panel = await selectFirstTree();
-    await userEvent.click(screen.getByRole('switch', { name: 'Зоны запрета, 10 зон запрета' }));
+    await userEvent.click(screen.getByRole('switch', { name: 'Зоны запрета, 5 зон запрета' }));
 
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Показать зону: Силовой кабель' }),
     );
 
     expect(
-      await screen.findByRole('switch', { name: 'Зоны запрета, 10 зон запрета' }),
+      await screen.findByRole('switch', { name: 'Зоны запрета, 5 зон запрета' }),
     ).toBeChecked();
   });
 
@@ -768,8 +794,177 @@ function mockSinglePlanting({ zoneOverPlanting }: { zoneOverPlanting: boolean })
   );
 }
 
+describe('«можно» и «нельзя»', () => {
+  test('по умолчанию — деревья; «Кустарники» переключает «можно» и зоны запрета', async () => {
+    // Строка «Можно сажать» — с площадью разрешённой области выбранного типа.
+    const allowedLabel = () => {
+      const row = screen.getByRole('switch', { name: /^Можно сажать, площадь / });
+      return row instanceof HTMLInputElement ? row.labels?.[0]?.textContent : null;
+    };
+    renderProject(READY_ID);
+    await screen.findByRole('switch', { name: /^Можно сажать, площадь / });
+    const treeArea = allowedLabel();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Кустарники' }));
+
+    expect(fakeMap.setFilter).toHaveBeenLastCalledWith('prohibited-zones-outline', [
+      '==',
+      ['get', 'plant_type'],
+      'shrub',
+    ]);
+    expect(fakeMap.setFilter).toHaveBeenCalledWith('allowed-area', [
+      'all',
+      ['==', ['get', 'zone_type'], 'allowed'],
+      ['==', ['get', 'plant_type'], 'shrub'],
+    ]);
+    // У кустарника нормы меньше — разрешённая область другая.
+    expect(treeArea).toMatch(/^Можно сажать[\d\s]+м²/);
+    expect(allowedLabel()).not.toBe(treeArea);
+  });
+
+  test('выбранная зона другого типа посадки при переключении снимается', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    clickMap(null, 1);
+    await screen.findByRole('region', { name: 'Силовой кабель' });
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Кустарники' }));
+
+    expect(screen.queryByRole('region', { name: 'Силовой кабель' })).not.toBeInTheDocument();
+  });
+});
+
+describe('исходные объекты', () => {
+  test('группа «Исходные объекты» с переключателями и условными знаками сетей', async () => {
+    renderProject(READY_ID);
+
+    expect(await screen.findByRole('heading', { name: 'Исходные объекты' })).toBeVisible();
+    const utilities = screen.getByRole('switch', { name: 'Сети' });
+    expect(utilities).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Здания' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Бортовой камень и тротуары' })).toBeChecked();
+    expect(
+      within(screen.getByRole('list', { name: 'Условные знаки сетей' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Силовой кабель', 'Газопровод', 'Водопровод']);
+
+    await userEvent.click(utilities);
+
+    for (const layer of [
+      'obstacle-utilities-solid',
+      'obstacle-utilities-dashed',
+      'obstacle-utilities-dash-dot',
+      'obstacle-utility-labels',
+    ]) {
+      expect(fakeMap.setLayoutProperty).toHaveBeenCalledWith(layer, 'visibility', 'none');
+    }
+  });
+
+  test('клик по сети — панель «Объект»: слой и handle DXF, нормы для дерева и кустарника', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    // Газопровод — третий объект /obstacles демо-участка.
+    clickMap(null, 1, 2);
+
+    const panel = await screen.findByRole('region', { name: 'Газопровод' });
+    expect(within(panel).getByText('Подземная сеть')).toBeInTheDocument();
+    expect(within(panel).getByText('Слой DXF: Газопровод')).toBeInTheDocument();
+    expect(within(panel).getByText('Handle: 2C7')).toBeInTheDocument();
+    const norms = within(within(panel).getByRole('list', { name: 'Нормы отступа' })).getAllByRole(
+      'listitem',
+    );
+    expect(norms[0]).toHaveTextContent('Для деревьев — не ближе 1,5 м');
+    expect(norms[0]).toHaveTextContent(
+      'ПП Москвы от 10.09.2002 № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1, строка «газопровод, канализация»',
+    );
+    // У кустарника пункт не подтверждён: акт без пункта и объяснение значения.
+    expect(norms[1]).toHaveTextContent('Для кустарников — не ближе 1,5 м');
+    expect(norms[1]).not.toHaveTextContent('п. 3.6.3');
+    expect(norms[1]).toHaveTextContent('для кустарника нормы нет');
+    expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
+      { source: 'result-obstacles', id: 2 },
+      { selected: true },
+    );
+  });
+
+  test('сбой /obstacles план не закрывает: проверки — по зонам запрета, с пояснением', async () => {
+    server.use(
+      http.get('/api/projects/:projectId/obstacles', () => new HttpResponse(null, { status: 500 })),
+    );
+    renderProject(READY_ID);
+
+    const panel = await selectFirstTree();
+
+    expect(
+      screen.getByText(/^Объекты подосновы не загрузились: проверки посчитаны по зонам запрета\./),
+    ).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Исходные объекты' })).not.toBeInTheDocument();
+    expect(
+      within(panel).getByRole('button', { name: 'Показать зону: Силовой кабель' }),
+    ).toBeVisible();
+  });
+
+  test('без возможности obstacles — ни группы, ни запроса', async () => {
+    serverMock.obstacles = false;
+    const requests: string[] = [];
+    server.events.on('request:start', ({ request }) => {
+      requests.push(new URL(request.url).pathname);
+    });
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    expect(screen.queryByRole('heading', { name: 'Исходные объекты' })).not.toBeInTheDocument();
+    expect(requests.filter((path) => path.endsWith('/obstacles') || path === '/api/norms')).toEqual(
+      [],
+    );
+  });
+});
+
+describe('проверки по объектам', () => {
+  test('серверные проверки: факт, норма с пунктом, «Показать объект»', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+
+    const checks = within(within(panel).getByRole('list', { name: 'Проверки' })).getAllByRole(
+      'listitem',
+    );
+    expect(checks.map((check) => within(check).getAllByText(/./)[0]?.textContent)).toEqual([
+      'Силовой кабель',
+      'Бортовой камень',
+      'Газопровод',
+      'Водопровод',
+      'Существующее дерево',
+    ]);
+    expect(checks[0]).toHaveTextContent('2,3 м при норме не менее 2 м');
+    expect(checks[0]).toHaveTextContent(
+      'ПП Москвы от 10.09.2002 № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1, строка «силовой кабель и кабель связи»',
+    );
+
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Показать объект: Силовой кабель' }),
+    );
+
+    const obstacle = await screen.findByRole('region', { name: 'Силовой кабель' });
+    expect(within(obstacle).getByText('Слой DXF: Кабель электроснабжения')).toBeInTheDocument();
+  });
+
+  test('размерная линия — до линии сети, подпись факта и отметка нормы', async () => {
+    renderProject(READY_ID);
+    await selectFirstTree();
+
+    const labels = lastDimensions()
+      .filter(({ properties }) => properties.kind === 'label')
+      .map(({ properties }) => properties.text?.replace('\u00A0', ' '));
+    // Три ближайших объекта; водопровод и дерево дальше порога — линии у них нет.
+    expect(labels).toEqual(['2,3 м', 'норма 2 м', '2,2 м', 'норма 0,7 м', '9,8 м', 'норма 1,5 м']);
+  });
+});
+
 describe('панель «Посадка» — крайние случаи', () => {
   test('рядом ничего нет, границы участка нет', async () => {
+    serverMock.obstacles = false;
     mockSinglePlanting({ zoneOverPlanting: false });
     renderProject(READY_ID);
     await screen.findByRole('region', { name: /^План посадок/ });
@@ -832,6 +1027,7 @@ describe('панель «Посадка» — крайние случаи', () =
   });
 
   test('посадка внутри зоны — предупреждение, источник не указан', async () => {
+    serverMock.obstacles = false;
     mockSinglePlanting({ zoneOverPlanting: true });
     renderProject(READY_ID);
     await screen.findByRole('region', { name: /^План посадок/ });

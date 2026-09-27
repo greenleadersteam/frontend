@@ -12,6 +12,10 @@
   align-self: flex-start;
 }
 
+.notice {
+  margin-bottom: var(--mantine-spacing-sm);
+}
+
 .plan {
   display: flex;
   flex: 1;

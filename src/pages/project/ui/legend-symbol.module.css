@@ -37,6 +37,12 @@
   fill-opacity: 0.7;
 }
 
+/* «Можно» — поверх газона, как на карте (ALLOWED_OPACITY в result-layers.ts). */
+.allowed {
+  fill: var(--mantine-color-sage-3);
+  fill-opacity: 0.55;
+}
+
 /* Тот же ритм, что у линии на карте: штрих и просвет 8 : 3. */
 .siteBoundary {
   stroke: var(--mantine-color-stone-8);
@@ -58,4 +64,60 @@
 .road {
   stroke: var(--app-map-road);
   stroke-width: 2.5;
+}
+
+/* Сети: рисунок линии — в долях толщины, как line-dasharray на карте ([3, 2] и [5, 2, 1, 2]). */
+.utility {
+  stroke-width: 1.5;
+}
+
+.utility[data-dash='dashed'] {
+  stroke-dasharray: 4.5 3;
+}
+
+.utility[data-dash='dashDot'] {
+  stroke-dasharray: 7.5 3 1.5 3;
+}
+
+.utility[data-utility='gas'] {
+  stroke: var(--app-map-utility-gas);
+}
+
+.utility[data-utility='water'] {
+  stroke: var(--app-map-utility-water);
+}
+
+.utility[data-utility='heat'] {
+  stroke: var(--app-map-utility-heat);
+}
+
+.utility[data-utility='sewer'] {
+  stroke: var(--app-map-utility-sewer);
+}
+
+.utility[data-utility='drainage'] {
+  stroke: var(--app-map-utility-drainage);
+}
+
+.utility[data-utility='other_utility'] {
+  stroke: var(--app-map-utility-other-utility);
+}
+
+.utility[data-utility='power_cable'] {
+  stroke: var(--app-map-utility-power-cable);
+}
+
+.utility[data-utility='comm_cable'] {
+  stroke: var(--app-map-utility-comm-cable);
+}
+
+.building {
+  fill: var(--mantine-color-stone-3);
+  stroke: var(--mantine-color-stone-5);
+  stroke-width: 1;
+}
+
+.edge {
+  stroke: var(--mantine-color-stone-6);
+  stroke-width: 1;
 }

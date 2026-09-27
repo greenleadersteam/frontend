@@ -41,6 +41,22 @@ const measured = (margin: number, distance: number): PlantingCheck => ({
 
 const options = { focused: null, metersPerPixel: 0.01, crownRadiusM: 0.35 };
 
+// Проверка по объекту: газопровод на 4 м к востоку от посадки, норма 1,5 м.
+const toObject = (actual: number, required: number, point: LocalPoint | null = [actual, 0]) =>
+  ({
+    kind: 'object',
+    category: 'underground_utilities',
+    subtype: 'gas',
+    actual,
+    required,
+    citation: '743-ПП — газопровод',
+    norm: null,
+    violated: false,
+    obstacle: null,
+    planting: [0, 0],
+    point,
+  }) satisfies PlantingCheck;
+
 describe('dimensionLines', () => {
   test('измеренная проверка: запас, охранная зона, три засечки и две подписи', () => {
     const { features } = dimensionLines([measured(2.34, 1.5)], frame, options);
@@ -101,6 +117,41 @@ describe('dimensionLines', () => {
     const [marginSide, setbackSide] = labels(0.5, 0.7, 1.5, 1 / 6);
     near(marginSide, [0.25, clearance]);
     near(setbackSide, [0.85, -clearance]);
+  });
+
+  test('до объекта — один отрезок с засечками, подпись факта и отметка нормы на нём', () => {
+    const { features } = dimensionLines([toObject(4, 1.5)], frame, options);
+
+    expect(features.map(({ properties }) => `${properties.kind}:${properties.part}`)).toEqual([
+      'line:distance',
+      'tick:distance',
+      'tick:distance',
+      'label:distance',
+      'tick:norm',
+      'label:norm',
+    ]);
+    const [line] = features;
+    if (line?.geometry.type !== 'LineString') throw new Error('ожидалась линия');
+    expect(line.geometry.coordinates.map(toMeters).map(([x]) => x)).toEqual([
+      expect.closeTo(0, 6),
+      expect.closeTo(4, 6),
+    ]);
+    const normTick = features.find(({ properties }) => properties.part === 'norm');
+    if (normTick?.geometry.type !== 'LineString') throw new Error('ожидалась засечка нормы');
+    // Штрих нормы — поперёк отрезка на расстоянии нормы от ствола.
+    for (const [x] of normTick.geometry.coordinates.map(toMeters)) expect(x).toBeCloseTo(1.5, 6);
+    expect(
+      features
+        .filter(({ properties }) => properties.kind === 'label')
+        .map(({ properties }) => properties.text),
+    ).toEqual(['4\u00A0м', 'норма 1,5\u00A0м']);
+  });
+
+  test('норма не меньше факта или объекта нет в /obstacles — без отметки и без линии', () => {
+    const atNorm = dimensionLines([toObject(1.5, 1.5)], frame, options).features;
+    expect(atNorm.some(({ properties }) => properties.part === 'norm')).toBe(false);
+
+    expect(dimensionLines([toObject(4, 1.5, null)], frame, options).features).toEqual([]);
   });
 
   test('засечка поперёк линии: 0,6 м, на мелком масштабе — не короче 8 пикселей', () => {

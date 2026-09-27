@@ -5,6 +5,8 @@ import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { type JSX, lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react';
 
 import {
+  allowedArea,
+  checksAgainstObstacles,
   checksForPlanting,
   CROWN_RADIUS_M,
   dimensionLabelsMinZoom,
@@ -14,15 +16,22 @@ import {
   hatchPattern,
   lawnArea,
   type LocalFrame,
+  OBSTACLE_LAYERS,
+  obstacleGroup,
+  type ObstaclesFeatureCollection,
   pixelsPerMeterAtZoom,
   type PlantingCheck,
   type PlantingFeatureCollection,
+  type PlantType,
+  plantTypeFilters,
+  type PreparedObstacles,
   type PreparedZones,
   RESULT_LAYER,
   RESULT_LAYER_GROUPS,
   RESULT_SOURCE,
   resultCounts,
   type ResultData,
+  type ResultLayerGroup,
   resultLayers,
   resultSources,
   SELECTABLE_LAYERS,
@@ -30,6 +39,7 @@ import {
 import { Icon } from '@/shared/ui';
 
 import { LayersPanel, type LayerVisibility } from './layers-panel';
+import { ObstaclePanel } from './obstacle-panel';
 import { PlantingPanel } from './planting-panel';
 import { resultLabel } from './result-label';
 import classes from './result-map.module.css';
@@ -45,8 +55,17 @@ const FIT_GAP_PX = 32;
 const ZOOM_CONTROLS_PX = 72;
 const DRAWING_NOTE = 'Координаты чертежа, без привязки к городу';
 const OUTSIDE_BASEMAP_NOTE = 'Участок за пределами карты Москвы, подложки нет';
+// Линию сети толщиной 1,5px трудно попасть курсором: щелчок ищет объект в квадрате вокруг.
+const OBSTACLE_HIT_PX = 4;
 
-export type Selection = { kind: 'planting'; id: string } | { kind: 'zone'; index: number } | null;
+export type Selection =
+  | { kind: 'planting'; id: string }
+  | { kind: 'zone'; index: number }
+  | { kind: 'obstacle'; index: number }
+  | null;
+
+// Объекты подосновы: в координатах карты для слоёв и подготовленные для проверок.
+export type MapObstacles = { map: ObstaclesFeatureCollection; prepared: PreparedObstacles };
 
 // Просьба подвести камеру к посадке (из ведомости). nonce различает повторы для той же посадки.
 export type CenterRequest = { id: string; nonce: number };
@@ -60,6 +79,8 @@ type ResultMapProps = {
   bounds: [number, number, number, number];
   frame: LocalFrame;
   prepared: PreparedZones;
+  // null — сервер не отдаёт /obstacles: проверки считаются по зонам запрета.
+  obstacles: MapObstacles | null;
   explanation: ReadonlyMap<string, ExplanationEntry>;
   // Подложка есть только у проекта с геопривязкой в пределах карты Москвы.
   basemap: boolean;
@@ -72,19 +93,22 @@ type ResultMapProps = {
 };
 
 // Проверки считаются по данным бэкенда, не по координатам карты: у плана без геопривязки
-// координаты карты условные.
-const plantingChecks = (
+// координаты карты условные. Есть объекты подосновы — расстояние до них прямое, иначе — через
+// зоны запрета.
+function plantingChecks(
   feature: PlantingFeatureCollection['features'][number] | undefined,
+  entry: ExplanationEntry | undefined,
   frame: LocalFrame,
   prepared: PreparedZones,
-): PlantingCheck[] =>
-  feature === undefined
-    ? []
-    : checksForPlanting(
-        frame.toLocal(feature.geometry.coordinates),
-        feature.properties.plant_type,
-        prepared,
-      );
+  obstacles: MapObstacles | null,
+): PlantingCheck[] {
+  if (feature === undefined) return [];
+  const point = frame.toLocal(feature.geometry.coordinates);
+  const { plant_type: plantType } = feature.properties;
+  return obstacles === null
+    ? checksForPlanting(point, plantType, prepared)
+    : checksAgainstObstacles(point, plantType, entry?.checks, obstacles.prepared);
+}
 
 export function ResultMap({
   data,
@@ -92,6 +116,7 @@ export function ResultMap({
   bounds,
   frame,
   prepared,
+  obstacles,
   explanation,
   basemap,
   selection,
@@ -112,10 +137,16 @@ export function ResultMap({
     trees: true,
     shrubs: true,
     zones: true,
+    allowed: true,
     lawn: true,
     siteBoundary: true,
+    utilities: true,
+    buildings: true,
+    edges: true,
     basemap: true,
   });
+  // Для какого типа посадки показаны «можно» и зоны запрета.
+  const [plantType, setPlantType] = useState<PlantType>('tree');
   const [basemapAvailable, setBasemapAvailable] = useState(false);
   // Выделенное ограничение привязано к выбранной посадке: смена выбора его сбрасывает.
   const [focused, setFocused] = useState<{ selection: Selection; index: number } | null>(null);
@@ -127,13 +158,18 @@ export function ResultMap({
   const openedPanelRef = useRef<HTMLDivElement>(null);
   const plantingRef = useRef<string | null>(null);
   const zoneRef = useRef<number | null>(null);
+  const obstacleRef = useRef<number | null>(null);
 
   const selectedPlanting =
     selection?.kind === 'planting'
       ? data.planting.features.find(({ properties }) => properties.id === selection.id)
       : undefined;
   const selectedZone = selection?.kind === 'zone' ? prepared.zones[selection.index] : undefined;
-  const checks = plantingChecks(selectedPlanting, frame, prepared);
+  const selectedObstacle =
+    selection?.kind === 'obstacle' ? obstacles?.prepared.obstacles[selection.index] : undefined;
+  const selectedEntry =
+    selectedPlanting === undefined ? undefined : explanation.get(selectedPlanting.properties.id);
+  const checks = plantingChecks(selectedPlanting, selectedEntry, frame, prepared, obstacles);
   const focusedCheck = focused?.selection === selection ? focused.index : null;
 
   // Если фокус был в панели, он исчез бы вместе с ней: возвращаем его на карту.
@@ -163,18 +199,27 @@ export function ResultMap({
 
   useEffect(() => {
     if (map === null) return;
-    for (const group of ['trees', 'shrubs', 'zones', 'lawn', 'siteBoundary'] as const) {
-      for (const layer of RESULT_LAYER_GROUPS[group]) {
-        map.setLayoutProperty(layer, 'visibility', visibility[group] ? 'visible' : 'none');
+    const shown: Record<string, boolean> = visibility;
+    for (const [group, layers] of Object.entries(RESULT_LAYER_GROUPS)) {
+      for (const layer of layers) {
+        map.setLayoutProperty(layer, 'visibility', shown[group] === true ? 'visible' : 'none');
       }
     }
   }, [map, visibility]);
+
+  useEffect(() => {
+    if (map === null) return;
+    for (const [layer, filter] of Object.entries(plantTypeFilters(plantType))) {
+      map.setFilter(layer, filter);
+    }
+  }, [map, plantType]);
 
   // Выделение — feature-state по id посадки и номеру зоны: источники не пересоздаются.
   useEffect(() => {
     if (map === null) return;
     const plantingId = selection?.kind === 'planting' ? selection.id : null;
     const zoneIndex = selection?.kind === 'zone' ? selection.index : null;
+    const obstacleIndex = selection?.kind === 'obstacle' ? selection.index : null;
     if (plantingRef.current !== null) {
       map.setFeatureState(
         { source: RESULT_SOURCE.planting, id: plantingRef.current },
@@ -187,14 +232,27 @@ export function ResultMap({
         { selected: false },
       );
     }
+    if (obstacleRef.current !== null) {
+      map.setFeatureState(
+        { source: RESULT_SOURCE.obstacles, id: obstacleRef.current },
+        { selected: false },
+      );
+    }
     if (plantingId !== null) {
       map.setFeatureState({ source: RESULT_SOURCE.planting, id: plantingId }, { selected: true });
     }
     if (zoneIndex !== null) {
       map.setFeatureState({ source: RESULT_SOURCE.zones, id: zoneIndex }, { selected: true });
     }
+    if (obstacleIndex !== null) {
+      map.setFeatureState(
+        { source: RESULT_SOURCE.obstacles, id: obstacleIndex },
+        { selected: true },
+      );
+    }
     plantingRef.current = plantingId;
     zoneRef.current = zoneIndex;
+    obstacleRef.current = obstacleIndex;
   }, [map, selection]);
 
   // Размерные линии выбранной посадки; засечки пересчитываются с масштабом. Проверки
@@ -247,12 +305,14 @@ export function ResultMap({
   const addResult = (target: MapLibreMap) => {
     const pixelRatio = target.getPixelRatio();
     target.addImage(HATCH_IMAGE, hatchPattern(pixelRatio), { pixelRatio });
-    for (const [id, source] of Object.entries(resultSources(mapData, latitude))) {
+    for (const [id, source] of Object.entries(
+      resultSources(mapData, obstacles?.map ?? null, latitude),
+    )) {
       target.addSource(id, source);
     }
     for (const layer of resultLayers(latitude)) target.addLayer(layer);
 
-    // Посадка важнее зоны под ней; клик по пустому месту снимает выбор.
+    // Посадка важнее объекта, объект — зоны под ним; клик по пустому месту снимает выбор.
     target.on('click', (event) => {
       const [planting] = target.queryRenderedFeatures(event.point, { layers: SELECTABLE_LAYERS });
       const id: unknown = planting?.properties.id;
@@ -260,11 +320,24 @@ export function ResultMap({
         onSelect({ kind: 'planting', id });
         return;
       }
+      const { x, y } = event.point;
+      const [obstacle] = target.queryRenderedFeatures(
+        [
+          [x - OBSTACLE_HIT_PX, y - OBSTACLE_HIT_PX],
+          [x + OBSTACLE_HIT_PX, y + OBSTACLE_HIT_PX],
+        ],
+        { layers: OBSTACLE_LAYERS },
+      );
+      const obstacleIndex: unknown = obstacle?.properties.obstacle_index;
+      if (typeof obstacleIndex === 'number') {
+        onSelect({ kind: 'obstacle', index: obstacleIndex });
+        return;
+      }
       const [zone] = target.queryRenderedFeatures(event.point, { layers: [RESULT_LAYER.zones] });
       const index: unknown = zone?.properties.zone_index;
       onSelect(typeof index === 'number' ? { kind: 'zone', index } : null);
     });
-    for (const layer of [...SELECTABLE_LAYERS, RESULT_LAYER.zones]) {
+    for (const layer of [...SELECTABLE_LAYERS, ...OBSTACLE_LAYERS, RESULT_LAYER.zones]) {
       target.on('mouseenter', layer, () => {
         target.getCanvas().style.cursor = 'pointer';
       });
@@ -287,16 +360,27 @@ export function ResultMap({
     if (map !== null && lon !== undefined && lat !== undefined) map.easeTo({ center: [lon, lat] });
   };
 
+  const selectedGroup: ResultLayerGroup | null =
+    selectedZone !== undefined
+      ? 'zones'
+      : selectedObstacle !== undefined
+        ? obstacleGroup(selectedObstacle.properties.category)
+        : selectedPlanting === undefined
+          ? null
+          : selectedPlanting.properties.plant_type === 'tree'
+            ? 'trees'
+            : 'shrubs';
+
   const changeVisibility = (next: LayerVisibility) => {
     setVisibility(next);
     // Скрытый объект не остаётся выбранным: выделение висело бы над пустым местом.
-    const group =
-      selectedZone !== undefined
-        ? 'zones'
-        : selectedPlanting?.properties.plant_type === 'tree'
-          ? 'trees'
-          : 'shrubs';
-    if (selection !== null && !next[group]) onSelect(null);
+    if (selectedGroup !== null && !next[selectedGroup]) onSelect(null);
+  };
+
+  const changePlantType = (next: PlantType) => {
+    setPlantType(next);
+    // Зона другого типа посадки скрывается фильтром — её выбор снимается.
+    if (selectedZone !== undefined && selectedZone.properties.plant_type !== next) onSelect(null);
   };
 
   const [lon, lat] = selectedPlanting?.geometry.coordinates ?? [];
@@ -305,7 +389,7 @@ export function ResultMap({
       <PlantingPanel
         ref={openedPanelRef}
         planting={selectedPlanting.properties}
-        entry={explanation.get(selectedPlanting.properties.id)}
+        entry={selectedEntry}
         coordinates={geographic && lon !== undefined && lat !== undefined ? { lat, lon } : null}
         checks={checks}
         uncovered={data.zones.metadata.uncovered_categories}
@@ -316,7 +400,15 @@ export function ResultMap({
         onShowZone={(index) => {
           focusPanelRef.current = true;
           setVisibility((previous) => ({ ...previous, zones: true }));
+          // Зона посадки — её типа: переключатель показывает зоны этого типа.
+          setPlantType(selectedPlanting.properties.plant_type);
           onSelect({ kind: 'zone', index });
+        }}
+        onShowObstacle={({ index, properties }) => {
+          const group = obstacleGroup(properties.category);
+          focusPanelRef.current = true;
+          if (group !== null) setVisibility((previous) => ({ ...previous, [group]: true }));
+          onSelect({ kind: 'obstacle', index });
         }}
         onClose={() => {
           closePanel(true);
@@ -330,10 +422,23 @@ export function ResultMap({
           closePanel(true);
         }}
       />
+    ) : selectedObstacle !== undefined && obstacles !== null ? (
+      <ObstaclePanel
+        ref={openedPanelRef}
+        obstacle={selectedObstacle}
+        norms={obstacles.prepared}
+        onClose={() => {
+          closePanel(true);
+        }}
+      />
     ) : null;
   const layersPanel = (
     <LayersPanel
-      counts={counts}
+      counts={{ ...counts, zones: counts.zonesByType[plantType] }}
+      plantType={plantType}
+      onPlantTypeChange={changePlantType}
+      allowedArea={allowedArea(prepared, plantType)}
+      obstacles={obstacles?.map ?? null}
       lawnArea={lawnArea(prepared)}
       showSiteBoundary={
         data.zones.metadata.used_site_boundary &&

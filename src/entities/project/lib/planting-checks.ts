@@ -7,9 +7,10 @@ import {
   nearestOnBoundary,
 } from '@/shared/lib/geometry';
 
-import type { ZonesFeatureCollection } from '../api/project-result-api';
+import type { Norm, ZonesFeatureCollection } from '../api/project-result-api';
 import type { PlantType } from '../model/project';
 import type { LocalFrame } from './local-frame';
+import type { PreparedObstacle } from './obstacle-checks';
 import type { Position } from './plan-projection';
 
 type ZoneFeature = ZonesFeatureCollection['features'][number];
@@ -58,10 +59,28 @@ export type PlantingCheck =
       boundary: LocalPoint;
     }
   // Посадка внутри зоны запрета — дефект данных.
-  | { kind: 'inside'; zone: ProhibitedZone };
+  | { kind: 'inside'; zone: ProhibitedZone }
+  // Расстояние до объекта из /obstacles — прямо до его геометрии, без зон.
+  | {
+      kind: 'object';
+      category: string;
+      subtype: string | null;
+      actual: number;
+      required: number;
+      citation: string;
+      norm: Norm | null;
+      // Ближе нормы: по решению сервера или по своему расчёту с допуском TOLERANCE_M.
+      violated: boolean;
+      // Нет, если сервер назвал объект, которого рядом нет в /obstacles: тогда нет и линии.
+      obstacle: PreparedObstacle | null;
+      planting: LocalPoint;
+      point: LocalPoint | null;
+    };
 
 // Совпадение точек после перепроекции бэкендом (UTM → WGS84) и нашей проекции — сантиметры.
-const TOLERANCE_M = 0.02;
+// Столько же недобирает хорда буфера shapely: посадка вплотную к зоне стоит ближе нормы на
+// миллиметры (../backend/greenplan/zoning/engine.py:127).
+export const TOLERANCE_M = 0.02;
 // Ячейка индекса границы: много больше допуска и мельче типичного отрезка.
 const BASE_INDEX_CELL_M = 1;
 
@@ -142,7 +161,7 @@ function checkZone(
   zone: ProhibitedZone,
   onBaseBoundary: PreparedZones['onBaseBoundary'],
   distanceToBase: number,
-): PlantingCheck | null {
+): ZoneCheck | null {
   const anyEdge = nearestOnBoundary(planting, zone.polygons);
   if (anyEdge === null) return null;
   // Миллиметры внутри — округление координат при экспорте, а не нарушение: на «Олимпийском»
@@ -185,14 +204,16 @@ function checkZone(
   };
 }
 
-const marginOf = (check: PlantingCheck) => (check.kind === 'inside' ? -Infinity : check.margin);
+type ZoneCheck = Exclude<PlantingCheck, { kind: 'object' }>;
+
+const marginOf = (check: ZoneCheck) => (check.kind === 'inside' ? -Infinity : check.margin);
 
 // Ограничения рядом с посадкой — самое напряжённое сверху.
 export function checksForPlanting(
   planting: LocalPoint,
   plantType: PlantType,
   { zones, baseArea, onBaseBoundary, threshold }: PreparedZones,
-): PlantingCheck[] {
+): ZoneCheck[] {
   const nearby = zones.filter(
     ({ properties, bounds }) =>
       properties.plant_type === plantType &&
@@ -220,6 +241,12 @@ export function prohibitedArea({ baseArea, allowed }: PreparedZones, plantType: 
   if (baseArea === null) return 0;
   return area(baseArea) - area(allowed[plantType] ?? []);
 }
+
+// Площадь, где посадка этого типа разрешена, м²; null — разрешённой области в данных нет.
+export const allowedArea = ({ allowed }: PreparedZones, plantType: PlantType): number | null => {
+  const polygons = allowed[plantType];
+  return polygons === undefined ? null : area(polygons);
+};
 
 // Площадь газона, м²; null — газона в данных нет.
 export const lawnArea = ({ lawn }: PreparedZones): number | null =>

@@ -9,11 +9,14 @@ import {
   PLANT_TYPE_LABELS,
   type PlantingCheck,
   type PlantingFeatureCollection,
+  type PreparedObstacle,
+  TOLERANCE_M,
   type ZonesFeatureCollection,
 } from '@/entities/project';
 import { formatCoordinate, formatDrawingMeters, formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
+import { normReference } from './norm-reference';
 import classes from './planting-panel.module.css';
 
 type PlantingPanelProps = {
@@ -28,13 +31,16 @@ type PlantingPanelProps = {
   usedSiteBoundary: boolean;
   // Ограничение под курсором или в фокусе: его размерная линия выделена на карте.
   onFocusCheck: (index: number | null) => void;
-  // Открыть панель зоны запрета: путь к ней без щелчка по карте, в том числе с клавиатуры.
+  // Открыть панель зоны запрета или объекта: путь к ним без щелчка по карте, в том числе
+  // с клавиатуры.
   onShowZone: (index: number) => void;
+  onShowObstacle: (obstacle: PreparedObstacle) => void;
   onClose: () => void;
 };
 
-// Обоснование посадки по тому, что отдаёт бэкенд: проверки фронт выводит сам из геометрии
-// зон запрета (/zones) и координат посадки, номера пунктов — только из citation.
+// Обоснование посадки по тому, что отдаёт бэкенд: проверки — серверные checks или свой расчёт
+// до объектов подосновы (/obstacles), без них — по геометрии зон запрета (/zones). Пункты норм —
+// только из /norms или citation.
 export function PlantingPanel({
   ref,
   planting,
@@ -45,6 +51,7 @@ export function PlantingPanel({
   usedSiteBoundary,
   onFocusCheck,
   onShowZone,
+  onShowObstacle,
   onClose,
 }: PlantingPanelProps): JSX.Element {
   const titleId = useId();
@@ -122,7 +129,12 @@ export function PlantingPanel({
           <ul className={classes.checks} aria-labelledby={checksId}>
             {checks.map((check, index) => (
               <CheckItem
-                key={check.zone.index}
+                // У зоны — её номер, у объекта — подтип: в списке по проверке на подтип.
+                key={
+                  check.kind === 'object'
+                    ? `${check.category}|${String(check.subtype)}`
+                    : check.zone.index
+                }
                 check={check}
                 onFocus={() => {
                   onFocusCheck(index);
@@ -130,9 +142,8 @@ export function PlantingPanel({
                 onBlur={() => {
                   onFocusCheck(null);
                 }}
-                onShowZone={() => {
-                  onShowZone(check.zone.index);
-                }}
+                onShowZone={onShowZone}
+                onShowObstacle={onShowObstacle}
               />
             ))}
           </ul>
@@ -165,20 +176,82 @@ type CheckItemProps = {
   check: PlantingCheck;
   onFocus: () => void;
   onBlur: () => void;
-  onShowZone: () => void;
+  onShowZone: (index: number) => void;
+  onShowObstacle: (obstacle: PreparedObstacle) => void;
 };
 
-function CheckItem({ check, onFocus, onBlur, onShowZone }: CheckItemProps): JSX.Element {
-  const { properties } = check.zone;
-  const obstacle = obstacleLabel(properties.obstacle_category, properties.obstacle_subtype);
+// Пункт проверки: объект, фактическое расстояние и норма, откуда норма, путь к зоне или объекту.
+type CheckView = {
+  obstacle: string;
+  // null — посадка внутри зоны запрета, расстояния нет.
+  distance: string | null;
+  violated: boolean;
+  // Меньше нормы, но в пределах точности расчёта: без пояснения галочка рядом с таким числом
+  // читалась бы как ошибка.
+  withinTolerance: boolean;
+  reference: string;
+  note: string;
+  show: { label: string; action: () => void } | null;
+};
+
+function viewOf(
+  check: PlantingCheck,
+  onShowZone: (index: number) => void,
+  onShowObstacle: (obstacle: PreparedObstacle) => void,
+): CheckView {
+  if (check.kind === 'object') {
+    const { obstacle } = check;
+    return {
+      obstacle: obstacleLabel(check.category, check.subtype),
+      // Расстояние до геометрии объекта — с сантиметрами, как у сервера.
+      distance: `${formatMeters(check.actual, 2)} при норме не менее ${formatMeters(check.required)}`,
+      violated: check.violated,
+      withinTolerance: !check.violated && check.actual < check.required,
+      reference: normReference(check.norm, check.citation),
+      note: check.norm?.text ?? '',
+      show:
+        obstacle === null
+          ? null
+          : {
+              label: 'Показать объект',
+              action: () => {
+                onShowObstacle(obstacle);
+              },
+            },
+    };
+  }
+  const { properties, index } = check.zone;
   const citation = properties.citation.trim();
   const reason = properties.reason.trim();
-  const distance =
-    check.kind === 'measured'
-      ? `${formatMeters(check.actual, 1)} при норме не менее ${formatMeters(properties.distance_m)}`
-      : check.kind === 'boundary'
-        ? `до границы зоны ${formatMeters(check.margin, 1)}`
-        : null;
+  return {
+    obstacle: obstacleLabel(properties.obstacle_category, properties.obstacle_subtype),
+    distance:
+      check.kind === 'measured'
+        ? `${formatMeters(check.actual, 1)} при норме не менее ${formatMeters(properties.distance_m)}`
+        : check.kind === 'boundary'
+          ? `до границы зоны ${formatMeters(check.margin, 1)}`
+          : null,
+    violated: check.kind === 'inside',
+    withinTolerance: false,
+    reference: normReference(null, citation),
+    note: reason === citation ? '' : reason,
+    show: {
+      label: 'Показать зону',
+      action: () => {
+        onShowZone(index);
+      },
+    },
+  };
+}
+
+function CheckItem({
+  check,
+  onFocus,
+  onBlur,
+  onShowZone,
+  onShowObstacle,
+}: CheckItemProps): JSX.Element {
+  const view = viewOf(check, onShowZone, onShowObstacle);
 
   return (
     <li
@@ -191,39 +264,44 @@ function CheckItem({ check, onFocus, onBlur, onShowZone }: CheckItemProps): JSX.
       onFocus={onFocus}
       onBlur={onBlur}
     >
-      {check.kind === 'inside' ? (
+      {view.violated ? (
         <Icon icon={IconAlertTriangle} tone="error" label="Норма нарушена" />
       ) : (
         <Icon icon={IconCircleCheck} tone="accent" label="Норма выполнена" />
       )}
       <Stack gap="xs">
-        <Text fw={600}>{obstacle}</Text>
-        {distance === null ? (
+        <Text fw={600}>{view.obstacle}</Text>
+        {view.distance === null ? (
           <Text size="sm" className={classes.warning}>
             Посадка внутри зоны запрета — сообщите разработчикам
           </Text>
         ) : (
-          <Text size="sm" className={classes.numbers}>
-            {distance}
+          <Text size="sm" className={view.violated ? classes.warning : classes.numbers}>
+            {view.distance}
           </Text>
+        )}
+        {view.withinTolerance && (
+          <Text size="sm">{`В пределах точности расчёта: ${formatMeters(TOLERANCE_M, 2)}`}</Text>
         )}
         <Text size="sm" c="dimmed">
-          {citation === '' ? 'Норма не указана сервером' : citation}
+          {view.reference}
         </Text>
-        {reason !== '' && reason !== citation && (
+        {view.note !== '' && (
           <Text size="sm" c="dimmed">
-            {reason}
+            {view.note}
           </Text>
         )}
-        <Button
-          variant="subtle"
-          size="compact-sm"
-          className={classes.showZone}
-          onClick={onShowZone}
-          aria-label={`Показать зону: ${obstacle}`}
-        >
-          Показать зону
-        </Button>
+        {view.show !== null && (
+          <Button
+            variant="subtle"
+            size="compact-sm"
+            className={classes.showZone}
+            onClick={view.show.action}
+            aria-label={`${view.show.label}: ${view.obstacle}`}
+          >
+            {view.show.label}
+          </Button>
+        )}
       </Stack>
     </li>
   );

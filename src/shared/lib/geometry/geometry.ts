@@ -5,9 +5,9 @@ export type LocalPoint = readonly [x: number, y: number];
 // (последняя вершина повторяет первую), как в GeoJSON.
 export type LocalPolygon = readonly (readonly LocalPoint[])[];
 
-type Nearest = { point: LocalPoint; distance: number };
+export type Nearest = { point: LocalPoint; distance: number };
 
-function nearestOnSegment(p: LocalPoint, a: LocalPoint, b: LocalPoint): Nearest {
+export function nearestOnSegment(p: LocalPoint, a: LocalPoint, b: LocalPoint): Nearest {
   const [px, py] = p;
   const [ax, ay] = a;
   const [bx, by] = b;

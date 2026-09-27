@@ -6,18 +6,24 @@ import {
   createLocalFrame,
   type ExplanationEntry,
   isGeographic,
+  type Norm,
+  type ObstaclesFeatureCollection,
   PlanCanvas,
+  prepareObstacles,
   prepareZones,
   type Project,
   type ResultData,
   resultExtent,
   toMapData,
+  toMapObstacles,
   useGetExplanationQuery,
+  useGetNormsQuery,
+  useGetObstaclesQuery,
   useGetPlantingQuery,
   useGetZonesQuery,
 } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
-import { BASEMAP_BOUNDS } from '@/shared/config';
+import { BASEMAP_BOUNDS, useCapability } from '@/shared/config';
 
 import { PlantingRegister } from './planting-register';
 import { resultLabel } from './result-label';
@@ -38,11 +44,19 @@ const VIEWS = [
 const parseView = (value: string | null): View => (value === 'register' ? 'register' : 'plan');
 
 export function ResultView({ project }: ResultViewProps): JSX.Element {
+  // Объекты подосновы и справочник норм — из контракта-предложения: без объявленной
+  // возможности запросы не уходят, а проверки считаются по зонам запрета.
+  const withObstacles = useCapability('obstacles');
+  const withNorms = useCapability('norms');
   const planting = useGetPlantingQuery(project.id);
   const zones = useGetZonesQuery(project.id);
   const explanation = useGetExplanationQuery(project.id);
+  const obstacles = useGetObstaclesQuery(project.id, { skip: !withObstacles });
+  const norms = useGetNormsQuery(undefined, { skip: !withObstacles || !withNorms });
   const queries = [planting, zones, explanation];
 
+  // Сбой /obstacles или /norms план не закрывает: без объектов проверки считаются по зонам
+  // запрета, без справочника нормы берутся из зон.
   const error = planting.error ?? zones.error ?? explanation.error;
   if (error !== undefined) {
     return (
@@ -60,7 +74,13 @@ export function ResultView({ project }: ResultViewProps): JSX.Element {
       </Stack>
     );
   }
-  if (planting.data === undefined || zones.data === undefined || explanation.data === undefined) {
+  if (
+    planting.data === undefined ||
+    zones.data === undefined ||
+    explanation.data === undefined ||
+    obstacles.isLoading ||
+    norms.isLoading
+  ) {
     return (
       <Skeleton
         className={classes.area}
@@ -76,6 +96,11 @@ export function ResultView({ project }: ResultViewProps): JSX.Element {
       project={project}
       data={{ planting: planting.data, zones: zones.data }}
       explanation={explanation.data}
+      obstacles={obstacles.data ?? null}
+      norms={norms.data ?? null}
+      // После повторного запроса с ошибкой RTK Query оставляет прежние данные: план строится
+      // по ним, и пояснение о сбое было бы неправдой.
+      obstaclesFailed={obstacles.isError && obstacles.data === undefined}
     />
   );
 }
@@ -84,9 +109,20 @@ type LoadedResultProps = {
   project: Project;
   data: ResultData;
   explanation: ExplanationEntry[];
+  obstacles: ObstaclesFeatureCollection | null;
+  norms: Norm[] | null;
+  // Сервер объявил /obstacles, но запрос не удался.
+  obstaclesFailed: boolean;
 };
 
-function LoadedResult({ project, data, explanation }: LoadedResultProps): JSX.Element {
+function LoadedResult({
+  project,
+  data,
+  explanation,
+  obstacles,
+  norms,
+  obstaclesFailed,
+}: LoadedResultProps): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get(VIEW_PARAM));
   const [selection, setSelection] = useState<Selection>(null);
@@ -112,6 +148,13 @@ function LoadedResult({ project, data, explanation }: LoadedResultProps): JSX.El
   const frame = createLocalFrame(extent, geographic);
   const mapData = toMapData(data, frame);
   const prepared = prepareZones(data.zones, frame);
+  const objects =
+    obstacles === null
+      ? null
+      : {
+          map: toMapObstacles(obstacles, frame),
+          prepared: prepareObstacles(obstacles, norms, data.zones, frame),
+        };
   const entries = new Map(explanation.map((entry) => [entry.id, entry]));
   const mapExtent = resultExtent(mapData) ?? extent;
   const [west, south, east, north] = BASEMAP_BOUNDS;
@@ -152,6 +195,12 @@ function LoadedResult({ project, data, explanation }: LoadedResultProps): JSX.El
       />
       {/* План в ведомости скрыт, а не размонтирован: камера и выбор сохраняются. */}
       <div hidden={view !== 'plan'} className={classes.plan}>
+        {obstaclesFailed && (
+          <Text size="sm" c="dimmed" className={classes.notice}>
+            Объекты подосновы не загрузились: проверки посчитаны по зонам запрета. Обновите
+            страницу, чтобы загрузить объекты снова.
+          </Text>
+        )}
         {mapUnavailable ? (
           <Stack gap="md" className={classes.fallback}>
             <Alert color="stone" variant="light">
@@ -169,6 +218,7 @@ function LoadedResult({ project, data, explanation }: LoadedResultProps): JSX.El
               bounds={[mapExtent.minX, mapExtent.minY, mapExtent.maxX, mapExtent.maxY]}
               frame={frame}
               prepared={prepared}
+              obstacles={objects}
               explanation={entries}
               basemap={withinBasemap}
               selection={selection}

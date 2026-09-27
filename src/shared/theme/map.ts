@@ -28,15 +28,41 @@ export const resultLayerColors = {
   selectionOuter: WHITE,
   selectionInner: stone[9],
   zoneOutline: clay[6],
-  // Газон — где вообще можно сажать; граница участка — линия чертежа, не ошибки.
+  // Газон — где вообще зелень; «можно» — где разрешено сажать выбранный тип посадки. Граница
+  // участка — линия чертежа, не ошибки.
   lawn: sage[1],
+  allowed: sage[3],
   siteBoundary: stone[8],
   // Размерные линии: «запас» до зоны и «охранная зона» до препятствия (design.md, «Карта»).
   dimensionMargin: sage[7],
   dimensionSetback: clay[6],
   dimensionLabel: stone[9],
   dimensionLabelHalo: WHITE,
+  // Исходные объекты: наши здания светлее подложечных, но с обводкой темнее, чтобы не сливаться.
+  building: stone[3],
+  buildingOutline: stone[5],
+  edge: stone[6],
+  obstacleLabel: stone[8],
+  obstacleLabelHalo: WHITE,
 } as const;
+
+export type UtilityDash = 'solid' | 'dashed' | 'dashDot';
+
+// Подземные сети — спокойные оттенки вне шалфея и глины: зелёный отдан посадкам, красный —
+// запретам. Контраст к «Земле» подложки не ниже 3:1 (contrast.test.ts). Цветом сеть не
+// узнаётся: у напорных сетей линия сплошная, у самотёчных — пунктир, у кабелей — штрих-пунктир.
+export const utilityStyles = {
+  gas: { color: '#8A6A2A', dash: 'solid' },
+  water: { color: '#3D6B8C', dash: 'solid' },
+  heat: { color: '#8A4B78', dash: 'solid' },
+  sewer: { color: '#7A5A3C', dash: 'dashed' },
+  drainage: { color: '#3E7F86', dash: 'dashed' },
+  other_utility: { color: stone[7], dash: 'dashed' },
+  power_cable: { color: '#9C3F5A', dash: 'dashDot' },
+  comm_cable: { color: '#5A5A9A', dash: 'dashDot' },
+} as const satisfies Record<string, { color: string; dash: UtilityDash }>;
+
+export type UtilitySubtype = keyof typeof utilityStyles;
 
 // Подписи на карте рисуются в браузере шрифтом интерфейса: MapLibre растеризует глифы локально
 // и берёт вес 600 из имени первого шрифта (design.md, «Карта»).

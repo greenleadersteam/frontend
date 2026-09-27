@@ -13,7 +13,7 @@ import {
   Switch,
 } from '@mantine/core';
 
-import { basemapColors } from './map';
+import { basemapColors, utilityStyles } from './map';
 import { clay, ochre, sage, stone, WHITE } from './palette';
 import classes from './theme.module.css';
 
@@ -160,6 +160,13 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
     '--app-map-earth': basemapColors.earth,
     '--app-map-road': basemapColors.roads,
     '--app-map-road-casing': basemapColors.roadsCasing,
+    // Условные знаки сетей в легенде — те же цвета, что линии на карте.
+    ...Object.fromEntries(
+      Object.entries(utilityStyles).map(([subtype, { color }]) => [
+        `--app-map-utility-${subtype.replace('_', '-')}`,
+        color,
+      ]),
+    ),
   },
   // Приложение только светлое: роли Mantine по умолчанию переводятся на палитру. Фон body
   // не трогаем: его задаёт global.css, а белый --mantine-color-body нужен Card, Modal и Paper.

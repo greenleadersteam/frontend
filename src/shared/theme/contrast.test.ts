@@ -1,6 +1,7 @@
 import { DEFAULT_THEME, mergeMantineTheme } from '@mantine/core';
 import { describe, expect, test } from 'vitest';
 
+import { basemapColors, utilityStyles } from './map';
 import { cssVariablesResolver, theme } from './theme';
 
 // Относительная яркость и контраст — WCAG 2.1, определения relative luminance и contrast ratio.
@@ -76,6 +77,44 @@ describe('контраст статусов (design.md, «Статусы»)', ()
     expect(
       contrast(resolve(`--app-status-${status}-text`), resolve(`--app-status-${status}-bg`)),
     ).toBeGreaterThanOrEqual(TEXT);
+  });
+});
+
+// Различие цветов — ΔE CIE76 в Lab (D65): больше 10 заметно глазом с первого взгляда.
+function lab(hex: string): [number, number, number] {
+  const linear = (start: number) => {
+    const c = Number.parseInt(hex.slice(start, start + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const [r, g, b] = [linear(1), linear(3), linear(5)];
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047);
+  const y = f(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  const z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+describe('сети на карте (design.md, «Карта»)', () => {
+  const utilities = Object.entries(utilityStyles);
+
+  test.each(utilities)('%s — не ниже 3:1 к земле подложки', (_, { color }) => {
+    expect(contrast(color, basemapColors.earth)).toBeGreaterThanOrEqual(NON_TEXT);
+  });
+
+  test('рисунков линии не больше трёх, сети с одним рисунком различимы цветом', () => {
+    expect(new Set(utilities.map(([, { dash }]) => dash)).size).toBeLessThanOrEqual(3);
+    for (const [name, style] of utilities) {
+      for (const [other, otherStyle] of utilities) {
+        if (name >= other || style.dash !== otherStyle.dash) continue;
+        const [l1, a1, b1] = lab(style.color);
+        const [l2, a2, b2] = lab(otherStyle.color);
+        expect(Math.hypot(l1 - l2, a1 - a2, b1 - b2), `${name} и ${other}`).toBeGreaterThan(15);
+      }
+    }
+  });
+
+  test('CSS-переменные легенды совпадают с цветами карты', () => {
+    expect(resolve('--app-map-utility-power-cable')).toBe(utilityStyles.power_cable.color);
   });
 });
 

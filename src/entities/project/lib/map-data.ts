@@ -1,3 +1,4 @@
+import type { ObstaclesFeatureCollection } from '../api/project-result-api';
 import type { LocalFrame } from './local-frame';
 import type { Position } from './plan-projection';
 import type { ResultData } from './result-layers';
@@ -33,5 +34,44 @@ export function toMapData({ planting, zones }: ResultData, frame: LocalFrame): R
               },
       })),
     },
+  };
+}
+
+type ObstacleGeometry = ObstaclesFeatureCollection['features'][number]['geometry'];
+
+function moveGeometry(geometry: ObstacleGeometry, move: (position: Position) => number[]) {
+  switch (geometry.type) {
+    case 'Point':
+      return { ...geometry, coordinates: move(geometry.coordinates) };
+    case 'LineString':
+      return { ...geometry, coordinates: geometry.coordinates.map(move) };
+    case 'MultiLineString':
+    case 'Polygon':
+      return { ...geometry, coordinates: geometry.coordinates.map((line) => line.map(move)) };
+    case 'MultiPolygon':
+      return {
+        ...geometry,
+        coordinates: geometry.coordinates.map((polygon) => polygon.map((ring) => ring.map(move))),
+      };
+    default: {
+      const unexpected: never = geometry;
+      return unexpected;
+    }
+  }
+}
+
+// Объекты подосновы — в те же координаты карты, что посадки и зоны.
+export function toMapObstacles(
+  obstacles: ObstaclesFeatureCollection,
+  frame: LocalFrame,
+): ObstaclesFeatureCollection {
+  if (frame.geographic) return obstacles;
+  const move = (position: Position) => frame.toMap(frame.toLocal(position));
+  return {
+    ...obstacles,
+    features: obstacles.features.map((feature) => ({
+      ...feature,
+      geometry: moveGeometry(feature.geometry, move),
+    })),
   };
 }
