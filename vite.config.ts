@@ -26,8 +26,9 @@ const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-// Воркер MSW раздаёт только dev-сервер в режиме mock прямо из node_modules: в public/ его нет,
-// поэтому в dist он не попадает, а его версия всегда совпадает с установленным msw.
+// Воркер MSW раздаёт только dev-сервер прямо из node_modules: в public/ его нет, поэтому в dist
+// он не попадает, а его версия всегда совпадает с установленным msw. Запускается ли он, решает
+// выбранный источник данных (src/shared/config/data-source.ts).
 function mockServiceWorker(): Plugin {
   const workerPath = createRequire(import.meta.url).resolve('msw/mockServiceWorker.js');
   return {
@@ -47,29 +48,30 @@ function mockServiceWorker(): Plugin {
 export default defineConfig(({ mode }) => {
   // Третий аргумент '' читает переменные без префикса VITE_: они нужны только dev-серверу и в бандл не попадают.
   const env = loadEnv(mode, process.cwd(), '');
-  const mock = mode === 'mock';
+  const apiProxyTarget = env.API_PROXY_TARGET ?? DEFAULT_API_PROXY_TARGET;
 
   return {
     plugins: [
       react(),
       babel({ presets: [reactCompilerPreset()] }),
-      ...(mock ? [mockServiceWorker()] : []),
+      mockServiceWorker(),
       serveBasemap(fileURLToPath(new URL('.data/basemap', import.meta.url))),
     ],
     resolve: { tsconfigPaths: true },
+    // Адрес бэкенда для подсказки переключателя источника данных; в production не используется.
+    define: { __API_PROXY_HOST__: JSON.stringify(new URL(apiProxyTarget).host) },
     server: {
-      // В режиме mock прокси нет: запрос, который мок не обработал, не должен уйти на настоящий бэкенд.
-      proxy: mock
-        ? undefined
-        : {
-            // Regex-ключ: префикс '/api' совпал бы и с '/api-docs'.
-            '^/api(/|$)': {
-              target: env.API_PROXY_TARGET ?? DEFAULT_API_PROXY_TARGET,
-              changeOrigin: true,
-              secure: true,
-              rewrite: (path) => path.replace(/^\/api/, ''),
-            },
-          },
+      // Прокси работает и на моках: запросы /api, которые моки не обработали, MSW обрывает сам
+      // (src/shared/api/mocks/browser.ts), до прокси они не доходят.
+      proxy: {
+        // Regex-ключ: префикс '/api' совпал бы и с '/api-docs'.
+        '^/api(/|$)': {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api/, ''),
+        },
+      },
     },
     build: { sourcemap: false },
     preview: { headers: { 'Content-Security-Policy': CONTENT_SECURITY_POLICY } },

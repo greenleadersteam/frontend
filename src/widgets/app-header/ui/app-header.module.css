@@ -9,6 +9,12 @@
   box-shadow: var(--mantine-shadow-sm);
 }
 
+.start {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xl);
+}
+
 .brand {
   display: flex;
   align-items: center;

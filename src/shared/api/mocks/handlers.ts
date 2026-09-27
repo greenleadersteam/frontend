@@ -413,3 +413,8 @@ export const handlers = [
 
   http.get(`${API}/processing-defaults`, () => HttpResponse.json(processingDefaults)),
 ];
+
+// В браузере — последний обработчик: запрос к /api без своего обработчика обрывается сетевой
+// ошибкой. print.error() в onUnhandledRequest только печатает (msw 2.15,
+// core/experimental/on-unhandled-frame.mjs), и запрос ушёл бы через прокси на настоящий бэкенд.
+export const rejectUnhandledApi = http.all(`${API}/*`, () => HttpResponse.error());

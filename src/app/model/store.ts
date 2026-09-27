@@ -5,7 +5,18 @@ import { baseApi } from '@/shared/api';
 
 export const store = configureStore({
   reducer: { [baseApi.reducerPath]: baseApi.reducer },
-  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(baseApi.middleware),
+  // Кэш RTK Query — JSON с сервера, сериализуемый по построению. Dev-проверки обходили бы его
+  // целиком на каждом действии: на готовом проекте с тысячами посадок это около секунды.
+  // Сейчас в store только кэш API. Исключение payload действует на все действия: когда появится
+  // клиентский срез, его нужно сузить до действий API через ignoredActions.
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware({
+      serializableCheck: {
+        ignoredPaths: [baseApi.reducerPath],
+        ignoredActionPaths: ['payload', 'meta.arg', 'meta.baseQueryMeta'],
+      },
+      immutableCheck: { ignoredPaths: [baseApi.reducerPath] },
+    }).concat(baseApi.middleware),
 });
 
 // Без этого не работают refetchOnFocus и skipPollingIfUnfocused.

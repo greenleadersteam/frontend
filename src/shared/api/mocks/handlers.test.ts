@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { components as Proposed } from '../generated/proposed';
 import type { components as Real } from '../generated/schema';
-import { resetMockDb } from './node';
+import { handlers, rejectUnhandledApi } from './handlers';
+import { resetMockDb, server } from './node';
 
 type ProjectResponse = Real['schemas']['ProjectResponse'];
 type Explanation = Proposed['schemas']['Explanation'];
@@ -384,5 +385,17 @@ describe('результат', () => {
       ['SHRUB_HEDGE_CURB', 1.5, 0.8],
       ['SHRUB_FILL_LAWN', 3, null],
     ]);
+  });
+});
+
+// Моки в браузере завершаются rejectUnhandledApi: запрос к /api без обработчика не должен
+// уйти через прокси на настоящий бэкенд.
+describe('необработанный /api', () => {
+  test('обрывается сетевой ошибкой, известные запросы работают', async () => {
+    // use, а не resetHandlers(...): иначе замыкающий обработчик остался бы в начальном наборе.
+    server.use(...handlers, rejectUnhandledApi);
+
+    await expect(fetch('/api/projects/x/unknown', { method: 'PUT' })).rejects.toThrow(TypeError);
+    expect((await fetch('/api/projects')).status).toBe(200);
   });
 });

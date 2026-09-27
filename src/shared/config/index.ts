@@ -1,4 +1,6 @@
 export { BASEMAP_BOUNDS, MAP_MAX_ZOOM, MAP_MIN_ZOOM } from './basemap';
+export type { DataSource } from './data-source';
+export { currentDataSource, switchDataSource, unregisterMockWorker } from './data-source';
 export {
   FOCUS_PROJECTS_HEADING,
   isFocusProjectsHeading,

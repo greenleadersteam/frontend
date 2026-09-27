@@ -1,4 +1,9 @@
-import { loadRuntimeConfig, RuntimeConfigError } from '@/shared/config';
+import {
+  currentDataSource,
+  loadRuntimeConfig,
+  RuntimeConfigError,
+  unregisterMockWorker,
+} from '@/shared/config';
 
 const CONFIG_FAILED =
   'Не удалось загрузить настройки приложения. Обновите страницу. Если ошибка повторяется, сообщите администратору.';
@@ -27,11 +32,16 @@ async function start(): Promise<void> {
   const container = document.getElementById('root');
   if (container === null) throw new Error('В index.html нет элемента #root');
 
-  // Vite подставляет MODE строкой при сборке, поэтому вне режима mock условие ложно статически
-  // и импорт моков вырезается из бандла.
-  if (import.meta.env.MODE === 'mock') {
-    const { startMockWorker } = await import('@/shared/api/mocks/browser');
-    await startMockWorker();
+  // Vite подставляет DEV константой при сборке: в production условие ложно статически, и моки,
+  // выбор источника данных и снятие воркера вырезаются из бандла. Решение принимается до
+  // импорта приложения, чтобы ни один его запрос не ушёл мимо выбранного источника.
+  if (import.meta.env.DEV) {
+    if (currentDataSource() === 'mock') {
+      const { startMockWorker } = await import('@/shared/api/mocks/browser');
+      await startMockWorker();
+    } else {
+      await unregisterMockWorker();
+    }
   }
 
   await loadRuntimeConfig();

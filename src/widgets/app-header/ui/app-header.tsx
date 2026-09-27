@@ -1,5 +1,5 @@
 import { Group } from '@mantine/core';
-import type { JSX } from 'react';
+import { type JSX, lazy, Suspense } from 'react';
 import { Link, NavLink } from 'react-router';
 
 import { paths, PRODUCT_NAME } from '@/shared/config';
@@ -7,13 +7,26 @@ import { Logo } from '@/shared/ui';
 
 import classes from './app-header.module.css';
 
+// Переключатель «Моки / Сервер» — только для разработки. Условие статическое: в production
+// import.meta.env.DEV === false, и сборщик выбрасывает компонент вместе с его чанком.
+const DataSourceSwitch = import.meta.env.DEV
+  ? lazy(async () => ({ default: (await import('./data-source-switch')).DataSourceSwitch }))
+  : null;
+
 export function AppHeader(): JSX.Element {
   return (
     <header className={classes.root}>
-      <Link to={paths.projects} className={classes.brand}>
-        <Logo />
-        <span className={classes.brandName}>{PRODUCT_NAME}</span>
-      </Link>
+      <div className={classes.start}>
+        <Link to={paths.projects} className={classes.brand}>
+          <Logo />
+          <span className={classes.brandName}>{PRODUCT_NAME}</span>
+        </Link>
+        {DataSourceSwitch !== null && (
+          <Suspense>
+            <DataSourceSwitch />
+          </Suspense>
+        )}
+      </div>
       <nav aria-label="Основная навигация">
         <Group gap="xl" component="ul" className={classes.list}>
           {/* NavLink сам ставит aria-current="page" на активный пункт; end — чтобы «Проекты» не были активны на вложенных адресах. */}
