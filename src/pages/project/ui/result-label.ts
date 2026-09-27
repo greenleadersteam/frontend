@@ -1,12 +1,5 @@
-import {
-  type PlantingFeatureCollection,
-  RESULT_COUNT_FORMS,
-  resultCounts,
-  type ZonesFeatureCollection,
-} from '@/entities/project';
+import { RESULT_COUNT_FORMS, resultCounts, type ResultData } from '@/entities/project';
 import { formatCount } from '@/shared/lib/format';
-
-type ResultData = { planting: PlantingFeatureCollection; zones: ZonesFeatureCollection };
 
 // Краткое содержание плана для скринридера: «План посадок: 24 дерева, 12 кустарников, 5 зон запрета».
 export function resultLabel(data: ResultData): string {

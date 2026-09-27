@@ -2,23 +2,40 @@ export { downloadProjectDxf } from './api/download-dxf';
 export {
   useCreateProjectMutation,
   useDeleteProjectMutation,
-  useGetProcessingDefaultsQuery,
   useLazyGetProjectQuery,
   useRunProjectMutation,
 } from './api/project-api';
-export type { PlantingFeatureCollection, ZonesFeatureCollection } from './api/project-result-api';
-export { useGetPlantingQuery, useGetZonesQuery } from './api/project-result-api';
+export type {
+  ExplanationEntry,
+  PlantingFeatureCollection,
+  ZonesFeatureCollection,
+} from './api/project-result-api';
 export {
+  useGetExplanationQuery,
+  useGetPlantingQuery,
+  useGetZonesQuery,
+} from './api/project-result-api';
+export {
+  GEOREFERENCE_CONFIDENCE_LABELS,
   JOB_ERROR_LABELS,
+  obstacleLabel,
   PLANT_TYPE_LABELS,
   RESULT_COUNT_FORMS,
   STAGE_LABELS,
 } from './config/labels';
-export { CROWN_RADIUS_M, isGeographic } from './lib/plan-projection';
-export type { ResultLayerGroup } from './lib/result-layers';
+export { dimensionLines } from './lib/dimension-lines';
+export { projectFileName } from './lib/file-name';
+export { createLocalFrame, type LocalFrame } from './lib/local-frame';
+export { toMapData } from './lib/map-data';
+export { CROWN_RADIUS_M, isGeographic, pixelsPerMeterAtZoom } from './lib/plan-projection';
+export type { PlantingCheck, PreparedZones, ProhibitedZone } from './lib/planting-checks';
+export { checksForPlanting, prepareZones, prohibitedArea, zoneArea } from './lib/planting-checks';
+export type { ResultData, ResultLayerGroup } from './lib/result-layers';
 export {
+  dimensionLabelsMinZoom,
   HATCH_IMAGE,
   hatchPattern,
+  RESULT_LAYER,
   RESULT_LAYER_GROUPS,
   RESULT_SOURCE,
   resultCounts,

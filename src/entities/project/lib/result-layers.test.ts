@@ -6,6 +6,7 @@ import { resultLayerColors } from '@/shared/theme';
 import type { PlantingFeatureCollection, ZonesFeatureCollection } from '../api/project-result-api';
 import {
   crownRadiusExpression,
+  dimensionLabelsMinZoom,
   hatchPattern,
   RESULT_LAYER,
   RESULT_SOURCE,
@@ -139,14 +140,19 @@ const zones: ZonesFeatureCollection = {
 };
 
 describe('источники и слои результата', () => {
-  test('порядок снизу вверх: зоны, штриховка, кустарники, тени, деревья, блики, выбор', () => {
+  test('порядок снизу вверх: зоны, штриховка, обводка, кустарники, тени, деревья, блики, размеры, выбор', () => {
     expect(resultLayers(LAT).map(({ id }) => id)).toEqual([
       RESULT_LAYER.zones,
       RESULT_LAYER.zonesHatch,
+      RESULT_LAYER.zonesOutline,
       RESULT_LAYER.shrubs,
       RESULT_LAYER.treeShadows,
       RESULT_LAYER.trees,
       RESULT_LAYER.treeHighlights,
+      RESULT_LAYER.dimensionMargin,
+      RESULT_LAYER.dimensionSetback,
+      RESULT_LAYER.dimensionSetbackTicks,
+      RESULT_LAYER.dimensionLabels,
       RESULT_LAYER.selectionOuter,
       RESULT_LAYER.selectionInner,
     ]);
@@ -181,7 +187,12 @@ describe('источники и слои результата', () => {
   test('на карте — только зоны запрета; охват — по ним и по посадкам', () => {
     const { data } = resultSources({ planting, zones }, LAT)[RESULT_SOURCE.zones];
 
-    expect(data).toMatchObject({ features: [{ properties: { zone_type: 'prohibited' } }] });
+    expect(data).toMatchObject({
+      features: [{ properties: { zone_type: 'prohibited', zone_index: 0 } }],
+    });
+    expect(resultSources({ planting, zones }, LAT)[RESULT_SOURCE.zones].promoteId).toBe(
+      'zone_index',
+    );
     expect(resultExtent({ planting, zones })).toEqual({
       minX: 37.599,
       minY: 55.749,
@@ -222,4 +233,16 @@ describe('hatchPattern', () => {
     expect(pixel(15, 1)).toEqual([0xd9, 0xa8, 0x9a, 255]);
     expect(pixel(8, 8)[3]).toBe(255);
   });
+});
+
+test('подписи размеров — с одного и того же числа пикселей на метр в Москве и у экватора', () => {
+  // Москва: 18-й масштаб. План без геопривязки лежит у точки (0, 0): там метр на том же
+  // масштабе мельче, и порог выше на log2(1 / cos φ).
+  expect(dimensionLabelsMinZoom(55.75)).toBeCloseTo(18, 1);
+  expect(dimensionLabelsMinZoom(0) - dimensionLabelsMinZoom(55.75)).toBeCloseTo(
+    Math.log2(1 / Math.cos((55.75 * Math.PI) / 180)),
+    5,
+  );
+  const labels = resultLayers(0).find(({ id }) => id === RESULT_LAYER.dimensionLabels);
+  expect(labels?.minzoom).toBe(dimensionLabelsMinZoom(0));
 });

@@ -5,6 +5,7 @@ import { type ReactNode, useEffect } from 'react';
 import { type RouteObject, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { dimensionLabelsMinZoom } from '@/entities/project';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { renderWithProviders, server } from '@/shared/lib/test';
 
@@ -13,15 +14,18 @@ import { ProjectPage } from './project-page';
 // Карта в jsdom не рисуется: модуль карты подменяется на границе ленивого импорта.
 // Подмена отдаёт экрану объект с теми методами MapLibre, которыми экран пользуется.
 type Handler = (event: { point: { x: number; y: number } }) => void;
+type QueryOptions = { layers: string[] };
 
 const mapMock = vi.hoisted(() => ({ unavailable: false }));
 
 function createFakeMap() {
   const handlers = new Map<string, Handler>();
   const canvas = { style: { cursor: '' }, focus: vi.fn() };
+  const dimensions = { setData: vi.fn<(data: unknown) => Promise<void>>(() => Promise.resolve()) };
   return {
     handlers,
     canvas,
+    dimensions,
     getPixelRatio: () => 1,
     addImage: vi.fn(),
     addSource: vi.fn(),
@@ -30,11 +34,16 @@ function createFakeMap() {
       if (typeof layerOrHandler === 'function') handlers.set(event, layerOrHandler);
       else if (handler !== undefined) handlers.set(`${event}:${layerOrHandler}`, handler);
     }),
-    queryRenderedFeatures: vi.fn((): { properties: Record<string, unknown> }[] => []),
+    queryRenderedFeatures: vi.fn<
+      (point: unknown, options: QueryOptions) => { properties: Record<string, unknown> }[]
+    >(() => []),
     getCanvas: () => canvas,
+    getZoom: vi.fn(() => 19),
+    getSource: (id: string) => (id === 'result-dimensions' ? dimensions : undefined),
     setLayoutProperty: vi.fn(),
     setFeatureState: vi.fn(),
-    easeTo: vi.fn(),
+    easeTo: vi.fn<(options: { center: number[]; zoom?: number }) => void>(),
+    resize: vi.fn(),
   };
 }
 
@@ -42,6 +51,7 @@ let fakeMap = createFakeMap();
 
 type FakeMapViewProps = {
   label: string;
+  note?: string;
   onReady: (map: ReturnType<typeof createFakeMap>) => void;
   onBasemapResolved: (available: boolean) => void;
   onUnavailable: () => void;
@@ -49,7 +59,14 @@ type FakeMapViewProps = {
 };
 
 vi.mock('@/shared/map', () => ({
-  MapView: ({ label, onReady, onBasemapResolved, onUnavailable, children }: FakeMapViewProps) => {
+  MapView: ({
+    label,
+    note,
+    onReady,
+    onBasemapResolved,
+    onUnavailable,
+    children,
+  }: FakeMapViewProps) => {
     useEffect(() => {
       onBasemapResolved(false);
       if (mapMock.unavailable) onUnavailable();
@@ -59,6 +76,7 @@ vi.mock('@/shared/map', () => ({
     }, []);
     return (
       <div role="region" aria-label={label}>
+        {note}
         {children}
       </div>
     );
@@ -104,6 +122,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Подмены браузерных API в отдельных тестах; restoreAllMocks их не откатывает.
+  Reflect.deleteProperty(navigator, 'clipboard');
+  Reflect.deleteProperty(URL, 'createObjectURL');
+  Reflect.deleteProperty(URL, 'revokeObjectURL');
   vi.useRealTimers();
   vi.restoreAllMocks();
   server.events.removeAllListeners();
@@ -171,8 +193,6 @@ describe('шапка', () => {
     const link = click.mock.contexts[0];
     if (!(link instanceof HTMLAnchorElement)) throw new Error('ожидалась ссылка');
     expect(link.download).toBe('Сквер на Покровке.dxf');
-    Reflect.deleteProperty(URL, 'createObjectURL');
-    Reflect.deleteProperty(URL, 'revokeObjectURL');
   });
 });
 
@@ -296,9 +316,11 @@ describe('готовый проект', () => {
 
   test('ошибка данных — сообщение и «Повторить» на месте карты, «Скачать DXF» доступна', async () => {
     server.use(
-      http.get('/api/projects/:projectId/planting', () => new HttpResponse(null, { status: 500 }), {
-        once: true,
-      }),
+      http.get(
+        '/api/projects/:projectId/explanation',
+        () => new HttpResponse(null, { status: 500 }),
+        { once: true },
+      ),
     );
     renderProject(READY_ID);
 
@@ -308,19 +330,17 @@ describe('готовый проект', () => {
     expect(await screen.findByRole('region', { name: MAP_LABEL })).toBeInTheDocument();
   });
 
-  test('нет WebGL — запасной план без подложки', async () => {
+  test('нет WebGL — запасной план', async () => {
     mapMock.unavailable = true;
     renderProject(READY_ID);
 
     expect(
-      await screen.findByText(
-        'Карта недоступна в этом браузере. Показан план посадок без подложки',
-      ),
+      await screen.findByText('Карта недоступна в этом браузере. Показан план посадок.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('img', { name: MAP_LABEL })).toBeInTheDocument();
   });
 
-  test('участок за пределами карты Москвы — план без подложки', async () => {
+  test('участок за пределами карты Москвы — та же карта без подложки', async () => {
     server.use(
       http.get('/api/projects/:projectId/planting', () =>
         HttpResponse.json({
@@ -342,23 +362,18 @@ describe('готовый проект', () => {
     );
     renderProject(READY_ID);
 
-    expect(
-      await screen.findByText(
-        'Участок за пределами карты Москвы. Показан план посадок без подложки',
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: /^План посадок/ })).not.toBeInTheDocument();
+    const map = await screen.findByRole('region', { name: /^План посадок/ });
+    expect(map).toHaveTextContent('Участок за пределами карты Москвы, подложки нет');
+    expect(screen.queryByRole('switch', { name: 'Подложка' })).not.toBeInTheDocument();
   });
 
-  test('нет геопривязки — план в координатах чертежа, карта не создаётся', async () => {
+  test('нет геопривязки — та же карта в координатах чертежа, без подложки', async () => {
     renderProject(NO_GEOREF_ID);
 
-    expect(
-      await screen.findByText(
-        'У проекта нет геопривязки. Показан план посадок в координатах чертежа',
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: /^План посадок/ })).not.toBeInTheDocument();
+    const map = await screen.findByRole('region', { name: /^План посадок/ });
+    expect(map).toHaveTextContent('Координаты чертежа, без привязки к городу');
+    expect(screen.queryByRole('switch', { name: 'Подложка' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
@@ -384,62 +399,190 @@ describe('панель «Слои»', () => {
     expect(fakeMap.setLayoutProperty).not.toHaveBeenCalledWith('shrubs', 'visibility', 'none');
 
     await userEvent.click(trees);
-    expect(fakeMap.setLayoutProperty).toHaveBeenLastCalledWith(
-      'prohibited-zones-hatch',
-      'visibility',
-      'visible',
-    );
     expect(fakeMap.setLayoutProperty).toHaveBeenCalledWith('trees', 'visibility', 'visible');
   });
 });
 
-describe('панель «Посадка»', () => {
-  const selectFirstTree = async () => {
-    await screen.findByRole('region', { name: MAP_LABEL });
-    fakeMap.queryRenderedFeatures.mockReturnValue([{ properties: { id: 'TREE_ROW_CURB-00001' } }]);
-    act(() => {
-      fakeMap.handlers.get('click')?.({ point: { x: 10, y: 10 } });
-    });
-    return screen.findByRole('region', { name: 'Посадка' });
-  };
+// Первое дерево мока стоит в (3; 2,2) м от угла газона: под ним бортовой камень (y = 0,
+// отступ 0,7 м), кабель (y = 4,5, отступ 2 м) и газопровод (y = 12, отступ 1,5 м).
+const FIRST_TREE = 'TREE_ROW_CURB-00001';
 
-  test('выбор посадки открывает панель и выделяет её через feature-state', async () => {
+const clickMap = (plantingId: string | null, zoneIndex: number | null = null) => {
+  fakeMap.queryRenderedFeatures.mockImplementation((_point, { layers }) => {
+    if (layers.includes('trees'))
+      return plantingId === null ? [] : [{ properties: { id: plantingId } }];
+    return zoneIndex === null ? [] : [{ properties: { zone_index: zoneIndex } }];
+  });
+  act(() => {
+    fakeMap.handlers.get('click')?.({ point: { x: 10, y: 10 } });
+  });
+};
+
+const selectFirstTree = async () => {
+  await screen.findByRole('region', { name: MAP_LABEL });
+  clickMap(FIRST_TREE);
+  return screen.findByRole('region', { name: 'Дерево' });
+};
+
+type DimensionData = {
+  features: { properties: { kind: string; check: number; emphasis: string; text?: string } }[];
+};
+
+const lastDimensions = (): DimensionData['features'] => {
+  const data: unknown = fakeMap.dimensions.setData.mock.lastCall?.[0];
+  // Экран передаёт в источник результат dimensionLines — FeatureCollection.
+  return (data as DimensionData).features;
+};
+
+describe('панель «Посадка»', () => {
+  test('заголовок — тип, правило из /explanation, идентификатор, feature-state', async () => {
     renderProject(READY_ID);
 
     const panel = await selectFirstTree();
 
-    expect(within(panel).getByText('Дерево')).toBeInTheDocument();
-    expect(
-      await within(panel).findByText('Рядовая/аллейная посадка вдоль борта'),
-    ).toBeInTheDocument();
-    expect(within(panel).getByText('Радиус кроны 1,5 м')).toBeInTheDocument();
-    expect(within(panel).getByText('TREE_ROW_CURB-00001')).toBeInTheDocument();
+    expect(within(panel).getByText('Рядовая/аллейная посадка вдоль борта')).toBeInTheDocument();
+    expect(within(panel).getByText(FIRST_TREE)).toBeInTheDocument();
     expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
-      { source: 'result-planting', id: 'TREE_ROW_CURB-00001' },
+      { source: 'result-planting', id: FIRST_TREE },
       { selected: true },
     );
   });
 
-  // /processing-defaults есть только в контракте-предложении: настоящий бэкенд отвечает 404.
-  test('без /processing-defaults панель работает, строки правила нет и ошибки нет', async () => {
-    const defaults = vi.fn();
-    server.use(
-      http.get('/api/processing-defaults', () => {
-        defaults();
-        return HttpResponse.json({ detail: 'Not Found' }, { status: 404 });
-      }),
-    );
+  test('проверки по зонам запрета — по возрастанию запаса, с нормой и источником', async () => {
     renderProject(READY_ID);
-
     const panel = await selectFirstTree();
-    await waitFor(() => {
-      expect(defaults).toHaveBeenCalled();
-    });
 
-    expect(within(panel).getByText('Дерево')).toBeInTheDocument();
-    expect(within(panel).getByText('Радиус кроны 1,5 м')).toBeInTheDocument();
-    expect(within(panel).queryByText(/вдоль борта|на свободном газоне/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    const checks = within(within(panel).getByRole('list', { name: 'Проверки' })).getAllByRole(
+      'listitem',
+    );
+    expect(checks.map((check) => within(check).getAllByText(/./)[0]?.textContent)).toEqual([
+      'Силовой кабель',
+      'Бортовой камень',
+      'Газопровод',
+    ]);
+    expect(checks[0]).toHaveTextContent('2,3 м при норме не менее 2 м');
+    expect(checks[0]).toHaveTextContent('743-ПП — силовой кабель и кабель связи');
+    expect(within(checks[0] ?? panel).getByRole('img', { name: 'Норма выполнена' })).toBeVisible();
+    expect(checks[1]).toHaveTextContent('2,2 м при норме не менее 0,7 м');
+    // До газопровода ближе край участка, чем его зона: точное расстояние неизвестно.
+    expect(checks[2]).toHaveTextContent(/до границы зоны 8,\d м/);
+    expect(within(panel).getByText('Сервис не проверял отступы до: колодцы и люки')).toBeVisible();
+  });
+
+  test('размерные линии — у трёх ближайших, наведение выделяет свою', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+
+    const labels = lastDimensions()
+      .filter(({ properties }) => properties.kind === 'label')
+      .map(({ properties }) => properties.text?.replace('\u00A0', ' '));
+    expect(labels).toEqual(['0,3 м', '2 м', '1,5 м', '0,7 м', '8,3 м']);
+
+    const [, roadEdge] = within(panel).getAllByRole('listitem');
+    await userEvent.hover(roadEdge ?? panel);
+    const emphasis = new Set(
+      lastDimensions().map(
+        ({ properties }) => `${String(properties.check)}:${properties.emphasis}`,
+      ),
+    );
+    expect(emphasis).toEqual(new Set(['0:dim', '1:focus', '2:dim']));
+
+    await userEvent.unhover(roadEdge ?? panel);
+    expect(lastDimensions().every(({ properties }) => properties.emphasis === 'normal')).toBe(true);
+  });
+
+  test('координаты — широта и долгота, координаты чертежа, «Скопировать»', async () => {
+    // В jsdom нет Clipboard API.
+    const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+
+    expect(within(panel).getByText(/^Ш 55,759\d{3}, Д 37,645\d{3}$/)).toBeInTheDocument();
+    expect(
+      within(panel).getByText('В координатах чертежа: X 3,00 м, Y 2,20 м'),
+    ).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole('button', { name: 'Скопировать' }));
+
+    expect(writeText.mock.lastCall?.[0]).toMatch(
+      /^Ш 55,759\d{3}, Д 37,645\d{3}\nВ координатах чертежа: X 3,00\u00A0м, Y 2,20\u00A0м$/,
+    );
+    expect(await screen.findByText('Координаты скопированы')).toBeInTheDocument();
+  });
+
+  test('без Clipboard API — сообщение, что скопировать не удалось', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+
+    await userEvent.click(within(panel).getByRole('button', { name: 'Скопировать' }));
+
+    expect(
+      await screen.findByText(
+        'Не удалось скопировать координаты. Выделите их и скопируйте вручную.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test('«Показать зону» у проверки открывает панель зоны с клавиатуры', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+
+    within(panel).getByRole('button', { name: 'Показать зону: Силовой кабель' }).focus();
+    await userEvent.keyboard('{Enter}');
+
+    const zone = await screen.findByRole('region', { name: 'Силовой кабель' });
+    expect(within(zone).getByText('Отступ для деревьев не менее 2 м')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+
+    // Кнопка исчезла вместе с панелью посадки: фокус — в панели зоны, и Esc её закрывает.
+    await waitFor(() => {
+      expect(zone).toHaveFocus();
+    });
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('region', { name: 'Силовой кабель' })).not.toBeInTheDocument();
+  });
+
+  test('«Показать зону» включает выключенный слой зон', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+    await userEvent.click(screen.getByRole('switch', { name: 'Зоны запрета, 10 зон запрета' }));
+
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Показать зону: Силовой кабель' }),
+    );
+
+    expect(
+      await screen.findByRole('switch', { name: 'Зоны запрета, 10 зон запрета' }),
+    ).toBeChecked();
+  });
+
+  test('без геопривязки — только координаты чертежа', async () => {
+    renderProject(NO_GEOREF_ID);
+    await screen.findByRole('region', { name: /^План посадок/ });
+    clickMap(FIRST_TREE);
+
+    const panel = await screen.findByRole('region', { name: 'Дерево' });
+    expect(within(panel).getByText('В координатах чертежа: X 3,00 м, Y 2,20 м')).toBeVisible();
+    expect(within(panel).queryByText(/^Ш /)).not.toBeInTheDocument();
+    expect(within(panel).getByRole('list', { name: 'Проверки' })).toBeInTheDocument();
+  });
+
+  test('клик по зоне запрета — панель зоны с нормой и площадью, выделение контура', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    clickMap(null, 1);
+
+    const panel = await screen.findByRole('region', { name: 'Силовой кабель' });
+    expect(within(panel).getByText('Зона запрета')).toBeInTheDocument();
+    expect(within(panel).getByText('Отступ для деревьев не менее 2 м')).toBeInTheDocument();
+    expect(within(panel).getByText('743-ПП — силовой кабель и кабель связи')).toBeInTheDocument();
+    // Полоса 60 × 4 м.
+    expect(within(panel).getByText(/^Площадь по данным карты: 24\d м²$/)).toBeInTheDocument();
+    expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
+      { source: 'result-prohibited-zones', id: 1 },
+      { selected: true },
+    );
   });
 
   test('закрывается по Esc, когда фокус в панели, и снимает выделение', async () => {
@@ -450,13 +593,14 @@ describe('панель «Посадка»', () => {
     await userEvent.keyboard('{Escape}');
 
     await waitFor(() => {
-      expect(screen.queryByRole('region', { name: 'Посадка' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
     });
     expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
-      { source: 'result-planting', id: 'TREE_ROW_CURB-00001' },
+      { source: 'result-planting', id: FIRST_TREE },
       { selected: false },
     );
     expect(fakeMap.canvas.focus).toHaveBeenCalled();
+    expect(lastDimensions()).toEqual([]);
   });
 
   test('Esc на переключателе слоёв закрывает панель, фокус остаётся на месте', async () => {
@@ -467,7 +611,7 @@ describe('панель «Посадка»', () => {
     shrubs.focus();
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.queryByRole('region', { name: 'Посадка' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
     expect(fakeMap.canvas.focus).not.toHaveBeenCalled();
     expect(shrubs).toHaveFocus();
   });
@@ -477,10 +621,10 @@ describe('панель «Посадка»', () => {
     await selectFirstTree();
 
     await userEvent.click(screen.getByPlaceholderText('Номер посадки'));
-    await screen.findByRole('option', { name: 'Дерево TREE_ROW_CURB-00001' });
+    await screen.findByRole('option', { name: `Дерево ${FIRST_TREE}` });
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.getByRole('region', { name: 'Посадка' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Дерево' })).toBeInTheDocument();
   });
 
   test('Esc вне карты выбор не снимает', async () => {
@@ -490,7 +634,7 @@ describe('панель «Посадка»', () => {
     screen.getByRole('button', { name: 'Скачать DXF' }).focus();
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.getByRole('region', { name: 'Посадка' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Дерево' })).toBeInTheDocument();
   });
 
   test('с клавиатуры — выбор из списка «Найти посадку»', async () => {
@@ -498,19 +642,13 @@ describe('панель «Посадка»', () => {
     await screen.findByRole('region', { name: MAP_LABEL });
 
     screen.getByPlaceholderText('Номер посадки').focus();
-    await userEvent.keyboard('TREE_ROW_CURB-00001');
-    await screen.findByRole('option', { name: 'Дерево TREE_ROW_CURB-00001' });
+    await userEvent.keyboard(FIRST_TREE);
+    await screen.findByRole('option', { name: `Дерево ${FIRST_TREE}` });
     await userEvent.keyboard('{ArrowDown}{Enter}');
 
-    const panel = await screen.findByRole('region', { name: 'Посадка' });
-    expect(within(panel).getByText('TREE_ROW_CURB-00001')).toBeInTheDocument();
-    const response = await fetch(`/api/projects/${READY_ID}/planting`);
-    // Ответ мока соответствует PlantingFeatureCollection контракта: берутся только нужные поля.
-    const { features } = (await response.json()) as {
-      features: { geometry: { coordinates: number[] }; properties: { id: string } }[];
-    };
-    const tree = features.find(({ properties }) => properties.id === 'TREE_ROW_CURB-00001');
-    expect(fakeMap.easeTo).toHaveBeenCalledWith({ center: tree?.geometry.coordinates });
+    const panel = await screen.findByRole('region', { name: 'Дерево' });
+    expect(within(panel).getByText(FIRST_TREE)).toBeInTheDocument();
+    expect(fakeMap.easeTo).toHaveBeenCalledWith({ center: await firstTreeCoordinates() });
   });
 
   test('выключение слоя выбранной посадки снимает выбор', async () => {
@@ -518,10 +656,10 @@ describe('панель «Посадка»', () => {
     await selectFirstTree();
 
     await userEvent.click(screen.getByRole('switch', { name: 'Кустарники, 19 кустарников' }));
-    expect(screen.getByRole('region', { name: 'Посадка' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Дерево' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('switch', { name: 'Деревья, 19 деревьев' }));
-    expect(screen.queryByRole('region', { name: 'Посадка' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
 
     // Скрытые деревья и в поиске не предлагаются.
     await userEvent.click(screen.getByPlaceholderText('Номер посадки'));
@@ -534,15 +672,391 @@ describe('панель «Посадка»', () => {
     const panel = await selectFirstTree();
 
     await userEvent.click(within(panel).getByRole('button', { name: 'Закрыть' }));
-    expect(screen.queryByRole('region', { name: 'Посадка' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
     expect(fakeMap.canvas.focus).toHaveBeenCalledTimes(1);
 
     await selectFirstTree();
-    fakeMap.queryRenderedFeatures.mockReturnValue([]);
-    act(() => {
-      fakeMap.handlers.get('click')?.({ point: { x: 1, y: 1 } });
+    clickMap(null);
+    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+  });
+});
+
+// Одна посадка у точки (37,6452; 55,7593) и одна зона запрета: рядом или на ней.
+function mockSinglePlanting({ zoneOverPlanting }: { zoneOverPlanting: boolean }) {
+  const [lon, lat] = [37.6452, 55.7593];
+  // 0,001° долготы на этой широте — около 63 м: зона вдали от посадки.
+  const offset = zoneOverPlanting ? 0 : 0.001;
+  const square = (half: number) => [
+    [lon + offset - half, lat - half],
+    [lon + offset + half, lat - half],
+    [lon + offset + half, lat + half],
+    [lon + offset - half, lat + half],
+    [lon + offset - half, lat - half],
+  ];
+  server.use(
+    http.get('/api/projects/:projectId/planting', () =>
+      HttpResponse.json({
+        type: 'FeatureCollection',
+        metadata: { crs: 'EPSG:4326 (WGS84 lon/lat)' },
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [lon, lat] },
+            properties: { id: 'TREE-1', plant_type: 'tree', rule_id: 'TREE_FILL_LAWN' },
+          },
+        ],
+      }),
+    ),
+    http.get('/api/projects/:projectId/zones', () =>
+      HttpResponse.json({
+        type: 'FeatureCollection',
+        metadata: {
+          crs: 'EPSG:4326 (WGS84 lon/lat)',
+          used_site_boundary: false,
+          uncovered_categories: [],
+        },
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Polygon', coordinates: [square(0.00005)] },
+            properties: {
+              zone_type: 'prohibited',
+              plant_type: 'tree',
+              obstacle_category: 'underground_utilities',
+              obstacle_subtype: 'heat',
+              distance_m: 2,
+              citation: '',
+              reason: '< 2 м от объекта типа «heat»',
+            },
+          },
+        ],
+      }),
+    ),
+    http.get('/api/projects/:projectId/explanation', () =>
+      HttpResponse.json([
+        {
+          id: 'TREE-1',
+          plant_type: 'tree',
+          rule_id: 'TREE_FILL_LAWN',
+          rule_name_ru: null,
+          x: 1,
+          y: 2,
+        },
+      ]),
+    ),
+  );
+}
+
+describe('панель «Посадка» — крайние случаи', () => {
+  test('рядом ничего нет, границы участка нет', async () => {
+    mockSinglePlanting({ zoneOverPlanting: false });
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: /^План посадок/ });
+
+    clickMap('TREE-1');
+
+    const panel = await screen.findByRole('region', { name: 'Дерево' });
+    expect(
+      within(panel).getByText('Рядом нет ограничений из проверенных категорий'),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByText(
+        'Граница участка в чертеже не найдена: посадки размещены по всему газону',
+      ),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByText('Не проверялось')).not.toBeInTheDocument();
+  });
+
+  test('посадка внутри зоны — предупреждение, источник не указан', async () => {
+    mockSinglePlanting({ zoneOverPlanting: true });
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: /^План посадок/ });
+
+    clickMap('TREE-1');
+
+    const panel = await screen.findByRole('region', { name: 'Дерево' });
+    const [check] = within(panel).getAllByRole('listitem');
+    expect(check).toHaveTextContent('Тепловая сеть');
+    expect(within(check ?? panel).getByRole('img', { name: 'Норма нарушена' })).toBeVisible();
+    expect(check).toHaveTextContent('Посадка внутри зоны запрета — сообщите разработчикам');
+    expect(check).toHaveTextContent('Норма не указана сервером');
+    expect(lastDimensions()).toEqual([]);
+  });
+});
+
+async function firstTreeCoordinates(): Promise<number[] | undefined> {
+  const response = await fetch(`/api/projects/${READY_ID}/planting`);
+  // Ответ мока соответствует PlantingFeatureCollection контракта: берутся только нужные поля.
+  const { features } = (await response.json()) as {
+    features: { geometry: { coordinates: number[] }; properties: { id: string } }[];
+  };
+  return features.find(({ properties }) => properties.id === FIRST_TREE)?.geometry.coordinates;
+}
+
+const renderRegister = async (id = READY_ID) => {
+  renderWithProviders(routes, `/projects/${id}?view=register`);
+  return screen.findByRole('table');
+};
+
+const shownRange = () => screen.getByText(/^Показано /).textContent;
+
+describe('ведомость', () => {
+  test('?view=register открывает ведомость; карта создаётся при первом показе плана', async () => {
+    await renderRegister();
+
+    expect(screen.getByRole('radio', { name: 'Ведомость' })).toBeChecked();
+    expect(screen.queryByRole('region', { name: MAP_LABEL })).not.toBeInTheDocument();
+    expect(fakeMap.addLayer).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'План' }));
+    expect(await screen.findByRole('region', { name: MAP_LABEL })).toBeInTheDocument();
+    expect(fakeMap.addLayer).toHaveBeenCalled();
+    const layers = fakeMap.addLayer.mock.calls.length;
+
+    // Дальше план скрывается, а не размонтируется: карта не пересоздаётся.
+    await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'План' }));
+    expect(fakeMap.addLayer).toHaveBeenCalledTimes(layers);
+  });
+
+  test('сводка — счётчики по типам, правилам и зонам запрета', async () => {
+    await renderRegister();
+
+    expect(screen.getByText('Деревья — 19')).toBeInTheDocument();
+    expect(screen.getByText('Кустарники — 19')).toBeInTheDocument();
+    expect(screen.getByText(/^Рядовая\/аллейная посадка вдоль борта — \d+$/)).toBeInTheDocument();
+    // Площадь — объединение зон: газон без разрешённой области.
+    expect(
+      screen.getByText(/^Для деревьев: 5 зон запрета, общая площадь [\d ]+ м²$/),
+    ).toBeInTheDocument();
+  });
+
+  test('столбцы и строки: координаты с шестью знаками, координаты чертежа с двумя', async () => {
+    await renderRegister();
+
+    expect(screen.getAllByRole('columnheader').map(({ textContent }) => textContent)).toEqual([
+      '№',
+      'Идентификатор',
+      'Тип',
+      'Правило посадки',
+      'Широта',
+      'Долгота',
+      'X чертежа, м',
+      'Y чертежа, м',
+    ]);
+    const [, first] = screen.getAllByRole('row');
+    const cells = within(first ?? document.body).getAllByRole('cell');
+    expect(cells.map(({ textContent }) => textContent)).toEqual([
+      '1',
+      FIRST_TREE,
+      'Дерево',
+      'Рядовая/аллейная посадка вдоль борта',
+      expect.stringMatching(/^55,759\d{3}$/),
+      expect.stringMatching(/^37,645\d{3}$/),
+      '3,00',
+      '2,20',
+    ]);
+    expect(shownRange()).toBe('Показано 1–38 из 38');
+  });
+
+  test('фильтры по типу, правилу и идентификатору; пусто — «Сбросить фильтры»', async () => {
+    await renderRegister();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Кустарники' }));
+    expect(shownRange()).toBe('Показано 1–19 из 19');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Все' }));
+    await userEvent.click(screen.getByLabelText('Правило посадки', { selector: 'input' }));
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Рядовая/аллейная посадка вдоль борта' }),
+    );
+    const byRule = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[3]?.textContent);
+    expect(new Set(byRule)).toEqual(new Set(['Рядовая/аллейная посадка вдоль борта']));
+
+    await userEvent.type(
+      screen.getByLabelText('Идентификатор', { selector: 'input' }),
+      'нет такой',
+    );
+    expect(screen.getByText('Нет посадок по выбранным условиям')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+    expect(shownRange()).toBe('Показано 1–38 из 38');
+  });
+
+  test('сортировка по заголовку — aria-sort и порядок строк', async () => {
+    await renderRegister();
+    const typeHeader = screen.getByRole('columnheader', { name: 'Тип' });
+    const types = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[2]?.textContent);
+
+    expect(screen.getByRole('columnheader', { name: '№' })).toHaveAttribute(
+      'aria-sort',
+      'ascending',
+    );
+    await userEvent.click(within(typeHeader).getByRole('button'));
+    expect(typeHeader).toHaveAttribute('aria-sort', 'ascending');
+    expect(screen.getByRole('columnheader', { name: '№' })).not.toHaveAttribute('aria-sort');
+    expect(types()[0]).toBe('Дерево');
+
+    await userEvent.click(within(typeHeader).getByRole('button'));
+    expect(typeHeader).toHaveAttribute('aria-sort', 'descending');
+    expect(types()[0]).toBe('Кустарник');
+  });
+
+  test('больше 50 посадок — страницы', async () => {
+    server.use(
+      http.get('/api/projects/:projectId/planting', () =>
+        HttpResponse.json({
+          type: 'FeatureCollection',
+          metadata: { crs: 'EPSG:4326 (WGS84 lon/lat)' },
+          features: Array.from({ length: 120 }, (_, index) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [37.6452 + index * 1e-5, 55.7593] },
+            properties: {
+              id: `TREE_FILL_LAWN-${String(index + 1).padStart(5, '0')}`,
+              plant_type: 'tree',
+              rule_id: 'TREE_FILL_LAWN',
+            },
+          })),
+        }),
+      ),
+    );
+    await renderRegister();
+
+    expect(screen.getAllByRole('row')).toHaveLength(51);
+    expect(shownRange()).toBe('Показано 1–50 из 120');
+    await userEvent.click(screen.getByRole('button', { name: 'Страница 3' }));
+    expect(shownRange()).toBe('Показано 101–120 из 120');
+    expect(screen.getAllByRole('row')).toHaveLength(21);
+  });
+
+  test('строка ведёт на план: выбор посадки, камера и фокус', async () => {
+    await renderRegister();
+    fakeMap.getZoom.mockReturnValue(15);
+
+    screen.getByRole('button', { name: `Показать на плане: ${FIRST_TREE}` }).focus();
+    await userEvent.keyboard('{Enter}');
+
+    expect(screen.getByRole('radio', { name: 'План' })).toBeChecked();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    const panel = await screen.findByRole('region', { name: 'Дерево' });
+    expect(within(panel).getByText(FIRST_TREE)).toBeInTheDocument();
+    // Масштаб не мельче того, где видны подписи размеров (в Москве — 18-й).
+    const [lon, lat] = (await firstTreeCoordinates()) ?? [];
+    const options = fakeMap.easeTo.mock.lastCall?.[0];
+    expect(options?.center).toEqual([lon, lat]);
+    expect(options?.zoom).toBeCloseTo(dimensionLabelsMinZoom(lat ?? 0), 3);
+    // Строка скрыта вместе с ведомостью: фокус — в панели посадки.
+    expect(panel).toHaveFocus();
+    // Размер карты уточняется до перехода: иначе центр считался бы по скрытому контейнеру.
+    expect(fakeMap.resize.mock.invocationCallOrder[0]).toBeLessThan(
+      fakeMap.easeTo.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  test('выключенный слой посадки включается при переходе из ведомости', async () => {
+    renderProject(READY_ID);
+    await userEvent.click(await screen.findByRole('switch', { name: 'Деревья, 19 деревьев' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
+
+    await userEvent.click(screen.getByRole('button', { name: `Показать на плане: ${FIRST_TREE}` }));
+
+    expect(await screen.findByRole('switch', { name: 'Деревья, 19 деревьев' })).toBeChecked();
+  });
+
+  test('фильтры ведомости переживают переход на план и обратно', async () => {
+    await renderRegister();
+    await userEvent.click(screen.getByRole('radio', { name: 'Кустарники' }));
+
+    await userEvent.click(screen.getByRole('radio', { name: 'План' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
+
+    expect(screen.getByRole('radio', { name: 'Кустарники' })).toBeChecked();
+    expect(shownRange()).toBe('Показано 1–19 из 19');
+  });
+
+  test('без WebGL строки ведомости на план не ведут', async () => {
+    mapMock.unavailable = true;
+    renderProject(READY_ID);
+    await screen.findByText('Карта недоступна в этом браузере. Показан план посадок.');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
+
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Показать на плане: / })).not.toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: FIRST_TREE })).toBeInTheDocument();
+  });
+
+  test('«Скачать ведомость (CSV)» — все посадки, имя по проекту', async () => {
+    const blobs: Blob[] = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      blobs.push(blob);
+      return 'blob:csv';
     });
-    expect(screen.queryByRole('region', { name: 'Посадка' })).not.toBeInTheDocument();
+    URL.revokeObjectURL = vi.fn();
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    await renderRegister();
+    await userEvent.click(screen.getByRole('radio', { name: 'Кустарники' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать ведомость (CSV)' }));
+
+    const link = click.mock.contexts[0];
+    if (!(link instanceof HTMLAnchorElement)) throw new Error('ожидалась ссылка');
+    expect(link.download).toBe('Сквер на Покровке — ведомость посадок.csv');
+    const bytes = new Uint8Array((await blobs[0]?.arrayBuffer()) ?? new ArrayBuffer(0));
+    // BOM UTF-8: Blob.text() его срезает, поэтому проверяется по байтам.
+    expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    const lines = new TextDecoder().decode(bytes).split('\r\n');
+    expect(lines[0]).toBe(
+      '№;Идентификатор;Тип;Правило посадки;Широта;Долгота;X чертежа, м;Y чертежа, м',
+    );
+    expect(lines[1]).toMatch(
+      /^1;TREE_ROW_CURB-00001;Дерево;Рядовая\/аллейная посадка вдоль борта;55,759\d{3};37,645\d{3};3,00;2,20$/,
+    );
+    // Фильтр на выгрузку не влияет: 38 посадок, заголовок и пустая строка после CRLF.
+    expect(lines).toHaveLength(40);
+  });
+});
+
+describe('геопривязка в шапке', () => {
+  test('проверена — число точек, невязки и пояснение', async () => {
+    renderProject(READY_ID);
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Геопривязка: проверена по опорным точкам' }),
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Совпало: 3 опорные точки')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Невязка наибольшая 0,21 м, средняя 0,14 м'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog)
+        .getAllByRole('row')
+        .slice(1)
+        .map(({ textContent }) => textContent.replace(/\s/g, ' ')),
+    ).toEqual(['12040,12 м', '12070,08 м', '13110,21 м']);
+    expect(within(dialog).getByText(/^Невязка — расхождение/)).toBeInTheDocument();
+  });
+
+  test('без геопривязки — пояснение о плане в координатах чертежа', async () => {
+    renderProject(NO_GEOREF_ID);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Без геопривязки' }));
+
+    expect(
+      await screen.findByText(/^Чертёж не привязан к городу: план показан в координатах чертежа/),
+    ).toBeInTheDocument();
   });
 });
 

@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { components as Proposed } from '../generated/proposed';
 import type { components as Real } from '../generated/schema';
+import type { ExplanationEntry } from './fixtures/site';
 import { handlers, rejectUnhandledApi } from './handlers';
 import { resetMockDb, server } from './node';
 
 type ProjectResponse = Real['schemas']['ProjectResponse'];
-type Explanation = Proposed['schemas']['Explanation'];
+type Explanation = ExplanationEntry[];
 type ZonesFeatureCollection = Proposed['schemas']['ZonesFeatureCollection'];
 type PlantingFeatureCollection = Proposed['schemas']['PlantingFeatureCollection'];
 
@@ -279,37 +280,27 @@ describe('повторная обработка', () => {
     advance(20_000);
     const after = await call<Explanation>(`/projects/${IDS.readyGeoreferenced}/explanation`);
 
-    expect(after.body.plantings.every(({ plant_type }) => plant_type === 'tree')).toBe(true);
+    expect(after.body.every(({ plant_type }) => plant_type === 'tree')).toBe(true);
     const rowCount = (explanation: Explanation) =>
-      explanation.plantings.filter(({ rule }) => rule.id === 'TREE_ROW_CURB').length;
+      explanation.filter(({ rule_id }) => rule_id === 'TREE_ROW_CURB').length;
     expect(rowCount(after.body)).toBeGreaterThan(rowCount(before.body));
   });
 });
 
 describe('результат', () => {
-  test('каждая посадка проходит все проверки, каждое отклонённое место — нет', async () => {
+  test('/explanation — плоский список в формате бэкенда, с названием правила', async () => {
     const { body } = await call<Explanation>(`/projects/${IDS.readyGeoreferenced}/explanation`);
 
-    expect(body.plantings.length).toBeGreaterThanOrEqual(20);
-    expect(body.plantings.length).toBeLessThanOrEqual(40);
-    expect(body.rejected.length).toBeGreaterThan(0);
-    for (const { checks } of body.plantings) {
-      expect(checks.length).toBeGreaterThan(0);
-      for (const check of checks) expect(check.actual_m).toBeGreaterThanOrEqual(check.required_m);
-    }
-    for (const { failed_checks } of body.rejected) {
-      expect(failed_checks.length).toBeGreaterThan(0);
-      for (const check of failed_checks) expect(check.actual_m).toBeLessThan(check.required_m);
-    }
-  });
-
-  test('нормы из справочника, пунктов нет', async () => {
-    const { body } = await call<Explanation>(`/projects/${IDS.readyGeoreferenced}/explanation`);
-
-    const normIds = body.plantings.flatMap(({ checks }) => checks.map(({ norm_id }) => norm_id));
-    expect(normIds.every((id) => id in body.norms)).toBe(true);
-    expect(Object.values(body.norms).every(({ clause }) => clause === null)).toBe(true);
-    expect(body.norms['743-pp-gas']?.text).toContain('газопровод');
+    expect(body.length).toBeGreaterThanOrEqual(20);
+    expect(body.length).toBeLessThanOrEqual(40);
+    const [entry] = body;
+    expect(Object.keys(entry ?? {}).sort()).toEqual(
+      ['id', 'plant_type', 'rule_id', 'rule_name_ru', 'x', 'y'].sort(),
+    );
+    expect(entry?.id).toMatch(/^[A-Z_]+-\d{5}$/);
+    expect(entry?.plant_type).toMatch(/^(tree|shrub)$/);
+    expect(entry?.rule_name_ru).toBeTypeOf('string');
+    expect(entry?.x).toBeTypeOf('number');
   });
 
   test('посадки в /planting и /explanation совпадают по id', async () => {
@@ -319,7 +310,7 @@ describe('результат', () => {
     );
 
     expect(planting.body.features.map(({ properties }) => properties.id)).toEqual(
-      explanation.body.plantings.map(({ id }) => id),
+      explanation.body.map(({ id }) => id),
     );
   });
 
@@ -327,7 +318,8 @@ describe('результат', () => {
     const explanation = await call<Explanation>(`/projects/${IDS.readyLocal}/explanation`);
     const zones = await call<ZonesFeatureCollection>(`/projects/${IDS.readyLocal}/zones`);
 
-    expect(explanation.body.plantings[0]?.position).toMatchObject({ lon: null, lat: null });
+    expect(explanation.body[0]?.x).toBeTypeOf('number');
+    expect(explanation.body[0]?.y).toBeTypeOf('number');
     expect(zones.body.metadata.crs).toBe('local drawing coordinates, no geo-reference available');
   });
 
@@ -369,23 +361,6 @@ describe('результат', () => {
       expect(body).toEqual({ detail: 'Project data not available yet (status: draft)' });
     },
   );
-
-  test('параметры по умолчанию — из layout/default.yaml бэкенда', async () => {
-    const { body } = await call<Proposed['schemas']['ProcessingDefaults']>('/processing-defaults');
-
-    expect(
-      Object.entries(body.planting_rules).map(([id, rule]) => [
-        id,
-        rule.spacing_m.default,
-        rule.offset_m?.default ?? null,
-      ]),
-    ).toEqual([
-      ['TREE_ROW_CURB', 6, 2.2],
-      ['TREE_FILL_LAWN', 5, null],
-      ['SHRUB_HEDGE_CURB', 1.5, 0.8],
-      ['SHRUB_FILL_LAWN', 3, null],
-    ]);
-  });
 });
 
 // Моки в браузере завершаются rejectUnhandledApi: запрос к /api без обработчика не должен

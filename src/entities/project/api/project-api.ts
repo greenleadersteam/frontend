@@ -7,7 +7,6 @@ type ProjectCreateRequest = ProposedApiComponents['schemas']['ProjectCreateReque
 type ProjectUpdateRequest = ApiComponents['schemas']['ProjectUpdateRequest'];
 // Этих эндпоинтов у бэкенда ещё нет: типы из contracts/openapi.proposed.yaml.
 type RunRequest = ProposedApiComponents['schemas']['RunRequest'];
-type ProcessingDefaults = ProposedApiComponents['schemas']['ProcessingDefaults'];
 
 const LIST = { type: 'Project', id: 'LIST' } as const;
 const projectTag = (id: string) => ({ type: 'Project', id }) as const;
@@ -83,16 +82,12 @@ export const projectApi = baseApi.injectEndpoints({
       transformResponse: (response: ProjectResponse) => toProject(response),
       invalidatesTags: (_project, _error, { id }) => [projectTag(id), LIST],
     }),
-    getProcessingDefaults: build.query<ProcessingDefaults, undefined>({
-      query: () => '/processing-defaults',
-    }),
   }),
 });
 
 export const {
   useCreateProjectMutation,
   useDeleteProjectMutation,
-  useGetProcessingDefaultsQuery,
   useGetProjectQuery,
   useLazyGetProjectQuery,
   useListProjectsQuery,

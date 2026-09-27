@@ -1,21 +1,19 @@
 import { type Flavor, layers } from '@protomaps/basemaps';
 import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
 
-import { basemapColors as colors } from '@/shared/theme';
+import { basemapColors as colors, MAP_LABEL_FONT } from '@/shared/theme';
 
 export const BASEMAP_SOURCE = 'basemap';
 
 // Подписи рисуются в браузере шрифтом интерфейса, уже загруженным из
-// @fontsource-variable/mulish: без glyphs и font-faces MapLibre растеризует глифы локально
-// шрифтами из text-font, а вес берёт из имени первого из них (SemiBold → 600).
+// @fontsource-variable/mulish: без glyphs и font-faces MapLibre растеризует глифы локально.
 // font-faces не подходит: файл из него рисуется только весом 400.
-const STREET_LABEL_FONT = ['Mulish Variable SemiBold', 'Mulish Variable'];
 const FONT = 'Mulish Variable';
 
 // Глиф растеризуется один раз и кэшируется: если начертание к этому моменту не загружено,
-// подпись навсегда останется запасным шрифтом. Образцы текста выбирают по unicode-range
-// файлы подмножеств latin и cyrillic.
-export async function loadStreetLabelFont(): Promise<void> {
+// подпись навсегда останется запасным шрифтом. Подписи — у улиц подложки и у размерных линий.
+// Образцы текста выбирают по unicode-range файлы подмножеств latin и cyrillic.
+export async function loadLabelFont(): Promise<void> {
   await Promise.all(
     ['Aa', 'Аа'].map((sample) => document.fonts.load(`600 16px "${FONT}"`, sample)),
   );
@@ -127,7 +125,7 @@ function refine(layer: LayerSpecification): LayerSpecification {
       ...layer,
       layout: {
         ...layer.layout,
-        'text-font': STREET_LABEL_FONT,
+        'text-font': MAP_LABEL_FONT,
         'text-transform': 'uppercase',
         'text-letter-spacing': 0.06,
       },

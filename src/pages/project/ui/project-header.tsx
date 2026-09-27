@@ -1,4 +1,4 @@
-import { ActionIcon, Button, Group, Menu, Stack, Text, Title } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu, Popover, Stack, Table, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconArrowLeft, IconDots } from '@tabler/icons-react';
 import { type JSX, useId, useState } from 'react';
@@ -7,6 +7,7 @@ import { Link, useNavigate } from 'react-router';
 import {
   archiveAction,
   downloadProjectDxf,
+  GEOREFERENCE_CONFIDENCE_LABELS,
   getProcessingDurationMs,
   isProcessing,
   type Project,
@@ -15,7 +16,7 @@ import {
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
 import { describeAppError } from '@/shared/api';
 import { FOCUS_PROJECTS_HEADING, paths, projectUploadPath } from '@/shared/config';
-import { formatDuration } from '@/shared/lib/format';
+import { formatCount, formatDuration, formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
 import classes from './project-header.module.css';
@@ -53,6 +54,9 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
             {duration !== null && (
               <Text size="sm" c="dimmed">{`обработано за ${formatDuration(duration)}`}</Text>
             )}
+            {state.kind === 'ready' && (
+              <GeoreferenceButton georeference={job.georeference ?? null} />
+            )}
           </Group>
           {project.description !== null && <Text c="dimmed">{project.description}</Text>}
         </Stack>
@@ -62,6 +66,81 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
         </Group>
       </Group>
     </header>
+  );
+}
+
+type Georeference = NonNullable<Project['job']['georeference']>;
+
+type GeoreferenceButtonProps = { georeference: Georeference | null };
+
+// Список невязок по точкам показывается, пока он читается глазами.
+const RESIDUALS_LIST_LIMIT = 20;
+// Порог сервера по умолчанию (../backend/greenplan/api/config.py:33); в контуре его меняют
+// переменной окружения, а в ответе API его нет.
+const RESIDUAL_LIMIT_M = 1;
+const POINT_FORMS = { one: 'опорная точка', few: 'опорные точки', many: 'опорных точек' };
+
+function GeoreferenceButton({ georeference }: GeoreferenceButtonProps): JSX.Element {
+  const confidence =
+    georeference === null ? null : GEOREFERENCE_CONFIDENCE_LABELS[georeference.confidence];
+  const residuals = Object.entries(georeference?.residuals_m ?? {});
+  const values = residuals.map(([, value]) => value);
+
+  return (
+    <Popover position="bottom-start" shadow="md">
+      <Popover.Target>
+        <Button variant="subtle" size="compact-sm">
+          {georeference === null ? 'Без геопривязки' : `Геопривязка: ${confidence ?? 'есть'}`}
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown className={classes.georeference}>
+        {georeference === null ? (
+          <Text size="sm">
+            Чертёж не привязан к городу: план показан в координатах чертежа, без подложки.
+            Расстояния на плане — в метрах чертежа.
+          </Text>
+        ) : (
+          <Stack gap="xs">
+            <Text size="sm" className={classes.numbers}>
+              {`Совпало: ${formatCount(georeference.matched_labels.length, POINT_FORMS)}`}
+            </Text>
+            {values.length > 0 && (
+              <Text size="sm" className={classes.numbers}>
+                {`Невязка наибольшая ${formatMeters(Math.max(...values))}, средняя ${formatMeters(values.reduce((sum, value) => sum + value, 0) / values.length)}`}
+              </Text>
+            )}
+            {residuals.length > 0 && residuals.length <= RESIDUALS_LIST_LIMIT && (
+              <Table className={classes.numbers}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Опорная точка</Table.Th>
+                    <Table.Th>Невязка</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {residuals.map(([label, value]) => (
+                    <Table.Tr key={label}>
+                      <Table.Td>{label}</Table.Td>
+                      <Table.Td>{formatMeters(value)}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            )}
+            {/* Невязка — остаток подгонки поворота и сдвига по опорным точкам
+                (../backend/greenplan/cli.py:45-48). */}
+            <Text size="sm" c="dimmed">
+              {`Невязка — расхождение между опорной точкой чертежа после привязки и координатами этого геодезического пункта. По умолчанию сервер отклоняет привязку, если невязка больше ${formatMeters(RESIDUAL_LIMIT_M)}.`}
+            </Text>
+            {georeference.confidence === 'unvalidated' && (
+              <Text size="sm" c="dimmed">
+                По двум точкам привязка строится без запаса, поэтому невязки её не подтверждают.
+              </Text>
+            )}
+          </Stack>
+        )}
+      </Popover.Dropdown>
+    </Popover>
   );
 }
 

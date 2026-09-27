@@ -34,9 +34,7 @@ test('после повторной обработки результат пер
       expect(result.current.explanation.data).toBeDefined();
     }),
   );
-  expect(result.current.explanation.data?.plantings.some((p) => p.plant_type === 'shrub')).toBe(
-    true,
-  );
+  expect(result.current.explanation.data?.some((p) => p.plant_type === 'shrub')).toBe(true);
 
   await act(async () => {
     const [runProject] = result.current.run;
@@ -46,7 +44,7 @@ test('после повторной обработки результат пер
 
   expect(result.current.project.data?.state).toEqual({ kind: 'ready' });
   expect(result.current.explanation.isError).toBe(false);
-  expect(
-    result.current.explanation.data?.plantings.every(({ plant_type }) => plant_type === 'tree'),
-  ).toBe(true);
+  expect(result.current.explanation.data?.every(({ plant_type }) => plant_type === 'tree')).toBe(
+    true,
+  );
 });

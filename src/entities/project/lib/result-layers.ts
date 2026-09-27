@@ -6,7 +6,7 @@ import type {
 } from 'maplibre-gl';
 
 import { MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '@/shared/config';
-import { resultLayerColors as colors } from '@/shared/theme';
+import { MAP_LABEL_FONT, resultLayerColors as colors } from '@/shared/theme';
 
 import type { PlantingFeatureCollection, ZonesFeatureCollection } from '../api/project-result-api';
 import {
@@ -22,6 +22,7 @@ export const RESULT_SOURCE = {
   planting: 'result-planting',
   highlights: 'result-tree-highlights',
   zones: 'result-prohibited-zones',
+  dimensions: 'result-dimensions',
 } as const;
 
 export const HATCH_IMAGE = 'prohibited-hatch';
@@ -30,10 +31,15 @@ export const HATCH_IMAGE = 'prohibited-hatch';
 export const RESULT_LAYER = {
   zones: 'prohibited-zones',
   zonesHatch: 'prohibited-zones-hatch',
+  zonesOutline: 'prohibited-zones-outline',
   shrubs: 'shrubs',
   treeShadows: 'tree-shadows',
   trees: 'trees',
   treeHighlights: 'tree-highlights',
+  dimensionMargin: 'dimension-margin',
+  dimensionSetback: 'dimension-setback',
+  dimensionSetbackTicks: 'dimension-setback-ticks',
+  dimensionLabels: 'dimension-labels',
   selectionOuter: 'planting-selection-outer',
   selectionInner: 'planting-selection-inner',
 } as const;
@@ -43,12 +49,12 @@ export type ResultLayerGroup = 'trees' | 'shrubs' | 'zones';
 export const RESULT_LAYER_GROUPS: Record<ResultLayerGroup, readonly string[]> = {
   trees: [RESULT_LAYER.treeShadows, RESULT_LAYER.trees, RESULT_LAYER.treeHighlights],
   shrubs: [RESULT_LAYER.shrubs],
-  zones: [RESULT_LAYER.zones, RESULT_LAYER.zonesHatch],
+  zones: [RESULT_LAYER.zones, RESULT_LAYER.zonesHatch, RESULT_LAYER.zonesOutline],
 };
 
 export const SELECTABLE_LAYERS = [RESULT_LAYER.trees, RESULT_LAYER.shrubs];
 
-type ResultData = { planting: PlantingFeatureCollection; zones: ZonesFeatureCollection };
+export type ResultData = { planting: PlantingFeatureCollection; zones: ZonesFeatureCollection };
 
 type ZoneFeature = ZonesFeatureCollection['features'][number];
 
@@ -115,7 +121,19 @@ export function resultSources(
     },
     [RESULT_SOURCE.zones]: {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features: prohibitedZones(zones) },
+      // Номер зоны среди зон запрета — тот же, что в prepareZones: по нему зона выделяется.
+      data: {
+        type: 'FeatureCollection',
+        features: prohibitedZones(zones).map((feature, index) => ({
+          ...feature,
+          properties: { ...feature.properties, zone_index: index },
+        })),
+      },
+      promoteId: 'zone_index',
+    },
+    [RESULT_SOURCE.dimensions]: {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
     },
   };
 }
@@ -197,6 +215,16 @@ export function resultLayers(latitude: number): LayerSpecification[] {
       source: RESULT_SOURCE.zones,
       paint: { 'fill-pattern': HATCH_IMAGE },
     },
+    // Выбранная зона запрета — усиленная обводка.
+    {
+      id: RESULT_LAYER.zonesOutline,
+      type: 'line',
+      source: RESULT_SOURCE.zones,
+      paint: {
+        'line-color': colors.zoneOutline,
+        'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 2, 0],
+      },
+    },
     {
       id: RESULT_LAYER.shrubs,
       type: 'circle',
@@ -234,8 +262,95 @@ export function resultLayers(latitude: number): LayerSpecification[] {
         'circle-color': colors.treeHighlight,
       },
     },
+    ...dimensionLayers(latitude),
     selectionRing(RESULT_LAYER.selectionOuter, latitude, 0, 3, colors.selectionOuter),
     selectionRing(RESULT_LAYER.selectionInner, latitude, 3, 1.5, colors.selectionInner),
+  ];
+}
+
+const byDimension = (
+  kind: 'line' | 'tick' | 'label',
+  part: 'margin' | 'setback',
+): ExpressionSpecification => ['all', ['==', ['get', 'kind'], kind], ['==', ['get', 'part'], part]];
+
+// Ограничение под курсором толще, остальные бледнее (design.md, «Карта»).
+const dimensionWidth: ExpressionSpecification = [
+  'case',
+  ['==', ['get', 'emphasis'], 'focus'],
+  2.5,
+  1.5,
+];
+const dimensionOpacity: ExpressionSpecification = [
+  'case',
+  ['==', ['get', 'emphasis'], 'dim'],
+  0.4,
+  1,
+];
+
+// Размерные линии выбранной посадки: «запас» — сплошная sage.7, «охранная зона» — пунктир
+// clay.6, засечки на концах, подписи длины посередине.
+// Подписи размеров видны, когда в метре не меньше 6 пикселей (в Москве — с 18-го масштаба):
+// мельче отрезки в метры короче подписи, и она ложится на крону. Порог — в пикселях на метр,
+// а не в номере масштаба: план без геопривязки лежит у экватора, где масштаб другой.
+const DIMENSION_LABEL_PX_PER_M = 6;
+
+export const dimensionLabelsMinZoom = (latitude: number): number =>
+  Math.log2(DIMENSION_LABEL_PX_PER_M / pixelsPerMeterAtZoom(0, latitude));
+
+function dimensionLayers(latitude: number): LayerSpecification[] {
+  const line = (id: string, filter: ExpressionSpecification, color: string, dashed: boolean) =>
+    ({
+      id,
+      type: 'line',
+      source: RESULT_SOURCE.dimensions,
+      filter,
+      paint: {
+        'line-color': color,
+        'line-width': dimensionWidth,
+        'line-opacity': dimensionOpacity,
+        ...(dashed && { 'line-dasharray': [3, 2] }),
+      },
+    }) satisfies LayerSpecification;
+  return [
+    line(
+      RESULT_LAYER.dimensionMargin,
+      ['==', ['get', 'part'], 'margin'],
+      colors.dimensionMargin,
+      false,
+    ),
+    line(
+      RESULT_LAYER.dimensionSetback,
+      byDimension('line', 'setback'),
+      colors.dimensionSetback,
+      true,
+    ),
+    line(
+      RESULT_LAYER.dimensionSetbackTicks,
+      byDimension('tick', 'setback'),
+      colors.dimensionSetback,
+      false,
+    ),
+    {
+      id: RESULT_LAYER.dimensionLabels,
+      type: 'symbol',
+      source: RESULT_SOURCE.dimensions,
+      minzoom: dimensionLabelsMinZoom(latitude),
+      filter: ['==', ['get', 'kind'], 'label'],
+      layout: {
+        'text-field': ['get', 'text'],
+        'text-font': MAP_LABEL_FONT,
+        'text-size': 12,
+        'text-offset': [0, -0.9],
+        // Подписи не накладываются: при столкновении остаётся выделенная, затем ближайшая.
+        'symbol-sort-key': ['case', ['==', ['get', 'emphasis'], 'focus'], -1, ['get', 'check']],
+      },
+      paint: {
+        'text-color': colors.dimensionLabel,
+        'text-halo-color': colors.dimensionLabelHalo,
+        'text-halo-width': 1.5,
+        'text-opacity': dimensionOpacity,
+      },
+    },
   ];
 }
 

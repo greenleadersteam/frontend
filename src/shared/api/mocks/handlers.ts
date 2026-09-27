@@ -410,8 +410,6 @@ export const handlers = [
       },
     });
   }),
-
-  http.get(`${API}/processing-defaults`, () => HttpResponse.json(processingDefaults)),
 ];
 
 // В браузере — последний обработчик: запрос к /api без своего обработчика обрывается сетевой

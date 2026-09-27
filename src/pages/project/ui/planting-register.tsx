@@ -1,0 +1,351 @@
+import {
+  Button,
+  Card,
+  Group,
+  Pagination,
+  SegmentedControl,
+  Select,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Title,
+  UnstyledButton,
+} from '@mantine/core';
+import { IconArrowDown, IconArrowUp, IconSelector } from '@tabler/icons-react';
+import { type JSX, useState } from 'react';
+
+import {
+  type ExplanationEntry,
+  PLANT_TYPE_LABELS,
+  type PlantingFeatureCollection,
+  type PreparedZones,
+  prohibitedArea,
+  type Project,
+  projectFileName,
+  RESULT_COUNT_FORMS,
+} from '@/entities/project';
+import {
+  formatCoordinate,
+  formatCount,
+  formatDrawingCoordinate,
+  formatNumber,
+  formatSquareMeters,
+} from '@/shared/lib/format';
+import { saveFile } from '@/shared/lib/save-file';
+import { Icon } from '@/shared/ui';
+
+import classes from './planting-register.module.css';
+import { registerCsv, type RegisterRow, registerRows } from './register-csv';
+
+type PlantingRegisterProps = {
+  project: Project;
+  planting: PlantingFeatureCollection;
+  explanation: ReadonlyMap<string, ExplanationEntry>;
+  prepared: PreparedZones;
+  geographic: boolean;
+  // Показать посадку на плане; null — плана с выбором нет (карта недоступна).
+  onOpen: ((id: string) => void) | null;
+};
+
+const PAGE_SIZE = 50;
+
+type TypeFilter = 'all' | 'tree' | 'shrub';
+const TYPE_FILTERS = [
+  { value: 'all', label: 'Все' },
+  { value: 'tree', label: 'Деревья' },
+  { value: 'shrub', label: 'Кустарники' },
+];
+const parseTypeFilter = (value: string): TypeFilter =>
+  value === 'tree' || value === 'shrub' ? value : 'all';
+
+type SortColumn = 'number' | 'type' | 'rule';
+type Sort = { column: SortColumn; direction: 'ascending' | 'descending' };
+
+const collator = new Intl.Collator('ru-RU', { numeric: true });
+
+const compareBy: Record<SortColumn, (a: RegisterRow, b: RegisterRow) => number> = {
+  number: (a, b) => a.number - b.number,
+  type: (a, b) => collator.compare(PLANT_TYPE_LABELS[a.plantType], PLANT_TYPE_LABELS[b.plantType]),
+  rule: (a, b) => collator.compare(a.ruleName ?? '', b.ruleName ?? ''),
+};
+
+const ZONES_FOR = { tree: 'Для деревьев', shrub: 'Для кустарников' } as const;
+
+export function PlantingRegister({
+  project,
+  planting,
+  explanation,
+  prepared,
+  geographic,
+  onOpen,
+}: PlantingRegisterProps): JSX.Element {
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [rule, setRule] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<Sort>({ column: 'number', direction: 'ascending' });
+  const [page, setPage] = useState(1);
+
+  const rows = registerRows(planting, explanation, geographic);
+  const withGeo = rows.some(({ lat }) => lat !== null);
+  const withDrawing = rows.some(({ x }) => x !== null);
+  const ruleCounts = countBy(rows.flatMap(({ ruleName }) => (ruleName === null ? [] : [ruleName])));
+  const typeCounts = countBy(rows.map(({ plantType }) => plantType));
+
+  const query = search.trim().toLocaleLowerCase('ru-RU');
+  const filtered = rows
+    .filter(
+      (row) =>
+        (typeFilter === 'all' || row.plantType === typeFilter) &&
+        (rule === null || row.ruleName === rule) &&
+        row.id.toLocaleLowerCase('ru-RU').includes(query),
+    )
+    .sort((a, b) => {
+      const order = compareBy[sort.column](a, b) || a.number - b.number;
+      return sort.direction === 'ascending' ? order : -order;
+    });
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pages);
+  const shown = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  const resetPage = () => {
+    setPage(1);
+  };
+  const resetFilters = () => {
+    setTypeFilter('all');
+    setRule(null);
+    setSearch('');
+    resetPage();
+  };
+  const toggleSort = (column: SortColumn) => {
+    setSort((previous) => ({
+      column,
+      direction:
+        previous.column === column && previous.direction === 'ascending'
+          ? 'descending'
+          : 'ascending',
+    }));
+    resetPage();
+  };
+  const download = () => {
+    saveFile(
+      new Blob([registerCsv(rows)], { type: 'text/csv;charset=utf-8' }),
+      projectFileName(project.name, ' — ведомость посадок.csv'),
+    );
+  };
+
+  const zoneLines = (['tree', 'shrub'] as const).flatMap((plantType) => {
+    const count = prepared.zones.filter(
+      ({ properties }) => properties.plant_type === plantType,
+    ).length;
+    return count === 0
+      ? []
+      : [
+          {
+            plantType,
+            text: `${ZONES_FOR[plantType]}: ${formatCount(count, RESULT_COUNT_FORMS.zones)}, общая площадь ${formatSquareMeters(prohibitedArea(prepared, plantType))}`,
+          },
+        ];
+  });
+
+  const sortHeader = (column: SortColumn, label: string) => {
+    const active = sort.column === column;
+    return (
+      <Table.Th aria-sort={active ? sort.direction : undefined}>
+        <UnstyledButton
+          className={classes.sort}
+          onClick={() => {
+            toggleSort(column);
+          }}
+        >
+          {label}
+          <Icon
+            icon={
+              !active ? IconSelector : sort.direction === 'ascending' ? IconArrowUp : IconArrowDown
+            }
+          />
+        </UnstyledButton>
+      </Table.Th>
+    );
+  };
+
+  return (
+    <Stack gap="lg">
+      <Card>
+        <Group justify="space-between" align="flex-start" gap="xl">
+          <Stack gap="xs">
+            <Title order={2} className={classes.title}>
+              Сводка
+            </Title>
+            <ul className={classes.summary}>
+              <li
+                className={classes.numbers}
+              >{`Деревья — ${formatNumber(typeCounts.get('tree') ?? 0)}`}</li>
+              <li
+                className={classes.numbers}
+              >{`Кустарники — ${formatNumber(typeCounts.get('shrub') ?? 0)}`}</li>
+              {[...ruleCounts].map(([name, count]) => (
+                <li key={name} className={classes.numbers}>
+                  {`${name} — ${formatNumber(count)}`}
+                </li>
+              ))}
+              {zoneLines.map(({ plantType, text }) => (
+                <li key={plantType} className={classes.numbers}>
+                  {text}
+                </li>
+              ))}
+            </ul>
+          </Stack>
+          <Button variant="default" onClick={download}>
+            Скачать ведомость (CSV)
+          </Button>
+        </Group>
+      </Card>
+
+      <Card>
+        <Stack gap="md">
+          <Group gap="md" align="flex-end">
+            <SegmentedControl
+              data={TYPE_FILTERS}
+              value={typeFilter}
+              onChange={(value) => {
+                setTypeFilter(parseTypeFilter(value));
+                resetPage();
+              }}
+              aria-label="Тип посадки"
+            />
+            <Select
+              label="Правило посадки"
+              placeholder="Все правила"
+              data={[...ruleCounts.keys()]}
+              value={rule}
+              onChange={(value) => {
+                setRule(value);
+                resetPage();
+              }}
+              clearable
+              className={classes.filter}
+            />
+            <TextInput
+              label="Идентификатор"
+              placeholder="Часть идентификатора"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.currentTarget.value);
+                resetPage();
+              }}
+              className={classes.filter}
+            />
+          </Group>
+
+          {filtered.length === 0 ? (
+            <Stack gap="xs" align="flex-start">
+              <Text>Нет посадок по выбранным условиям</Text>
+              <Button variant="subtle" onClick={resetFilters}>
+                Сбросить фильтры
+              </Button>
+            </Stack>
+          ) : (
+            <>
+              <Table.ScrollContainer minWidth={0}>
+                <Table highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      {sortHeader('number', '№')}
+                      <Table.Th>Идентификатор</Table.Th>
+                      {sortHeader('type', 'Тип')}
+                      {sortHeader('rule', 'Правило посадки')}
+                      {withGeo && (
+                        <>
+                          <Table.Th>Широта</Table.Th>
+                          <Table.Th>Долгота</Table.Th>
+                        </>
+                      )}
+                      {withDrawing && (
+                        <>
+                          <Table.Th>X чертежа, м</Table.Th>
+                          <Table.Th>Y чертежа, м</Table.Th>
+                        </>
+                      )}
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {shown.map((row) => (
+                      <Table.Tr key={row.id} className={onOpen === null ? undefined : classes.row}>
+                        <Table.Td className={classes.numbers}>{row.number}</Table.Td>
+                        <Table.Td>
+                          {/* Кнопка растянута на всю строку: щелчок по строке и Enter на ней
+                              показывают посадку на плане. Строка — не ссылка: вид плана
+                              меняет состояние экрана, а не адрес. */}
+                          {onOpen === null ? (
+                            row.id
+                          ) : (
+                            <UnstyledButton
+                              className={classes.open}
+                              aria-label={`Показать на плане: ${row.id}`}
+                              onClick={() => {
+                                onOpen(row.id);
+                              }}
+                            >
+                              {row.id}
+                            </UnstyledButton>
+                          )}
+                        </Table.Td>
+                        <Table.Td>{PLANT_TYPE_LABELS[row.plantType]}</Table.Td>
+                        <Table.Td>{row.ruleName ?? '—'}</Table.Td>
+                        {withGeo && (
+                          <>
+                            <Table.Td className={classes.numbers}>
+                              {row.lat === null ? '—' : formatCoordinate(row.lat)}
+                            </Table.Td>
+                            <Table.Td className={classes.numbers}>
+                              {row.lon === null ? '—' : formatCoordinate(row.lon)}
+                            </Table.Td>
+                          </>
+                        )}
+                        {withDrawing && (
+                          <>
+                            <Table.Td className={classes.numbers}>
+                              {row.x === null ? '—' : formatDrawingCoordinate(row.x)}
+                            </Table.Td>
+                            <Table.Td className={classes.numbers}>
+                              {row.y === null ? '—' : formatDrawingCoordinate(row.y)}
+                            </Table.Td>
+                          </>
+                        )}
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed" className={classes.numbers}>
+                  {`Показано ${formatNumber((currentPage - 1) * PAGE_SIZE + 1)}–${formatNumber((currentPage - 1) * PAGE_SIZE + shown.length)} из ${formatNumber(filtered.length)}`}
+                </Text>
+                {pages > 1 && (
+                  <Pagination
+                    total={pages}
+                    value={currentPage}
+                    onChange={setPage}
+                    getControlProps={(control) => ({
+                      'aria-label':
+                        control === 'previous' ? 'Предыдущая страница' : 'Следующая страница',
+                    })}
+                    getItemProps={(item) => ({ 'aria-label': `Страница ${String(item)}` })}
+                  />
+                )}
+              </Group>
+            </>
+          )}
+        </Stack>
+      </Card>
+    </Stack>
+  );
+}
+
+// Счётчик в порядке первого появления: сводка идёт в порядке ведомости.
+function countBy<T>(values: T[]): Map<T, number> {
+  const counts = new Map<T, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return counts;
+}

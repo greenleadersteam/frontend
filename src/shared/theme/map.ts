@@ -27,4 +27,14 @@ export const resultLayerColors = {
   prohibitedZone: clay[3],
   selectionOuter: WHITE,
   selectionInner: stone[9],
+  zoneOutline: clay[6],
+  // Размерные линии: «запас» до зоны и «охранная зона» до препятствия (design.md, «Карта»).
+  dimensionMargin: sage[7],
+  dimensionSetback: clay[6],
+  dimensionLabel: stone[9],
+  dimensionLabelHalo: WHITE,
 } as const;
+
+// Подписи на карте рисуются в браузере шрифтом интерфейса: MapLibre растеризует глифы локально
+// и берёт вес 600 из имени первого шрифта (design.md, «Карта»).
+export const MAP_LABEL_FONT = ['Mulish Variable SemiBold', 'Mulish Variable'];

@@ -15,7 +15,7 @@ import { type JSX, type ReactNode, useEffect, useEffectEvent, useRef, useState }
 import { BASEMAP_BOUNDS, getRuntimeConfig, MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '@/shared/config';
 import { Icon } from '@/shared/ui';
 
-import { BASEMAP_SOURCE, basemapStyle, loadStreetLabelFont } from './basemap-style';
+import { BASEMAP_SOURCE, basemapStyle, loadLabelFont } from './basemap-style';
 import classes from './map-view.module.css';
 import { openBasemapArchive } from './pmtiles-protocol';
 
@@ -35,7 +35,11 @@ type MapViewProps = {
   padding: PaddingOptions;
   // Краткое содержание карты для скринридера — подпись canvas.
   label: string;
+  // false — карта без подложки и без охвата Москвы: координаты не привязаны к городу.
+  basemap: boolean;
   basemapVisible: boolean;
+  // Тихая подпись в углу вместо атрибуции подложки.
+  note?: string;
   // Стиль загружен: потребитель добавляет свои источники и слои.
   onReady: (map: MapLibreMap) => void;
   onBasemapResolved: (available: boolean) => void;
@@ -51,7 +55,9 @@ export function MapView({
   bounds,
   padding,
   label,
+  basemap: withBasemap,
   basemapVisible,
+  note,
   onReady,
   onBasemapResolved,
   onUnavailable,
@@ -82,7 +88,7 @@ export function MapView({
         style: basemapStyle(archiveUrl),
         minZoom: MAP_MIN_ZOOM,
         maxZoom: MAP_MAX_ZOOM,
-        maxBounds: BASEMAP_BOUNDS,
+        ...(withBasemap && { maxBounds: BASEMAP_BOUNDS }),
         bounds,
         fitBoundsOptions: { padding, maxZoom: FIT_MAX_ZOOM },
         // План посадок читается с севера вверх: поворот и наклон не нужны.
@@ -127,11 +133,10 @@ export function MapView({
     if (container === null) return;
     let created: MapLibreMap | null = null;
     let cancelled = false;
-    // Подписи есть только у подложки: без неё шрифт не ждём.
-    void openBasemapArchive(getRuntimeConfig().basemapUrl)
+    void (withBasemap ? openBasemapArchive(getRuntimeConfig().basemapUrl) : Promise.resolve(null))
       .then(async (archiveUrl) => {
         // Не загрузился шрифт — карта всё равно нужна, подписи возьмут запасной.
-        if (archiveUrl !== null) await loadStreetLabelFont().catch(() => undefined);
+        await loadLabelFont().catch(() => undefined);
         return archiveUrl;
       })
       .then((archiveUrl) => {
@@ -142,7 +147,7 @@ export function MapView({
       created?.remove();
       setMap(null);
     };
-  }, []);
+  }, [withBasemap]);
 
   useEffect(() => {
     if (map === null) return;
@@ -161,10 +166,16 @@ export function MapView({
     <div className={classes.root}>
       <div ref={containerRef} className={classes.map} />
       {children}
-      {basemap === 'missing' && (
-        <Text size="xs" className={classes.basemapMissing}>
-          Подложка не загружена
+      {note !== undefined ? (
+        <Text size="xs" className={classes.note}>
+          {note}
         </Text>
+      ) : (
+        basemap === 'missing' && (
+          <Text size="xs" className={classes.note}>
+            Подложка не загружена
+          </Text>
+        )
       )}
       <ActionIcon.Group orientation="vertical" className={classes.zoom}>
         <ActionIcon

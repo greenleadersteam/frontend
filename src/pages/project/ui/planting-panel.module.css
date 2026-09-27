@@ -1,5 +1,11 @@
 .panel {
   overflow-wrap: anywhere;
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: var(--mantine-spacing-xs);
+    border-radius: var(--mantine-radius-sm);
+  }
 }
 
 .title {
@@ -7,6 +13,54 @@
   font-weight: 600;
 }
 
-.id {
+.section {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.numbers {
   font-variant-numeric: tabular-nums;
+}
+
+.checks {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  align-items: flex-start;
+  padding: var(--mantine-spacing-xs);
+  border-radius: var(--mantine-radius-sm);
+
+  /* Фон страницы, а не stone.2: на stone.2 вторичный текст не проходит по контрасту. */
+  &:hover,
+  &:focus-visible {
+    background-color: var(--app-bg);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
+  }
+}
+
+/* Тихая кнопка выровнена по тексту пункта, а не по своей подложке наведения. */
+.showZone {
+  align-self: flex-start;
+  margin-inline-start: calc(var(--mantine-spacing-xs) * -1);
+}
+
+.passed {
+  flex: none;
+  color: var(--app-accent);
+}
+
+.warning {
+  flex: none;
+  color: var(--app-error);
 }

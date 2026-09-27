@@ -3,9 +3,19 @@ import { processingDefaults } from './processing-defaults';
 
 type Schemas = components['schemas'];
 type PlantType = Schemas['PlantType'];
-type Check = Schemas['Check'];
-type Position = Schemas['Position'];
 type ZoneFeature = Schemas['ZoneFeature'];
+
+// Настоящий формат /explanation — плоский список без норм и расстояний
+// (../backend/greenplan/explain/builder.py:17-32), координаты — в метрах чертежа. Схемы
+// ответа в OpenAPI нет; тот же тип у endpoint'а в entities/project (shared его не видит).
+export type ExplanationEntry = {
+  id: string;
+  plant_type: PlantType;
+  rule_id: string;
+  rule_name_ru: string | null;
+  x: number;
+  y: number;
+};
 
 export type RunParams = {
   plantTypes: readonly PlantType[];
@@ -13,7 +23,7 @@ export type RunParams = {
 };
 
 export type SiteResult = {
-  explanation: Schemas['Explanation'];
+  explanation: ExplanationEntry[];
   zones: Schemas['ZonesFeatureCollection'];
   planting: Schemas['PlantingFeatureCollection'];
 };
@@ -36,10 +46,7 @@ const toLonLat = (x: number, y: number): [number, number] => [
   ORIGIN.lat + y / METERS_PER_DEGREE,
 ];
 
-// Нормы и отступы — ../backend/greenplan/norms/default.yaml. Пунктов в источнике нет,
-// поэтому clause везде null.
-const ACT = 'ПП Москвы от 10.09.2002 № 743-ПП';
-
+// Нормы и отступы — ../backend/greenplan/norms/default.yaml. Пунктов в источнике нет.
 type SiteNorm = { id: string; row: string; tree: number; shrub: number };
 
 const NORMS = {
@@ -60,7 +67,11 @@ const NORMS = {
   },
 } satisfies Record<string, SiteNorm>;
 
-type SiteObstacle = { norm: SiteNorm; obstacle: Schemas['Obstacle']; shape: Shape };
+type SiteObstacle = {
+  norm: SiteNorm;
+  obstacle: { category: string; subtype: string | null };
+  shape: Shape;
+};
 
 const OBSTACLES: SiteObstacle[] = [
   {
@@ -68,9 +79,6 @@ const OBSTACLES: SiteObstacle[] = [
     obstacle: {
       category: 'road_edge',
       subtype: null,
-      label_ru: 'бортовой камень',
-      layer: 'БР_КАМЕНЬ',
-      handle: '1F4',
     },
     shape: { kind: 'segment', from: [0, 0], to: [60, 0] },
   },
@@ -79,9 +87,6 @@ const OBSTACLES: SiteObstacle[] = [
     obstacle: {
       category: 'underground_utilities',
       subtype: 'power_cable',
-      label_ru: 'силовой кабель',
-      layer: 'КЛ_0,4кВ',
-      handle: '2A9',
     },
     shape: { kind: 'segment', from: [0, 4.5], to: [60, 4.5] },
   },
@@ -90,9 +95,6 @@ const OBSTACLES: SiteObstacle[] = [
     obstacle: {
       category: 'underground_utilities',
       subtype: 'gas',
-      label_ru: 'газопровод',
-      layer: 'Г_НД',
-      handle: '3C1',
     },
     shape: { kind: 'segment', from: [0, 12], to: [60, 12] },
   },
@@ -101,21 +103,14 @@ const OBSTACLES: SiteObstacle[] = [
     obstacle: {
       category: 'underground_utilities',
       subtype: 'water',
-      label_ru: 'водопровод',
-      layer: 'В1',
-      handle: '47E',
     },
     shape: { kind: 'segment', from: [28, 0], to: [28, 20] },
   },
   {
     norm: NORMS.existingTree,
-    // Дерево из xref: у скопированных сущностей нет handle (../backend/greenplan/model.py:28).
     obstacle: {
       category: 'green_existing',
       subtype: 'existing_tree',
-      label_ru: 'существующее дерево',
-      layer: 'ДЕР_СУЩ',
-      handle: null,
     },
     shape: { kind: 'point', at: [48, 16] },
   },
@@ -159,23 +154,10 @@ const round = (value: number, digits: number): number => Number(value.toFixed(di
 const setback = (norm: SiteNorm, plantType: PlantType): number =>
   plantType === 'tree' ? norm.tree : norm.shrub;
 
-const formatMeters = (value: number): string =>
-  `${new Intl.NumberFormat('ru-RU').format(value)}\u00A0м`;
-
-function checksAt(point: Point, plantType: PlantType): Check[] {
-  return OBSTACLES.map(({ norm, obstacle, shape }) => ({
-    obstacle,
-    required_m: setback(norm, plantType),
-    actual_m: round(distance(point, shape), 2),
-    norm_id: norm.id,
-  }));
-}
-
-function toPosition([x, y]: Point, georeferenced: boolean): Position {
-  if (!georeferenced) return { x: round(x, 2), y: round(y, 2), lon: null, lat: null };
-  const [lon, lat] = toLonLat(x, y);
-  return { x: round(x, 2), y: round(y, 2), lon: round(lon, 7), lat: round(lat, 7) };
-}
+// Раскладка бэкенда ставит посадку, только если её точка вне всех буферов
+// (../backend/greenplan/layout/engine.py:71,103).
+const violatesSetback = (point: Point, plantType: PlantType): boolean =>
+  OBSTACLES.some(({ norm, shape }) => distance(point, shape) < setback(norm, plantType));
 
 const intersect = (a: Rect, b: Rect): Rect | null => {
   const rect = {
@@ -320,9 +302,14 @@ function buildZones(plantTypes: readonly PlantType[], project: (point: Point) =>
   return [...extents, ...allowed, ...prohibited];
 }
 
+// Категории, которые есть в подоснове, но для которых у бэкенда нет нормы: отступ от них
+// не строился (../backend/greenplan/zoning/engine.py:158-168).
+const UNCOVERED_CATEGORIES = [{ category: 'wells_hatches', subtype: null }];
+
+type Placed = { id: string; plantType: PlantType; ruleId: string; ruleName: string; point: Point };
+
 export function buildSiteResult(params: RunParams, georeferenced: boolean): SiteResult {
-  const plantings: Schemas['PlantingExplanation'][] = [];
-  const rejected: Schemas['RejectedSite'][] = [];
+  const placed: Placed[] = [];
 
   for (const [ruleId, rule] of Object.entries(params.rules)) {
     const defaults = processingDefaults.planting_rules[ruleId];
@@ -332,19 +319,13 @@ export function buildSiteResult(params: RunParams, georeferenced: boolean): Site
     if (!params.plantTypes.includes(plantType)) continue;
 
     for (const point of candidates(rule.spacing, rule.offset)) {
-      const checks = checksAt(point, plantType);
-      const failed = checks.filter((check) => check.actual_m < check.required_m);
-      const position = toPosition(point, georeferenced);
-      if (failed.length > 0) {
-        rejected.push({ position, plant_type: plantType, failed_checks: failed });
-        continue;
-      }
-      plantings.push({
-        id: `${ruleId}-${String(plantings.length + 1).padStart(5, '0')}`,
-        plant_type: plantType,
-        rule: { id: ruleId, name_ru: defaults.name_ru },
-        position,
-        checks,
+      if (violatesSetback(point, plantType)) continue;
+      placed.push({
+        id: `${ruleId}-${String(placed.length + 1).padStart(5, '0')}`,
+        plantType,
+        ruleId,
+        ruleName: defaults.name_ru,
+        point,
       });
     }
   }
@@ -355,35 +336,26 @@ export function buildSiteResult(params: RunParams, georeferenced: boolean): Site
     : 'local drawing coordinates, no geo-reference available';
 
   return {
-    explanation: {
-      norms: Object.fromEntries(
-        Object.values(NORMS).map((norm) => [
-          norm.id,
-          {
-            act: ACT,
-            clause: null,
-            text: `${norm.row}: для деревьев — не менее ${formatMeters(norm.tree)}, для кустарников — не менее ${formatMeters(norm.shrub)}`,
-          },
-        ]),
-      ),
-      plantings,
-      rejected,
-    },
+    explanation: placed.map(({ id, plantType, ruleId, ruleName, point: [x, y] }) => ({
+      id,
+      plant_type: plantType,
+      rule_id: ruleId,
+      rule_name_ru: ruleName,
+      x: round(x, 2),
+      y: round(y, 2),
+    })),
     zones: {
       type: 'FeatureCollection',
-      metadata: { crs, used_site_boundary: true, uncovered_categories: [] },
+      metadata: { crs, used_site_boundary: true, uncovered_categories: UNCOVERED_CATEGORIES },
       features: buildZones(params.plantTypes, project),
     },
     planting: {
       type: 'FeatureCollection',
       metadata: { crs },
-      features: plantings.map(({ id, plant_type, rule, position }) => ({
+      features: placed.map(({ id, plantType, ruleId, point }) => ({
         type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: project([position.x, position.y]),
-        },
-        properties: { id, plant_type, rule_id: rule.id },
+        geometry: { type: 'Point', coordinates: project(point) },
+        properties: { id, plant_type: plantType, rule_id: ruleId },
       })),
     },
   };

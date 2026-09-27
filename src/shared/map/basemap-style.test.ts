@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { basemapColors } from '@/shared/theme';
 
-import { BASEMAP_SOURCE, basemapLayers, basemapStyle, loadStreetLabelFont } from './basemap-style';
+import { BASEMAP_SOURCE, basemapLayers, basemapStyle, loadLabelFont } from './basemap-style';
 
 const COLOR = /^(#|rgba?\(|hsla?\()/i;
 
@@ -95,7 +95,7 @@ test('шрифт подписей: начертание 600 для латини�
   Object.defineProperty(document.fonts, 'load', { configurable: true, value: load });
 
   try {
-    await loadStreetLabelFont();
+    await loadLabelFont();
 
     expect(load).toHaveBeenCalledWith('600 16px "Mulish Variable"', 'Aa');
     expect(load).toHaveBeenCalledWith('600 16px "Mulish Variable"', 'Аа');

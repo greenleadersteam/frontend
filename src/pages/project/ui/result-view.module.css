@@ -4,6 +4,24 @@
   min-height: 30rem;
 }
 
+.result {
+  flex: 1;
+}
+
+.switch {
+  align-self: flex-start;
+}
+
+.plan {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
 .fallback {
   flex: 1;
 

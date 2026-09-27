@@ -17,6 +17,8 @@ export type LayerVisibility = Record<ResultLayerGroup | 'basemap', boolean>;
 type LayersPanelProps = {
   counts: Record<ResultLayerGroup, number>;
   visibility: LayerVisibility;
+  // Без подложки (план в координатах чертежа) строки «Подложка» нет.
+  showBasemap: boolean;
   basemapAvailable: boolean;
   onChange: (visibility: LayerVisibility) => void;
   planting: PlantingFeatureCollection;
@@ -38,6 +40,7 @@ const ROWS: { group: ResultLayerGroup; label: string }[] = [
 export function LayersPanel({
   counts,
   visibility,
+  showBasemap,
   basemapAvailable,
   onChange,
   planting,
@@ -82,21 +85,23 @@ export function LayersPanel({
           }
         />
       ))}
-      <Switch
-        checked={basemapAvailable && visibility.basemap}
-        disabled={!basemapAvailable}
-        onChange={(event) => {
-          onChange({ ...visibility, basemap: event.currentTarget.checked });
-        }}
-        labelPosition="left"
-        classNames={{ body: classes.row, labelWrapper: classes.labelWrapper }}
-        label={
-          <span className={classes.label}>
-            <LegendSymbol kind="basemap" />
-            <span className={classes.name}>Подложка</span>
-          </span>
-        }
-      />
+      {showBasemap && (
+        <Switch
+          checked={basemapAvailable && visibility.basemap}
+          disabled={!basemapAvailable}
+          onChange={(event) => {
+            onChange({ ...visibility, basemap: event.currentTarget.checked });
+          }}
+          labelPosition="left"
+          classNames={{ body: classes.row, labelWrapper: classes.labelWrapper }}
+          label={
+            <span className={classes.label}>
+              <LegendSymbol kind="basemap" />
+              <span className={classes.name}>Подложка</span>
+            </span>
+          }
+        />
+      )}
       <Select
         label="Найти посадку"
         placeholder="Номер посадки"

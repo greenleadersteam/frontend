@@ -41,3 +41,54 @@ export const RESULT_COUNT_FORMS = {
   shrubs: { one: 'кустарник', few: 'кустарника', many: 'кустарников' },
   zones: { one: 'зона запрета', few: 'зоны запрета', many: 'зон запрета' },
 };
+
+// Препятствия по ключам бэкенда: подтипы — из норм (../backend/greenplan/norms/default.yaml),
+// категории — из правил распознавания (../backend/greenplan/rules/default.yaml). Подтип
+// точнее категории; без подписи показывается исходный ключ — выдумывать название нельзя.
+const OBSTACLE_SUBTYPE_LABELS: Record<string, string> = {
+  gas: 'Газопровод',
+  heat: 'Тепловая сеть',
+  water: 'Водопровод',
+  drainage: 'Дренаж',
+  sewer: 'Канализация, водосток',
+  power_cable: 'Силовой кабель',
+  comm_cable: 'Кабель связи',
+  other_utility: 'Неопознанная подземная сеть',
+  existing_tree: 'Существующее дерево',
+  tree_strip: 'Полоса деревьев',
+  shrub_existing: 'Существующий кустарник',
+  lawn: 'Газон',
+};
+
+const OBSTACLE_CATEGORY_LABELS: Record<string, string> = {
+  underground_utilities: 'Подземная сеть',
+  buildings: 'Здания и сооружения',
+  road_edge: 'Бортовой камень',
+  footpath_edge: 'Край дорожек и тротуаров',
+  green_existing: 'Существующие насаждения',
+  poles_masts: 'Опоры и мачты',
+  retaining_walls_slopes: 'Подпорные стенки и откосы',
+  wells_hatches: 'Колодцы и люки',
+  red_lines: 'Красные линии',
+  contours: 'Горизонтали рельефа',
+  geodetic_points: 'Геодезические пункты',
+  site_boundary: 'Граница участка',
+};
+
+export function obstacleLabel(category: string, subtype: string | null): string {
+  const bySubtype = subtype === null ? undefined : OBSTACLE_SUBTYPE_LABELS[subtype];
+  return (
+    bySubtype ??
+    OBSTACLE_CATEGORY_LABELS[category] ??
+    (subtype === null ? category : `${category}/${subtype}`)
+  );
+}
+
+// confidence бэкенда — строка «validated» или «unvalidated» (../backend/greenplan/api/jobs.py:84).
+// По двум точкам привязка определяется без избытка и не проверяется (тест
+// ../backend/tests/api/test_routes.py:206); по трём и более невязки сверены с порогом 1 м
+// (../backend/greenplan/api/config.py:33). Неизвестное значение подписи не получает.
+export const GEOREFERENCE_CONFIDENCE_LABELS: Record<string, string> = {
+  validated: 'проверена по опорным точкам',
+  unvalidated: 'без проверки',
+};

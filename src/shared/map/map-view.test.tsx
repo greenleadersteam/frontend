@@ -6,30 +6,36 @@ import { renderWithTheme } from '@/shared/lib/test';
 import type * as BasemapStyle from './basemap-style';
 import { MapView } from './map-view';
 
-const archive = vi.hoisted(() => ({ url: null as string | null }));
+const archive = vi.hoisted(() => ({ url: null as string | null, opened: 0 }));
 const font = vi.hoisted(() => ({ loaded: Promise.resolve() }));
 
 vi.mock('./pmtiles-protocol', () => ({
-  openBasemapArchive: () => Promise.resolve(archive.url),
+  openBasemapArchive: () => {
+    archive.opened += 1;
+    return Promise.resolve(archive.url);
+  },
 }));
 vi.mock('./basemap-style', async (importOriginal) => ({
   ...(await importOriginal<typeof BasemapStyle>()),
-  loadStreetLabelFont: () => font.loaded,
+  loadLabelFont: () => font.loaded,
 }));
 
 beforeEach(() => {
   archive.url = null;
+  archive.opened = 0;
   font.loaded = Promise.resolve();
 });
 
-const renderMap = () => {
+const renderMap = ({ basemap = true, note }: { basemap?: boolean; note?: string } = {}) => {
   const handlers = { onUnavailable: vi.fn(), onReady: vi.fn(), onBasemapResolved: vi.fn() };
   renderWithTheme(
     <MapView
       bounds={[37.64, 55.75, 37.65, 55.76]}
       padding={{ top: 0, right: 0, bottom: 0, left: 0 }}
       label="План посадок"
+      basemap={basemap}
       basemapVisible
+      note={note}
       {...handlers}
     />,
   );
@@ -76,4 +82,26 @@ test('с подложкой карта создаётся только посл�
   await waitFor(() => {
     expect(onUnavailable).toHaveBeenCalledTimes(1);
   });
+});
+
+test('координаты чертежа: подложка не запрашивается, в углу — подпись, шрифт подписей ждём', async () => {
+  let resolveFont: (() => void) | undefined;
+  font.loaded = new Promise<void>((resolve) => {
+    resolveFont = resolve;
+  });
+  const { onUnavailable } = renderMap({
+    basemap: false,
+    note: 'Координаты чертежа, без привязки к городу',
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(onUnavailable).not.toHaveBeenCalled();
+  resolveFont?.();
+
+  await waitFor(() => {
+    expect(onUnavailable).toHaveBeenCalledTimes(1);
+  });
+  expect(archive.opened).toBe(0);
+  expect(screen.getByText('Координаты чертежа, без привязки к городу')).toBeInTheDocument();
+  expect(screen.queryByText('Подложка не загружена')).not.toBeInTheDocument();
 });

@@ -46,7 +46,7 @@
   box-shadow: var(--mantine-shadow-md);
 }
 
-.basemapMissing {
+.note {
   position: absolute;
   bottom: calc(var(--mantine-spacing-xl) * 2);
   left: var(--mantine-spacing-sm);

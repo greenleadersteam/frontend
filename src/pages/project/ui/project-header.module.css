@@ -21,3 +21,11 @@
   max-width: calc(var(--app-card-min-width) * 0.8);
   padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-sm);
 }
+
+.georeference {
+  max-width: calc(var(--app-card-min-width) * 1.4);
+}
+
+.numbers {
+  font-variant-numeric: tabular-nums;
+}
