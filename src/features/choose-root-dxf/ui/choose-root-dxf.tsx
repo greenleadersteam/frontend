@@ -1,16 +1,20 @@
-import { Button, Group, Radio, Stack, Text } from '@mantine/core';
-import { type JSX, type ReactNode, useState } from 'react';
+import { Button, Group, List, Radio, Stack, Text } from '@mantine/core';
+import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { JOB_ERROR_LABELS, useRunProjectMutation } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
 
 import classes from './choose-root-dxf.module.css';
 
+const RUNS_UNSUPPORTED =
+  'Сервер пока не умеет выбирать чертёж. Оставьте в архиве один главный чертёж и загрузите архив снова.';
+
 type ChooseRootDxfProps = {
   projectId: string;
   candidates: string[];
-  // Второе действие рядом с «Продолжить обработку», например «Загрузить другой архив».
-  secondaryAction?: ReactNode;
+  // «Загрузить другой архив»: второстепенное рядом с «Продолжить обработку» и главное, если
+  // сервер выбирать не умеет.
+  uploadAnother: (variant: 'filled' | 'default') => ReactNode;
 };
 
 // Выбор главного чертежа — повторная обработка через POST /runs с root_dxf
@@ -19,10 +23,40 @@ type ChooseRootDxfProps = {
 export function ChooseRootDxf({
   projectId,
   candidates,
-  secondaryAction,
+  uploadAnother,
 }: ChooseRootDxfProps): JSX.Element {
   const [rootDxf, setRootDxf] = useState<string | null>(null);
   const [runProject, { isLoading, error }] = useRunProjectMutation();
+  const appError = error === undefined ? null : toAppError(error);
+  const unsupported =
+    appError?.kind === 'http' && (appError.status === 404 || appError.status === 405);
+  const unsupportedRef = useRef<HTMLParagraphElement>(null);
+
+  // Кнопка, на которой был фокус, исчезает вместе с выбором: фокус переходит на объяснение,
+  // и скринридер читает его при получении фокуса (role="alert" дал бы второе объявление).
+  useEffect(() => {
+    if (unsupported) unsupportedRef.current?.focus();
+  }, [unsupported]);
+
+  // /runs может ещё не быть на сервере: бэкенд ждёт архив с одним главным чертежом.
+  // Список кандидатов подсказывает, какие файлы конфликтуют. Когда /runs появится, 404 будет
+  // значить и «проекта нет»: различить это можно только по тексту detail, а он не контракт
+  // (вопрос к бэкенду). 405 — если бэкенд объявит путь без POST.
+  if (unsupported) {
+    return (
+      <Stack gap="md" align="flex-start">
+        <Text ref={unsupportedRef} tabIndex={-1}>
+          {RUNS_UNSUPPORTED}
+        </Text>
+        <List className={classes.candidates}>
+          {candidates.map((path) => (
+            <List.Item key={path}>{path}</List.Item>
+          ))}
+        </List>
+        {uploadAnother('filled')}
+      </Stack>
+    );
+  }
 
   return (
     <Stack gap="md" align="flex-start">
@@ -37,9 +71,9 @@ export function ChooseRootDxf({
           ))}
         </Stack>
       </Radio.Group>
-      {error !== undefined && (
+      {appError !== null && (
         <Text size="sm" role="alert" className={classes.error}>
-          {describeAppError(toAppError(error))}
+          {describeAppError(appError)}
         </Text>
       )}
       <Group gap="sm">
@@ -53,7 +87,7 @@ export function ChooseRootDxf({
         >
           Продолжить обработку
         </Button>
-        {secondaryAction}
+        {uploadAnother('default')}
       </Group>
     </Stack>
   );

@@ -65,15 +65,7 @@ type ProcessingFailedProps = { project: Project };
 
 function ProcessingFailed({ project }: ProcessingFailedProps): JSX.Element {
   const error = project.state.kind === 'failed' ? project.state.error : null;
-  const uploadAnother = (
-    <Button
-      component={Link}
-      to={projectUploadPath(project.id)}
-      variant={error?.code === 'ambiguous_root_dxf' ? 'default' : 'filled'}
-    >
-      Загрузить другой архив
-    </Button>
-  );
+  const uploadPath = projectUploadPath(project.id);
 
   return (
     <div className={classes.content}>
@@ -85,12 +77,18 @@ function ProcessingFailed({ project }: ProcessingFailedProps): JSX.Element {
             <ChooseRootDxf
               projectId={project.id}
               candidates={error.candidates ?? []}
-              secondaryAction={uploadAnother}
+              uploadAnother={(variant) => (
+                <Button component={Link} to={uploadPath} variant={variant}>
+                  Загрузить другой архив
+                </Button>
+              )}
             />
           ) : (
             <>
               <Text role="alert">{JOB_ERROR_LABELS[error?.code ?? 'other']}</Text>
-              {uploadAnother}
+              <Button component={Link} to={uploadPath}>
+                Загрузить другой архив
+              </Button>
             </>
           )}
         </Stack>

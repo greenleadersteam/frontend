@@ -197,12 +197,11 @@ function ProcessingFailed({ project, onUploadAnother }: ProcessingFailedProps): 
       <ChooseRootDxf
         projectId={project.id}
         candidates={error.candidates ?? []}
-        secondaryAction={
-          // Второй путь — новый архив: /runs пока есть только в контракте-предложении.
-          <Button variant="default" onClick={onUploadAnother}>
+        uploadAnother={(variant) => (
+          <Button variant={variant} onClick={onUploadAnother}>
             Загрузить другой архив
           </Button>
-        }
+        )}
       />
     );
   }

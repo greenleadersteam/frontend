@@ -350,7 +350,9 @@ export function buildSiteResult(params: RunParams, georeferenced: boolean): Site
   }
 
   const project = ([x, y]: Point): number[] => (georeferenced ? toLonLat(x, y) : [x, y]);
-  const crs = georeferenced ? 'EPSG:4326' : 'local drawing coordinates, no geo-reference available';
+  const crs = georeferenced
+    ? 'EPSG:4326 (WGS84 lon/lat)'
+    : 'local drawing coordinates, no geo-reference available';
 
   return {
     explanation: {

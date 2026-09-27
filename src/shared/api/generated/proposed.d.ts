@@ -37,7 +37,9 @@ export interface paths {
         /**
          * Загрузить архив и запустить обработку
          * @description Тело — сырые байты ZIP-архива, не multipart. Допустимо из статусов `draft` и `failed`.
-         *     Лимит размера — `GREENPLAN_API_MAX_UPLOAD_MB` (в docker-compose — 100 МиБ, 104 857 600 байт).
+         *     Лимит размера — `GREENPLAN_API_MAX_UPLOAD_MB` в МиБ: по умолчанию в коде 300 МиБ
+         *     (314 572 800 байт), в docker-compose задано 100 МиБ (104 857 600 байт). Клиент по ТЗ
+         *     ограничивает архив 100 МиБ независимо от сервера.
          */
         post: operations["upload_project"];
         delete?: never;
@@ -459,8 +461,8 @@ export interface components {
             /**
              * @description Метка системы координат геометрии. Без геопривязки —
              *     «local drawing coordinates, no geo-reference available», с геопривязкой —
-             *     `WGS84_CRS_LABEL` из `greenplan.georeference.apply`. Этого модуля нет в репозитории,
-             *     поэтому точное значение метки — вопрос к бэкенду.
+             *     «EPSG:4326 (WGS84 lon/lat)» (значение из теста бэкенда: сама константа
+             *     `WGS84_CRS_LABEL` лежит в модуле `greenplan.georeference`, который не закоммичен).
              */
             crs: string;
         };
@@ -576,8 +578,9 @@ export interface components {
             };
         };
         /**
-         * @description Проекта нет, или результат ещё не готов (статус не `ready`). Различить случаи по `detail`
-         *     нельзя: фронтенд опирается на статус проекта.
+         * @description Проекта нет, или результат ещё не готов (статус не `ready`). `detail` различается
+         *     («Project not found» и «Project data not available yet (status: …)»), но это текст, а не
+         *     контракт: фронтенд опирается на статус проекта.
          */
         ResultNotReady: {
             headers: {
@@ -690,7 +693,11 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Архив больше лимита. */
+            /**
+             * @description Архив больше лимита сервера: размер тела больше `GREENPLAN_API_MAX_UPLOAD_MB` · 2²⁰ байт
+             *     (300 МиБ по умолчанию, 100 МиБ в docker-compose). Бэкенд обрывает приём посреди потока,
+             *     поэтому клиент может получить обрыв соединения вместо ответа 413.
+             */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -824,9 +831,9 @@ export interface operations {
             200: {
                 headers: {
                     /**
-                     * @description `attachment; filename="planting.dxf"; filename*=UTF-8''<имя>.dxf` (RFC 6266,
-                     *     RFC 5987). `filename*` нужен для кириллицы в имени проекта; `filename` —
-                     *     ASCII-запасной вариант.
+                     * @description Изменение: `attachment; filename="planting.dxf"; filename*=UTF-8''<имя>.dxf`
+                     *     (RFC 6266, RFC 5987). `filename*` нужен для кириллицы в имени проекта; `filename` —
+                     *     ASCII-запасной вариант. Сейчас бэкенд отдаёт только `filename="planting.dxf"`.
                      */
                     "Content-Disposition"?: string;
                     [name: string]: unknown;
