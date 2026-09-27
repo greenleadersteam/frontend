@@ -1,0 +1,158 @@
+/* Модуль геопривязки: панель «Контур» слева, карта, панель «Привязка» справа; карта — от шапки
+   до низа окна. Уже $app-breakpoint-panels панели уходят в выдвижные. */
+.page {
+  display: grid;
+  flex: 1;
+  grid-template-columns:
+    var(--app-contour-panel-width) minmax(0, 1fr)
+    var(--app-binding-panel-width);
+  gap: var(--mantine-spacing-lg);
+  min-height: 0;
+
+  @media (max-width: $app-breakpoint-panels) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Панели — белые, радиус lg, тень sm (design.md, «Форма и глубина»); прокручиваются сами. */
+.panel {
+  overflow-y: auto;
+  padding: var(--mantine-spacing-lg);
+  border-radius: var(--mantine-radius-lg);
+  background-color: var(--app-surface);
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.map {
+  display: flex;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Пустое состояние — белая панель поверх карты по центру: карту можно двигать и под ней. */
+.empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(var(--app-binding-panel-width), calc(100% - 2 * var(--mantine-spacing-xl)));
+  padding: var(--mantine-spacing-lg);
+  transform: translate(-50%, -50%);
+  border-radius: var(--mantine-radius-lg);
+  background-color: var(--app-surface);
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xl);
+  color: var(--app-text-muted);
+  font-size: var(--mantine-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ручка поворота — маркер MapLibre: белый круг с тёмной обводкой, как опорная точка, но крупнее:
+   её тянут мышью и пальцем. */
+.handle {
+  box-sizing: border-box;
+  width: calc(var(--mantine-spacing-lg) * 1.25);
+  height: calc(var(--mantine-spacing-lg) * 1.25);
+  border: 2px solid var(--app-georeference-handle-outline);
+  border-radius: 50%;
+  background-color: var(--app-georeference-handle);
+  box-shadow: var(--mantine-shadow-md);
+  cursor: grab;
+  touch-action: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+/* Угол у курсора во время поворота: позицию задаёт жест через transform. */
+.readout {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--mantine-radius-sm);
+  background-color: var(--app-surface);
+  box-shadow: var(--mantine-shadow-md);
+  color: var(--app-text);
+  font-size: var(--mantine-font-size-sm);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.readoutList {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  margin: 0;
+  font-size: var(--mantine-font-size-sm);
+
+  & dt {
+    color: var(--app-text-muted);
+  }
+
+  & dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+    overflow-wrap: anywhere;
+  }
+}
+
+.readoutRow {
+  display: contents;
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropzone {
+  border: 1.5px dashed var(--mantine-color-stone-4);
+  border-radius: var(--mantine-radius-xl);
+  background-color: color-mix(in srgb, var(--app-surface-muted) 50%, transparent);
+
+  &[data-accept],
+  &:hover {
+    border-color: var(--app-accent);
+  }
+}
+
+.dropzoneInner {
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-md);
+  text-align: center;
+}
+
+.fullscreenDrop {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: var(--mantine-font-size-lg);
+  font-weight: 600;
+}

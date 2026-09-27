@@ -13,7 +13,7 @@ import {
   Switch,
 } from '@mantine/core';
 
-import { basemapColors, utilityStyles } from './map';
+import { basemapColors, georeferenceColors, utilityStyles } from './map';
 import { clay, ochre, sage, stone, WHITE } from './palette';
 import classes from './theme.module.css';
 
@@ -129,6 +129,10 @@ export const theme = createTheme({
   },
 });
 
+// Уже этого экрана панели модуля геопривязки уходят в выдвижные (1100 px). То же значение —
+// переменная $app-breakpoint-panels в postcss.config.cjs для CSS Modules.
+export const PANELS_BREAKPOINT = '68.75em';
+
 // Роли из design.md, «Роли» и «Статусы». Компоненты проекта обращаются к ролям,
 // а не к номерам оттенков: смена оттенка роли — правка в одном месте.
 export const cssVariablesResolver: CSSVariablesResolver = () => ({
@@ -157,6 +161,12 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
     '--app-card-lift': '0.125rem',
     '--app-card-min-width': '17.5rem',
     '--app-narrow-width': '45rem',
+    // Модуль геопривязки: панели «Контур» и «Привязка» по сторонам карты (300 и 320 px).
+    // Ручка поворота — те же роли, что опорная точка на карте (georeferenceColors).
+    '--app-georeference-handle': georeferenceColors.anchorHalo,
+    '--app-georeference-handle-outline': georeferenceColors.anchor,
+    '--app-contour-panel-width': '18.75rem',
+    '--app-binding-panel-width': '20rem',
     '--app-map-earth': basemapColors.earth,
     '--app-map-road': basemapColors.roads,
     '--app-map-road-casing': basemapColors.roadsCasing,

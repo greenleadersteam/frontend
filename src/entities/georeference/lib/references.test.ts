@@ -4,12 +4,11 @@ import { z } from 'zod';
 import type { Reference } from '@/shared/lib/contour';
 import { buildReference, detectResult, diagnose, readGeoJson } from '@/shared/lib/contour';
 import { enuToGeodetic, vincentyDirect } from '@/shared/lib/geodesy';
+import { compare, formatDecimal, formatDegrees, spread } from '@/shared/lib/georeference';
 import { contourOf, GEOREFERENCE_SAMPLE, portedGroup, sampleContour } from '@/shared/lib/test';
 
 import type { ExportResult, GeoreferenceState } from './export';
 import { toGeoJson, toJson } from './export';
-import { formatDecimal, formatDegrees } from './format';
-import { compare, spread } from './placement';
 
 // Группа «Эталонные слои и сравнение» прототипа (../geojson/tests.html:1120-1362): 31 проверка.
 // Эталоны собираются из настоящей выгрузки, а не из объекта в памяти. Пояс закреплён: штамп

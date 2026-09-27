@@ -11,6 +11,11 @@
   &[data-width='contained'] {
     max-width: calc(var(--app-content-width) + 2 * var(--mantine-spacing-xl));
   }
+
+  /* Высота окна, но не меньше 40rem: на низком окне страница прокручивается целиком. */
+  &[data-viewport] {
+    height: max(100dvh, 40rem);
+  }
 }
 
 .main {
@@ -18,6 +23,7 @@
   flex: 1;
   flex-direction: column;
   gap: var(--mantine-spacing-xl);
+  min-height: 0;
 }
 
 /* Печатный документ (отчёт) ставит data-print на корень: шапка и метка режима не печатаются.

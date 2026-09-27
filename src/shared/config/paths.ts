@@ -3,6 +3,7 @@ export const paths = {
   projectNew: '/projects/new',
   project: '/projects/:projectId',
   projectReport: '/projects/:projectId/report',
+  georeference: '/georeference',
 } as const;
 
 export const projectPath = (projectId: string): string =>

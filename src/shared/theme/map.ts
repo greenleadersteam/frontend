@@ -53,6 +53,24 @@ export const resultLayerColors = {
   obstacleLabelHalo: WHITE,
 } as const;
 
+// Функциональный цвет, подобран по контрасту к снимку и схеме, а не по теме. Контур геопривязки
+// лежит и на космоснимке (от тёмного леса до светлого бетона), и на светлой «Схеме», поэтому
+// он — пара: тёмная линия stone.9 поверх белого ореола. Контраст линии к ореолу — 14,2, и для
+// любого фона хотя бы одна из двух даёт с ним не меньше √14,2 ≈ 3,8 (contrast.test.ts): контур
+// читается на любом снимке без подбора цвета под место.
+export const georeferenceColors = {
+  contour: stone[9],
+  contourHalo: WHITE,
+  contourFill: stone[9],
+  vertex: WHITE,
+  vertexOutline: stone[9],
+  anchor: stone[9],
+  anchorHalo: WHITE,
+  lever: stone[9],
+  leverHalo: WHITE,
+  sector: stone[9],
+} as const;
+
 export type UtilityDash = 'solid' | 'dashed' | 'dashDot';
 
 // Подземные сети — спокойные оттенки вне шалфея и глины: зелёный отдан посадкам, красный —

@@ -1,7 +1,7 @@
 import { DEFAULT_THEME, mergeMantineTheme } from '@mantine/core';
 import { describe, expect, test } from 'vitest';
 
-import { basemapColors, utilityStyles } from './map';
+import { basemapColors, georeferenceColors, utilityStyles } from './map';
 import { cssVariablesResolver, theme } from './theme';
 
 // Относительная яркость и контраст — WCAG 2.1, определения relative luminance и contrast ratio.
@@ -121,4 +121,26 @@ describe('сети на карте (design.md, «Карта»)', () => {
 test('формула совпадает с эталоном WCAG: чёрный на белом — 21', () => {
   expect(contrast('#000000', '#FFFFFF')).toBeCloseTo(21, 5);
   expect(contrast('#777777', '#FFFFFF')).toBeCloseTo(4.48, 2);
+});
+
+describe('контур геопривязки', () => {
+  const { contour, contourHalo } = georeferenceColors;
+
+  // Для любого фона max(контраст к линии, контраст к ореолу) ≥ √(контраст линии к ореолу):
+  // произведение двух контрастов с фоном не меньше контраста самой пары.
+  test('линия и ореол различаются так, что на любом фоне одна из них даёт не меньше 3:1', () => {
+    expect(Math.sqrt(contrast(contour, contourHalo))).toBeGreaterThanOrEqual(3);
+  });
+
+  test.each([
+    ['«Земля» схемы', basemapColors.earth],
+    ['дороги схемы', basemapColors.roads],
+    ['парки схемы', basemapColors.parks],
+    ['тёмный лес на снимке', '#26301F'],
+    ['асфальт на снимке', '#4A4A48'],
+    ['светлый бетон на снимке', '#C9C6BF'],
+  ])('%s: контур читается не хуже 4,5:1', (_name, background) => {
+    const best = Math.max(contrast(contour, background), contrast(contourHalo, background));
+    expect(best).toBeGreaterThanOrEqual(4.5);
+  });
 });

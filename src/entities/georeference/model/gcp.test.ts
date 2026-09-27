@@ -1,15 +1,22 @@
 import { expect } from 'vitest';
 
 import { enuFrame, enuToGeodetic, vincentyInverse } from '@/shared/lib/geodesy';
+import type { GcpPair, GcpStats, Placement, Solution } from '@/shared/lib/georeference';
+import {
+  formatLength,
+  isLocked,
+  isOutlier,
+  snapToContour,
+  solve,
+  stats,
+  tolerance,
+  verdict,
+  vertexLatLon,
+} from '@/shared/lib/georeference';
 import { portedGroup, sampleContour } from '@/shared/lib/test';
 
-import type { GeoreferenceState } from './export';
-import { buildExport } from './export';
-import { formatLength } from './format';
-import type { GcpPair, GcpStats, Solution } from './gcp';
-import { isLocked, isOutlier, snapToContour, solve, stats, tolerance, verdict } from './gcp';
-import type { Placement } from './placement';
-import { vertexLatLon } from './placement';
+import type { GeoreferenceState } from '../lib/export';
+import { buildExport } from '../lib/export';
 import type { Session } from './session';
 import {
   addGcp,

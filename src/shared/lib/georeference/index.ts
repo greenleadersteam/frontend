@@ -1,26 +1,3 @@
-export type {
-  CatalogRow,
-  CsvOptions,
-  ExportData,
-  ExportError,
-  ExportResult,
-  GeoreferenceState,
-  RoundTrip,
-} from './export';
-export {
-  buildExport,
-  EXPORT_ERROR_TEXT,
-  exportStamp,
-  exportSummary,
-  fileName,
-  LL_DIGITS,
-  M_DIGITS,
-  roundTo,
-  roundTrip,
-  toCsv,
-  toGeoJson,
-  toJson,
-} from './export';
 export {
   DASH,
   formatDecimal,
@@ -73,36 +50,3 @@ export {
   spread,
   vertexLatLon,
 } from './placement';
-export type {
-  GcpPatch,
-  Handoff,
-  NewGcpPair,
-  Session,
-  SessionPatch,
-  StoredReference,
-} from './session';
-export {
-  addGcp,
-  addReference,
-  applyGcp,
-  clearContour,
-  clearGcp,
-  clearReferences,
-  createSession,
-  findSameReference,
-  loadContour,
-  moveBy,
-  placementOf,
-  redo,
-  removeGcp,
-  removeReference,
-  restoreManual,
-  rotateBy,
-  setAnchor,
-  setRotation,
-  setScale,
-  snapshot,
-  undo,
-  updateGcp,
-  updateSession,
-} from './session';

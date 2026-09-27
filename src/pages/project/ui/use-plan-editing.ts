@@ -22,11 +22,11 @@ import {
 } from '@/entities/project';
 import {
   type EditMode,
-  isTyping,
   manualId,
   plantingEditsActions as actions,
 } from '@/features/edit-plantings';
 import type { LocalPoint } from '@/shared/lib/geometry';
+import { isTyping } from '@/shared/lib/keyboard';
 import { useAppDispatch } from '@/shared/lib/store';
 
 // Посадки, которые правит план: исходные с правками, в координатах данных.

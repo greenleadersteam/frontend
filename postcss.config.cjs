@@ -8,6 +8,8 @@ module.exports = {
         'mantine-breakpoint-md': '62em',
         'mantine-breakpoint-lg': '75em',
         'mantine-breakpoint-xl': '88em',
+        // Панели модуля геопривязки уходят в выдвижные — PANELS_BREAKPOINT в shared/theme.
+        'app-breakpoint-panels': '68.75em',
       },
     },
   },

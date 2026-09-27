@@ -3,6 +3,9 @@ import { expect, it } from 'vitest';
 import type { Contour } from '@/shared/lib/contour';
 import { buildContour } from '@/shared/lib/contour';
 
+// Крупный участок Д прототипа (2,7 км, 240 вершин) — текстом файла, как его читает страница.
+export { default as LARGE_SITE_GEOJSON } from '../contour/__fixtures__/участок-Д-крупный.geojson?raw';
+
 // Тестовый участок прототипа (../geojson/js/sample.js): Г-образный участок 900 × 620 м
 // с внутренним кольцом. Координаты — метры условной местной системы, как в файле от проектировщика.
 export const GEOREFERENCE_SAMPLE = {

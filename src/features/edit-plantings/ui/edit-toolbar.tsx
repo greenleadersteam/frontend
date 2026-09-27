@@ -24,6 +24,7 @@ import { type JSX, type ReactNode, useId, useState } from 'react';
 import type { PlantingFeatureCollection } from '@/entities/project';
 import { describeAppError } from '@/shared/api';
 import { formatNumber } from '@/shared/lib/format';
+import { isTyping } from '@/shared/lib/keyboard';
 import { useAppDispatch } from '@/shared/lib/store';
 import { Icon } from '@/shared/ui';
 
@@ -41,13 +42,6 @@ type EditToolbarProps = {
   active: boolean;
   onRemoved: () => void;
 };
-
-// Поля ввода печатают сами: сочетания правки в них не перехватываются. Флажок и переключатель
-// (input type=checkbox) этих клавиш не используют — с фокусом на них правка работает.
-export const isTyping = (target: EventTarget | null): boolean =>
-  target instanceof HTMLElement &&
-  !(target instanceof HTMLInputElement && target.type === 'checkbox') &&
-  (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 const PLACE_HINT = 'Щелчок по карте или Enter на карте ставит посадку';
 

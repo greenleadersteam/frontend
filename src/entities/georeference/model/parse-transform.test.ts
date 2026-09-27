@@ -2,20 +2,22 @@ import { expect } from 'vitest';
 
 import type { Contour } from '@/shared/lib/contour';
 import { diagnose, millimetreHint, parseContour } from '@/shared/lib/contour';
-import { contourOf, portedGroup, sampleContour } from '@/shared/lib/test';
-
-import { formatDecimal, formatDegrees, formatLength } from './format';
-import type { Placement } from './placement';
+import type { Placement } from '@/shared/lib/georeference';
 import {
   azimuthY,
   enuToLocal,
+  formatDecimal,
+  formatDegrees,
+  formatLength,
   frameOf,
   handleDistance,
   localToEnu,
   rotationFromEnu,
   sizeOnMap,
   vertexLatLon,
-} from './placement';
+} from '@/shared/lib/georeference';
+import { contourOf, portedGroup, sampleContour } from '@/shared/lib/test';
+
 import type { Session } from './session';
 import {
   createSession,

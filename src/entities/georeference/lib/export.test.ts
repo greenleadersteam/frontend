@@ -3,19 +3,48 @@ import { z } from 'zod';
 
 import type { Contour } from '@/shared/lib/contour';
 import { buildReference } from '@/shared/lib/contour';
-import largeSite from '@/shared/lib/contour/__fixtures__/участок-Д-крупный.geojson?raw';
 import { enuFrame, fitSimilarity } from '@/shared/lib/geodesy';
-import { contourOf, GEOREFERENCE_SAMPLE, portedGroup, sampleContour } from '@/shared/lib/test';
+import { expectedError, sizeOnMap } from '@/shared/lib/georeference';
+import {
+  contourOf,
+  GEOREFERENCE_SAMPLE,
+  LARGE_SITE_GEOJSON,
+  portedGroup,
+  sampleContour,
+} from '@/shared/lib/test';
 
 import type { ExportData, ExportResult, GeoreferenceState } from './export';
-import { buildExport, fileName, roundTo, toCsv, toGeoJson, toJson } from './export';
-import { expectedError, sizeOnMap } from './placement';
+import {
+  buildExport,
+  fileName,
+  roundTo,
+  roundTrip as checkRoundTrip,
+  roundTripCloses,
+  toCsv,
+  toGeoJson,
+  toJson,
+} from './export';
 
 // Группа «Выгрузка» прототипа (../geojson/tests.html:886-1115): 23 проверки.
 
 const { check } = portedGroup(23);
 
 const DATE = new Date(2026, 8, 23, 14, 5, 0);
+// Участок А прототипа: 318 × 241 м, 11 вершин.
+const RING_A = [
+  [2245600, 476200],
+  [2245918, 476200],
+  [2245918, 476296],
+  [2245842, 476296],
+  [2245842, 476358],
+  [2245796, 476362],
+  [2245796, 476441],
+  [2245684, 476441],
+  [2245684, 476398],
+  [2245637, 476391],
+  [2245600, 476348],
+  [2245600, 476200],
+];
 const ANCHOR = { lat: 55.7431, lon: 37.5908 };
 const ROT = 33.75;
 
@@ -275,19 +304,28 @@ check('Имя файла: исходное имя, дата и время', () =
 // В прототипе замыкание круга было только проверкой; здесь без него выгрузки нет.
 
 describe('самопроверка выгрузки', () => {
-  it('выгрузка, которая не восстанавливает привязку, не отдаётся ни в одном формате', () => {
-    // Файл в метрах с масштабом 0,001: на местности 0,9 м, и округление широты и долготы
-    // до 1e−9° (0,1 мм) уже сбивает масштаб сильнее 1e−6.
-    const tiny = state(0.001);
-    const results = [
-      buildExport(tiny, DATE),
-      toJson(tiny, DATE),
-      toCsv(tiny, {}, DATE),
-      toGeoJson(tiny, DATE),
-    ];
-    for (const result of results) {
-      expect(result.ok ? null : result.error.kind).toBe('RoundTripFailed');
+  // Решение Г2: допуск масштаба и угла — от размера участка, иначе округление до 1e−9° само
+  // по себе давало отказы на участках в десятки метров.
+  it.each([5, 10, 20])('участок %i м: повороты через 1° — ни одного отказа', (side) => {
+    for (const source of [sampleContour(), contourOf({ type: 'Polygon', coordinates: [RING_A] })]) {
+      const scale = side / Math.max(source.bbox.width, source.bbox.height);
+      for (let rotation = 0; rotation < 360; rotation += 1) {
+        const result = buildExport({ ...state(scale, source), rotation }, DATE);
+        expect(result.ok, `поворот ${String(rotation)}°`).toBe(true);
+      }
     }
+  });
+
+  it('каталог, в котором вершина сдвинута на 11 см, самопроверку не проходит', () => {
+    const d = data();
+    const [first, ...rest] = d.каталог_координат;
+    if (first === undefined) throw new Error('пустой каталог');
+    const corrupted = {
+      ...d,
+      каталог_координат: [{ ...first, широта: (first.широта ?? NaN) + 1e-6 }, ...rest],
+    };
+    expect(roundTripCloses(checkRoundTrip(d), 900)).toBe(true);
+    expect(roundTripCloses(checkRoundTrip(corrupted), 900)).toBe(false);
   });
 
   it('поворот около 180° не даёт ложного отказа: разница углов берётся по кратчайшей дуге', () => {
@@ -298,7 +336,7 @@ describe('самопроверка выгрузки', () => {
   });
 
   it('крупный участок Д (2,7 км, 240 вершин) в Мурманске проходит и читается эталоном', () => {
-    const large = contourOf(JSON.parse(largeSite), 'участок-Д-крупный.geojson');
+    const large = contourOf(JSON.parse(LARGE_SITE_GEOJSON), 'участок-Д-крупный.geojson');
     const s: GeoreferenceState = {
       source: large,
       anchor: { lat: 68.9585, lon: 33.0827 },

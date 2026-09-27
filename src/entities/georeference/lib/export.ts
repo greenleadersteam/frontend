@@ -1,17 +1,17 @@
-import type { Unit } from '../contour';
-import { UNITS } from '../contour';
-import { enuFrame, fitSimilarity, toMercator, WGS84 } from '../geodesy';
-import type { GcpPair, WorkScale } from './gcp';
-import { stats, VERDICT_TEXT } from './gcp';
-import type { Placement } from './placement';
+import type { Unit } from '@/shared/lib/contour';
+import { UNITS } from '@/shared/lib/contour';
+import { enuFrame, fitSimilarity, toMercator, WGS84 } from '@/shared/lib/geodesy';
+import type { GcpPair, Placement, WorkScale } from '@/shared/lib/georeference';
 import {
   azimuthY,
   expectedError,
   frameOf,
   normalizeAngle,
   sizeOnMap,
+  stats,
+  VERDICT_TEXT,
   vertexLatLon,
-} from './placement';
+} from '@/shared/lib/georeference';
 
 // Выгрузка результата привязки: JSON с параметрами и каталогом, CSV-каталог, geojson в WGS 84.
 // Перенесено из прототипа ../geojson/js/export.js без изменений форматов. Добавлена самопроверка
@@ -109,19 +109,24 @@ export type ExportData = {
 };
 
 // Самопроверка: подобие подгоняется обратно по парам координат из самой выгрузки, а не по
-// состоянию приложения, и должно вернуть заданные параметры. Пороги — из проверок прототипа
-// «Замыкание круга».
+// состоянию приложения, и должно вернуть заданные параметры. Пороги прототипа («Замыкание
+// круга») — масштаб 1e−6, угол 1e−4° — годятся для участка от сотни метров. Выгрузка округляет
+// широту и долготу до 1e−9°, то есть до 0,1 мм, и на участке в 10–40 м одно это округление
+// сбивает масштаб и угол сильнее: самопроверка отказывала без ошибки в привязке (замер Г1: 33 %
+// отказов на 20 м). Поэтому допуск масштаба и угла — не строже 2·10⁻⁴ м на большую сторону
+// участка на местности; угол — тот же допуск на сторону в радианах, переведённый в градусы.
+// RMS остаётся абсолютным: 1 мм.
 const ROUND_TRIP_SCALE = 1e-6; // относительная разница масштаба
 const ROUND_TRIP_ANGLE = 1e-4; // градуса
+const ROUND_TRIP_SIDE_TOLERANCE = 2e-4; // м на большую сторону
 const ROUND_TRIP_RMS = 1e-3; // м
 
 export type RoundTrip = { scaleRel: number; rotation: number; rms: number };
 export type ExportError = { kind: 'RoundTripFailed'; roundTrip: RoundTrip | null };
 export type ExportResult<T> = { ok: true; value: T } | { ok: false; error: ExportError };
 
-// На участках в несколько десятков метров самопроверка может не пройти без ошибки пользователя:
-// округление координат до 0,1 мм уже сбивает масштаб сильнее 1e−6. Поэтому текст не отправляет
-// проверять масштаб и положение.
+// Отказ самопроверки — ошибка вычислений, а не пользователя: текст не отправляет проверять
+// масштаб и положение, которые пользователь задал сам.
 export const EXPORT_ERROR_TEXT =
   'Выгрузка не прошла самопроверку: координаты в файле не восстанавливают привязку с точностью ' +
   'выгрузки. Файл не сохранён. Сообщите разработчикам, указав размер участка и поворот.';
@@ -151,11 +156,25 @@ export function roundTrip(data: ExportData): RoundTrip | null {
   };
 }
 
-const closes = (check: RoundTrip | null): check is RoundTrip =>
-  check !== null &&
-  Math.abs(check.scaleRel) <= ROUND_TRIP_SCALE &&
-  Math.abs(check.rotation) <= ROUND_TRIP_ANGLE &&
-  check.rms < ROUND_TRIP_RMS;
+// Допуски самопроверки для участка с большей стороной side метров на местности.
+export function roundTripTolerance(side: number): { scaleRel: number; rotation: number } {
+  const perSide = ROUND_TRIP_SIDE_TOLERANCE / side;
+  return {
+    scaleRel: Math.max(ROUND_TRIP_SCALE, perSide),
+    rotation: Math.max(ROUND_TRIP_ANGLE, (perSide * 180) / Math.PI),
+  };
+}
+
+// Сошлась ли самопроверка для участка с большей стороной sideMeters на местности.
+export function roundTripCloses(check: RoundTrip | null, sideMeters: number): check is RoundTrip {
+  if (check === null) return false;
+  const tolerance = roundTripTolerance(sideMeters);
+  return (
+    Math.abs(check.scaleRel) <= tolerance.scaleRel &&
+    Math.abs(check.rotation) <= tolerance.rotation &&
+    check.rms < ROUND_TRIP_RMS
+  );
+}
 
 function collect(s: GeoreferenceState, date: Date): ExportData {
   const frame = frameOf(s);
@@ -270,7 +289,8 @@ function collect(s: GeoreferenceState, date: Date): ExportData {
 export function buildExport(s: GeoreferenceState, date: Date): ExportResult<ExportData> {
   const data = collect(s, date);
   const check = roundTrip(data);
-  return closes(check)
+  const size = sizeOnMap(s);
+  return roundTripCloses(check, Math.max(size.width, size.height))
     ? { ok: true, value: data }
     : { ok: false, error: { kind: 'RoundTripFailed', roundTrip: check } };
 }

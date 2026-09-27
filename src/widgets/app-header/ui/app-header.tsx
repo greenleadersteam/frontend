@@ -31,6 +31,11 @@ export function AppHeader(): JSX.Element {
               </NavLink>
             </li>
             <li>
+              <NavLink to={paths.georeference} className={classes.link}>
+                Геопривязка
+              </NavLink>
+            </li>
+            <li>
               <NavLink to={paths.projectNew} className={classes.link}>
                 Новый проект
               </NavLink>

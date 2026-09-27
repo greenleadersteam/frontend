@@ -55,6 +55,17 @@ export const routes: RouteObject[] = [
           },
         ],
       },
+      {
+        element: <AppLayout width="full" viewport />,
+        children: [
+          {
+            path: paths.georeference,
+            lazy: async () => ({
+              Component: (await import('@/pages/georeference')).GeoreferencePage,
+            }),
+          },
+        ],
+      },
     ],
   },
 ];

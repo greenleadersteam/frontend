@@ -1,10 +1,8 @@
-import type { Contour, Reference } from '../contour';
-import type { LatLon } from '../geodesy';
-import { enuToGeodetic, vincentyInverse } from '../geodesy';
-import type { GcpPair, SnapKind, WorkScale } from './gcp';
-import { solve } from './gcp';
-import type { Placement } from './placement';
-import { normalizeAngle, sizeOnMap } from './placement';
+import type { Contour, Reference } from '@/shared/lib/contour';
+import type { LatLon } from '@/shared/lib/geodesy';
+import { enuToGeodetic, vincentyInverse } from '@/shared/lib/geodesy';
+import type { GcpPair, Placement, SnapKind, WorkScale } from '@/shared/lib/georeference';
+import { normalizeAngle, sizeOnMap, solve } from '@/shared/lib/georeference';
 
 // Состояние ручной привязки и история отмены. Перенесено из прототипа ../geojson/js/store.js
 // (история, опорные точки, эталоны), ../geojson/js/transform.js (дискретные действия)
