@@ -9,7 +9,8 @@ type PlantType = components['schemas']['PlantType'];
 const ASSORTMENT = 'Ассортимент: 623-ПП, прил. В, табл. В.6';
 
 // Справочник пород для демо — только из contracts/species-verified.md: ассортимент — таблица В.6
-// 623-ПП, параметры — открытые статьи. Крона и корни, которых источник не даёт, — null.
+// 623-ПП, параметры — ботанические справочники; где их нет, осталась Википедия с пометкой.
+// Крона и корни, которых источник не даёт, — null.
 export const SPECIES: Species[] = [
   {
     id: 'tilia_cordata',
@@ -19,7 +20,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 25,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Липа_сердцевидная`,
+    source: `${ASSORTMENT}. Высота: http://www.plantarium.ru/page/view/item/38502.html («Деревья и кустарники СССР», т. IV)`,
   },
   {
     id: 'acer_platanoides',
@@ -29,7 +30,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 20,
     root_system: 'shallow',
-    source: `${ASSORTMENT}. Высота и корни: https://ru.wikipedia.org/wiki/Клён_остролистный`,
+    source: `${ASSORTMENT}. Высота: http://www.plantarium.ru/page/view/item/221.html («Деревья и кустарники СССР», т. IV), корни: https://forest.jrc.ec.europa.eu/media/atlas/Acer_platanoides.pdf (European Atlas of Forest Tree Species)`,
   },
   {
     id: 'betula_pendula',
@@ -39,7 +40,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: 10,
     height_m: 25,
     root_system: 'shallow',
-    source: `${ASSORTMENT}. Высота, крона, корни: https://ru.wikipedia.org/wiki/Берёза_повислая`,
+    source: `${ASSORTMENT}. Высота: http://www.agroatlas.ru/ru/content/related/Betula_pendula/ (Агроэкологический атлас России), крона и корни: https://ru.wikipedia.org/wiki/Берёза_повислая (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'quercus_robur',
@@ -49,7 +50,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: 20,
     height_m: 25,
     root_system: 'deep',
-    source: `${ASSORTMENT} (внутриквартальные — с ограничениями). Высота, крона, корни: https://ru.wikipedia.org/wiki/Дуб_черешчатый`,
+    source: `${ASSORTMENT} (внутриквартальные — с ограничениями). Высота: http://www.plantarium.ru/page/view/item/31185.html («Флора СССР», т. 5), крона и корни: https://ru.wikipedia.org/wiki/Дуб_черешчатый (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'sorbus_aucuparia',
@@ -59,7 +60,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: 5.5,
     height_m: 8,
     root_system: null,
-    source: `${ASSORTMENT}. Высота и крона: https://ru.wikipedia.org/wiki/Рябина_обыкновенная`,
+    source: `${ASSORTMENT}. Высота: http://www.agroatlas.ru/ru/content/related/Sorbus_aucuparia/ (Агроэкологический атлас России), крона: https://ru.wikipedia.org/wiki/Рябина_обыкновенная (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'fraxinus_pennsylvanica',
@@ -69,7 +70,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 18,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://en.wikipedia.org/wiki/Fraxinus_pennsylvanica`,
+    source: `${ASSORTMENT}. Высота: https://research.fs.usda.gov/silvics/green-ash (Silvics of North America, Лесная служба США)`,
   },
   {
     id: 'ulmus_laevis',
@@ -79,7 +80,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 25,
     root_system: 'shallow',
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Вяз_гладкий, корни: https://en.wikipedia.org/wiki/Ulmus_laevis`,
+    source: `${ASSORTMENT}. Высота: http://www.agroatlas.ru/ru/content/related/Ulmus_laevis/ (Агроэкологический атлас России), корни: https://en.wikipedia.org/wiki/Ulmus_laevis (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'aesculus_hippocastanum',
@@ -89,7 +90,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 25,
     root_system: 'mixed',
-    source: `${ASSORTMENT}. Высота и корни: https://ru.wikipedia.org/wiki/Конский_каштан_обыкновенный`,
+    source: `${ASSORTMENT}. Высота: https://forest.jrc.ec.europa.eu/media/atlas/Aesculus_hippocastanum.pdf (European Atlas of Forest Tree Species), корни: https://ru.wikipedia.org/wiki/Конский_каштан_обыкновенный (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'padus_maackii',
@@ -99,7 +100,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 8,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Черёмуха_Маака`,
+    source: `${ASSORTMENT}. Высота: http://www.agroatlas.ru/ru/content/related/Padus_maackii/ (Агроэкологический атлас России)`,
   },
   {
     id: 'acer_tataricum',
@@ -109,7 +110,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 7,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Клён_татарский`,
+    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Клён_татарский (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'syringa_vulgaris',
@@ -119,7 +120,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 4,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Сирень_обыкновенная`,
+    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Сирень_обыкновенная (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'cornus_alba',
@@ -129,7 +130,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 2.5,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Дёрен_белый`,
+    source: `${ASSORTMENT}. Высота: http://www.plantarium.ru/page/view/item/37170.html («Сосудистые растения советского Дальнего Востока», т. 5)`,
   },
   {
     id: 'cotoneaster_lucidus',
@@ -139,7 +140,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: 2.5,
     height_m: 2.5,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Кизильник_блестящий, ширина: https://en.wikipedia.org/wiki/Cotoneaster_lucidus`,
+    source: `${ASSORTMENT}. Высота: https://journal.asu.ru/bpssm/article/view/pbssm.2021024 (Ботанический сад им. А. В. Фомина, 2021), ширина: https://en.wikipedia.org/wiki/Cotoneaster_lucidus (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'berberis_thunbergii',
@@ -149,7 +150,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 2,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Барбарис_Тунберга`,
+    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Барбарис_Тунберга (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'symphoricarpos_albus',
@@ -159,7 +160,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 1.5,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Снежноягодник_белый`,
+    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Снежноягодник_белый (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'philadelphus_coronarius',
@@ -169,7 +170,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: 2,
     height_m: 2.5,
     root_system: null,
-    source: `${ASSORTMENT}. Высота и крона: https://ru.wikipedia.org/wiki/Чубушник_венечный`,
+    source: `${ASSORTMENT}. Высота и крона: https://ru.wikipedia.org/wiki/Чубушник_венечный (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'physocarpus_opulifolius',
@@ -179,7 +180,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: 4,
     height_m: 3,
     root_system: null,
-    source: `${ASSORTMENT}. Высота и крона: https://ru.wikipedia.org/wiki/Пузыреплодник_калинолистный`,
+    source: `${ASSORTMENT}. Высота: http://www.plantarium.ru/page/view/item/27927.html («Деревья и кустарники СССР», т. III), крона: https://ru.wikipedia.org/wiki/Пузыреплодник_калинолистный (Википедия: ботанического источника с числом не найдено)`,
   },
   {
     id: 'caragana_arborescens',
@@ -189,7 +190,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 4,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Карагана_древовидная`,
+    source: `${ASSORTMENT}. Высота: https://www.altzapovednik.ru/info/publikatcii/zametki-dendrologa/kargana.aspx (Алтайский биосферный заповедник, «Заметки дендролога»)`,
   },
   {
     id: 'viburnum_opulus',
@@ -199,7 +200,7 @@ export const SPECIES: Species[] = [
     crown_diameter_m: null,
     height_m: 3,
     root_system: null,
-    source: `${ASSORTMENT}. Высота: https://ru.wikipedia.org/wiki/Калина_обыкновенная`,
+    source: `${ASSORTMENT}. Высота: http://www.agroatlas.ru/ru/content/related/Viburnum_opulus/ (Агроэкологический атлас России)`,
   },
 ];
 

@@ -955,9 +955,10 @@ describe('проверки по объектам', () => {
     const source = within(panel).getByRole('link', {
       name: `Источник данных о породе: ${FIRST_TREE_TITLE}`,
     });
+    // Первый адрес в тексте источника — высота из «Агроэкологического атласа».
     expect(source).toHaveAttribute(
       'href',
-      expect.stringMatching(/^https:\/\/ru\.wikipedia\.org\/wiki\//),
+      'http://www.agroatlas.ru/ru/content/related/Sorbus_aucuparia/',
     );
     expect(source).toHaveAttribute('target', '_blank');
     expect(source).toHaveAttribute('rel', 'noopener noreferrer');
