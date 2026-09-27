@@ -1,20 +1,9 @@
 import { baseApi, type ProposedApiComponents } from '@/shared/api';
 
-import type { PlantType } from '../model/project';
-
 type Schemas = ProposedApiComponents['schemas'];
-// В OpenAPI бэкенда у /explanation нет схемы ответа, а формат из контракта-предложения
-// (нормы, проверки, отклонённые места) не реализован. Тип — по коду бэкенда
-// (../backend/greenplan/explain/builder.py:17-32), задача P2-1. x и y — в метрах чертежа
-// и при геопривязке (../backend/greenplan/api/jobs.py:329-330).
-export type ExplanationEntry = {
-  id: string;
-  plant_type: PlantType;
-  rule_id: string;
-  rule_name_ru: string | null;
-  x: number;
-  y: number;
-};
+// В OpenAPI бэкенда у /explanation нет схемы ответа; контракт-предложение описывает текущий
+// формат (../backend/greenplan/explain/builder.py:17-32) и добавочное поле checks, задача P2-1.
+export type ExplanationEntry = Schemas['ExplanationEntry'];
 export type ZonesFeatureCollection = Schemas['ZonesFeatureCollection'];
 export type PlantingFeatureCollection = Schemas['PlantingFeatureCollection'];
 

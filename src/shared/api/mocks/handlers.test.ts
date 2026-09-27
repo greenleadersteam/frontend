@@ -2,12 +2,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { components as Proposed } from '../generated/proposed';
 import type { components as Real } from '../generated/schema';
-import type { ExplanationEntry } from './fixtures/site';
 import { handlers, rejectUnhandledApi } from './handlers';
 import { resetMockDb, server } from './node';
 
 type ProjectResponse = Real['schemas']['ProjectResponse'];
-type Explanation = ExplanationEntry[];
+type Explanation = Proposed['schemas']['ExplanationEntry'][];
 type ZonesFeatureCollection = Proposed['schemas']['ZonesFeatureCollection'];
 type PlantingFeatureCollection = Proposed['schemas']['PlantingFeatureCollection'];
 

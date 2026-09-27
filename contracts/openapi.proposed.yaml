@@ -7,10 +7,20 @@ info:
     Здесь только новое и изменённое. Неизменные схемы подключены ссылкой на задеплоенную
     спецификацию https://backend.greenleaders.online/openapi.json.
 
+    Принцип — только добавочные изменения. Существующие ответы не меняются: новые данные
+    приходят новыми эндпоинтами или необязательными полями, а у объектов допустимы лишние
+    свойства. Клиент, написанный под текущий API, продолжает работать; фронтенд подхватывает
+    новое, когда оно появится.
+
     Что предлагается:
-    - `GET /projects/{project_id}/explanation` — новый формат ответа (ломающее изменение):
-      обоснование каждой посадки и каждого отклонённого места со ссылкой на норму
-      и фактическим расстоянием;
+    - `GET /projects/{project_id}/obstacles` — главная просьба: распознанные объекты подосновы
+      в той же системе координат, что `/zones` (источник — `processed/parsed.geojson`, который
+      бэкенд уже пишет). По ним фронтенд считает точное расстояние от ствола до объекта
+      для каждой проверки;
+    - `GET /projects/{project_id}/explanation` — формат прежний, у элемента необязательное
+      поле `checks` с расстояниями, посчитанными бэкендом;
+    - `GET /projects/{project_id}/rejected` — места-кандидаты, отклонённые из-за отступа;
+    - `GET /norms` — справочник норм из `norms/default.yaml`;
     - `POST /projects/{project_id}/runs` — повторная обработка загруженного архива с параметрами;
     - `GET /processing-defaults` — параметры обработки по умолчанию и допустимые диапазоны;
     - перечисления для `status`, `job.stage`; необязательный `bbox_user`; лимиты длины
@@ -144,24 +154,92 @@ paths:
 
   /projects/{project_id}/explanation:
     get:
-      summary: Обоснование посадок и отклонённых мест
+      summary: Обоснование посадок
       description: |
-        Ломающее изменение: эндпоинт уже есть, но сейчас отдаёт массив
-        `[{id, plant_type, rule_id, rule_name_ru, x, y}]` без норм и расстояний
-        (`greenplan/explain/builder.py`). Предлагается заменить его объектом `Explanation`.
-        Фронтенд переходит на новый формат, как только он выкачен; старый не поддерживает.
+        Формат прежний — массив `[{id, plant_type, rule_id, rule_name_ru, x, y}]`
+        (`greenplan/explain/builder.py`). Добавочное изменение — необязательное поле `checks`
+        у элемента: проверки отступов с расстоянием, посчитанным бэкендом. Пока его нет,
+        фронтенд выводит проверки сам из `/zones` (и из `/obstacles`, когда он появится).
       operationId: get_explanation
       parameters:
         - $ref: '#/components/parameters/ProjectId'
       responses:
         '200':
-          description: Обоснование результата.
+          description: По записи на каждую точку из `/planting`.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Explanation'
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExplanationEntry'
         '404':
           $ref: '#/components/responses/ResultNotReady'
+
+  /projects/{project_id}/obstacles:
+    get:
+      summary: Распознанные объекты подосновы
+      description: |
+        Новый эндпоинт. Объекты из `processed/parsed.geojson` — того же файла, который бэкенд
+        уже пишет после разбора (`greenplan/api/jobs.py`), в той же системе координат, что
+        `/zones`: WGS84 при геопривязке, иначе координаты чертежа. Отдаются все объекты
+        с категорией; фронтенд сам берёт категории, для которых есть нормы.
+
+        Без путей сервера: `metadata.root_file`, `metadata.source_folder` и
+        `properties.source_file` из `parsed.geojson` в ответ не попадают.
+      operationId: get_obstacles
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: GeoJSON FeatureCollection.
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/ObstaclesFeatureCollection'
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+
+  /projects/{project_id}/rejected:
+    get:
+      summary: Отклонённые места посадки
+      description: |
+        Новый эндпоинт. Места-кандидаты, которые правило посадки рассматривало, но не заняло
+        из-за нормативного отступа: точка внутри допустимой области `base_area`
+        (газон ∩ граница участка), но вне `allowed` своего типа посадки. Кандидаты вне
+        `base_area` не отдаются: `allowed.contains` в `greenplan/layout/engine.py:71,103`
+        ложен и для них (вторая сторона борта — проезжая часть, сетка заполнения — по охвату
+        участка), но это не отклонение по норме, и непройденных проверок у них нет. Сейчас
+        раскладка такие места не сохраняет; не путать с зонами запрета из `/zones`.
+      operationId: get_rejected
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: GeoJSON FeatureCollection точек.
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/RejectedSitesFeatureCollection'
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+
+  /norms:
+    get:
+      summary: Справочник норм
+      description: |
+        Новый эндпоинт. Записи `greenplan/norms/default.yaml`; `act`, `clause` и `text` —
+        разбор `citation` («743-ПП — газопровод»). Номеров пунктов в источнике нет, поэтому
+        `clause` сейчас `null`.
+      operationId: get_norms
+      responses:
+        '200':
+          description: Нормы отступов.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Norm'
 
   /projects/{project_id}/zones:
     get:
@@ -331,7 +409,7 @@ components:
           description: |
             Изменение: необязателен. Примерные границы участка
             `[min_lon, min_lat, max_lon, max_lat]` в WGS84. Без него этап `georeferencing`
-            пропускается, а `zones`, `planting` и `Position.lon/lat` остаются в локальных
+            пропускается, а `zones`, `planting`, `obstacles` и `rejected` остаются в локальных
             координатах чертежа (так бэкенд уже поступает с проектами без bbox).
           type: [array, 'null']
           prefixItems:
@@ -390,154 +468,170 @@ components:
         job:
           $ref: '#/components/schemas/JobStatus'
 
-    Explanation:
+    ExplanationEntry:
       type: object
       description: |
-        Обоснование результата обработки. Нормы собраны в справочник `norms`, проверки ссылаются
-        на них по `norm_id`.
-      required: [norms, plantings, rejected]
-      properties:
-        norms:
-          type: object
-          description: Справочник норм, ключ — `norm_id`.
-          additionalProperties:
-            $ref: '#/components/schemas/Norm'
-        plantings:
-          type: array
-          description: Все посадки результата, по одной записи на точку из `/planting`.
-          items:
-            $ref: '#/components/schemas/PlantingExplanation'
-        rejected:
-          type: array
-          description: |
-            Места-кандидаты, которые правило посадки рассматривало, но отклонило из-за
-            нормативного отступа. Не путать с зонами запрета из `/zones`.
-          items:
-            $ref: '#/components/schemas/RejectedSite'
-
-    Norm:
-      type: object
-      required: [act, clause, text]
-      properties:
-        act:
-          type: string
-          description: Акт полностью, например «ПП Москвы от 10.09.2002 № 743-ПП».
-        clause:
-          type: [string, 'null']
-          description: |
-            Пункт, таблица или строка таблицы, например «прил. 1, табл. 2, стр. 4». `null`, если
-            пункт не сопоставлен: сейчас в `norms/default.yaml` номеров пунктов нет. Фронтенд
-            не показывает пункт, которого нет.
-        text:
-          type: string
-          description: Текст нормы по-русски.
-
-    PlantingExplanation:
-      type: object
-      required: [id, plant_type, rule, position, checks]
+        Запись `/explanation` в текущем формате бэкенда. Допустимы новые свойства: клиенты
+        их пропускают.
+      required: [id, plant_type, rule_id, rule_name_ru, x, y]
       properties:
         id:
           type: string
           description: Как в `/planting` и в XDATA `GREENPLAN` DXF, например «TREE_ROW_CURB-00001».
         plant_type:
           $ref: '#/components/schemas/PlantType'
-        rule:
-          $ref: '#/components/schemas/PlantingRuleRef'
-        position:
-          $ref: '#/components/schemas/Position'
+        rule_id:
+          type: string
+          description: Идентификатор правила из `layout/default.yaml`, например «TREE_ROW_CURB».
+        rule_name_ru:
+          type: [string, 'null']
+        x:
+          type: number
+          description: |
+            Координата чертежа, м — та же система, что у окружностей в DXF, и при геопривязке.
+        y:
+          type: number
+          description: Координата чертежа, м.
         checks:
           type: array
           description: |
-            Проверки отступов от объектов, ближайших к посадке, по одной на каждый тип объекта,
-            для которого есть норма. У посадки все проверки пройдены: `actual_m >= required_m`.
-          minItems: 1
+            Добавочное, необязательное. Проверки отступов от ближайших объектов — по одной на
+            каждую пару «категория, подтип», для которой есть норма. У посадки все проверки
+            пройдены: `actual_m >= required_m`.
           items:
-            $ref: '#/components/schemas/Check'
+            $ref: '#/components/schemas/ExplanationCheck'
 
-    PlantingRuleRef:
+    ExplanationCheck:
       type: object
-      required: [id, name_ru]
+      required: [category, subtype, required_m, actual_m, citation]
       properties:
-        id:
+        category:
           type: string
-          description: Идентификатор правила из `layout/default.yaml`, например «TREE_ROW_CURB».
-        name_ru:
-          type: string
-
-    RejectedSite:
-      type: object
-      required: [position, plant_type, failed_checks]
-      properties:
-        position:
-          $ref: '#/components/schemas/Position'
-        plant_type:
-          $ref: '#/components/schemas/PlantType'
-        failed_checks:
-          type: array
-          description: Проверки, которые не пройдены (`actual_m < required_m`).
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/Check'
-
-    Position:
-      type: object
-      required: [x, y, lon, lat]
-      properties:
-        x:
-          type: number
-          description: Локальная координата чертежа, м — та же система, что у окружностей в DXF.
-        y:
-          type: number
-          description: Локальная координата чертежа, м.
-        lon:
-          type: [number, 'null']
-          description: Долгота WGS84; `null`, если геопривязки нет.
-        lat:
-          type: [number, 'null']
-          description: Широта WGS84; `null`, если геопривязки нет.
-
-    Check:
-      type: object
-      required: [obstacle, required_m, actual_m, norm_id]
-      properties:
-        obstacle:
-          $ref: '#/components/schemas/Obstacle'
+          description: Как `obstacle_category` в `/zones`, например `underground_utilities`.
+        subtype:
+          type: [string, 'null']
+          description: Как `obstacle_subtype` в `/zones`; `null` у категорий без подтипа.
         required_m:
           type: number
           description: Нормативный отступ для этого типа посадки, м.
         actual_m:
           type: number
           description: |
-            Фактическое расстояние от точки посадки до ближайшей точки объекта, м, округлено
-            до 0,01.
-        norm_id:
+            Расстояние от точки ствола до ближайшей точки объекта, м, посчитанное бэкендом
+            в метрической системе обработки (UTM или чертёж), округлено до 0,01.
+        citation:
           type: string
-          description: Ключ в `Explanation.norms`.
+          description: Как `citation` в `/zones`, например «743-ПП — газопровод».
 
-    Obstacle:
+    ObstaclesFeatureCollection:
       type: object
-      description: Объект подосновы, от которого считается отступ.
-      required: [category, subtype, label_ru, layer, handle]
+      required: [type, metadata, features]
       properties:
-        category:
+        type:
+          const: FeatureCollection
+        metadata:
+          $ref: '#/components/schemas/CrsMetadata'
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObstacleFeature'
+
+    ObstacleFeature:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type:
+          const: Feature
+        geometry:
+          oneOf:
+            - $ref: '#/components/schemas/PointGeometry'
+            - $ref: '#/components/schemas/LineStringGeometry'
+            - $ref: '#/components/schemas/MultiLineStringGeometry'
+            - $ref: '#/components/schemas/PolygonGeometry'
+            - $ref: '#/components/schemas/MultiPolygonGeometry'
+        properties:
+          type: object
+          required: [category, subtype, layer, handle]
+          properties:
+            category:
+              type: string
+              description: Как `obstacle_category` в `/zones`.
+            subtype:
+              type: [string, 'null']
+              description: Как `obstacle_subtype` в `/zones`.
+            layer:
+              type: string
+              description: Слой исходного DXF.
+            handle:
+              type: [string, 'null']
+              description: |
+                Handle сущности DXF. `null` для сущностей из xref и взорванных блоков — у них
+                нет handle (`greenplan/model.py`, `Feature.handle`).
+
+    RejectedSitesFeatureCollection:
+      type: object
+      required: [type, metadata, features]
+      properties:
+        type:
+          const: FeatureCollection
+        metadata:
+          $ref: '#/components/schemas/CrsMetadata'
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/RejectedSite'
+
+    RejectedSite:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type:
+          const: Feature
+        geometry:
+          $ref: '#/components/schemas/PointGeometry'
+        properties:
+          type: object
+          required: [plant_type, rule_id, failed_checks]
+          properties:
+            plant_type:
+              $ref: '#/components/schemas/PlantType'
+            rule_id:
+              type: string
+            failed_checks:
+              type: array
+              description: Непройденные проверки (`actual_m < required_m`).
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/ExplanationCheck'
+
+    Norm:
+      type: object
+      required: [obstacle_category, obstacle_subtype, tree_m, shrub_m, citation, act, clause, text]
+      properties:
+        obstacle_category:
           type: string
-          description: Как `obstacle_category` в `/zones`, например `underground_utilities`, `road_edge`.
-        subtype:
+        obstacle_subtype:
+          type: [string, 'null']
+        tree_m:
+          type: number
+          description: Отступ для деревьев, м.
+        shrub_m:
+          type: number
+          description: Отступ для кустарников, м.
+        citation:
+          type: string
+          description: Строка как в `/zones`, например «743-ПП — газопровод».
+        act:
+          type: string
+          description: Акт, например «743-ПП»; полное название — по решению бэкенда.
+        clause:
           type: [string, 'null']
           description: |
-            Как `obstacle_subtype` в `/zones`, например `gas`, `water`. `null` у категорий без
-            подтипа (`road_edge` в `norms/default.yaml`).
-        label_ru:
+            Пункт, таблица или строка таблицы. `null`, пока номеров пунктов в источнике нет:
+            фронтенд не показывает пункт, которого нет.
+        text:
           type: string
-          description: Название типа объекта, например «газопровод».
-        layer:
-          type: [string, 'null']
-          description: Слой исходного DXF.
-        handle:
-          type: [string, 'null']
-          description: |
-            Handle сущности DXF. `null` для сущностей из xref и взорванных блоков — у них нет
-            handle (см. `greenplan/model.py`, `Feature.handle`).
+          description: Текст нормы по-русски, например «газопровод».
 
     RunRequest:
       type: object
@@ -654,6 +748,34 @@ components:
           items:
             type: number
 
+    LineStringGeometry:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          const: LineString
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+
+    MultiLineStringGeometry:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          const: MultiLineString
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: number
+
     PolygonGeometry:
       type: object
       required: [type, coordinates]
@@ -712,7 +834,7 @@ components:
               properties:
                 used_site_boundary:
                   type: boolean
-                  description: '`false` — граница работ не найдена, взят весь газон.'
+                  description: '`false` — граница участка не найдена, взят весь газон.'
                 uncovered_categories:
                   type: array
                   description: Категории объектов без нормы; отступ от них не строился.
@@ -747,7 +869,7 @@ components:
 
     ExtentZoneProperties:
       type: object
-      description: Диагностические контуры — граница работ, газон и их пересечение.
+      description: Диагностические контуры — граница участка, газон и их пересечение.
       required: [zone_type]
       properties:
         zone_type:

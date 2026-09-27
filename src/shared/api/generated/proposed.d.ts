@@ -78,13 +78,87 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Обоснование посадок и отклонённых мест
-         * @description Ломающее изменение: эндпоинт уже есть, но сейчас отдаёт массив
-         *     `[{id, plant_type, rule_id, rule_name_ru, x, y}]` без норм и расстояний
-         *     (`greenplan/explain/builder.py`). Предлагается заменить его объектом `Explanation`.
-         *     Фронтенд переходит на новый формат, как только он выкачен; старый не поддерживает.
+         * Обоснование посадок
+         * @description Формат прежний — массив `[{id, plant_type, rule_id, rule_name_ru, x, y}]`
+         *     (`greenplan/explain/builder.py`). Добавочное изменение — необязательное поле `checks`
+         *     у элемента: проверки отступов с расстоянием, посчитанным бэкендом. Пока его нет,
+         *     фронтенд выводит проверки сам из `/zones` (и из `/obstacles`, когда он появится).
          */
         get: operations["get_explanation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/obstacles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Распознанные объекты подосновы
+         * @description Новый эндпоинт. Объекты из `processed/parsed.geojson` — того же файла, который бэкенд
+         *     уже пишет после разбора (`greenplan/api/jobs.py`), в той же системе координат, что
+         *     `/zones`: WGS84 при геопривязке, иначе координаты чертежа. Отдаются все объекты
+         *     с категорией; фронтенд сам берёт категории, для которых есть нормы.
+         *
+         *     Без путей сервера: `metadata.root_file`, `metadata.source_folder` и
+         *     `properties.source_file` из `parsed.geojson` в ответ не попадают.
+         */
+        get: operations["get_obstacles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/rejected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Отклонённые места посадки
+         * @description Новый эндпоинт. Места-кандидаты, которые правило посадки рассматривало, но не заняло
+         *     из-за нормативного отступа: точка внутри допустимой области `base_area`
+         *     (газон ∩ граница участка), но вне `allowed` своего типа посадки. Кандидаты вне
+         *     `base_area` не отдаются: `allowed.contains` в `greenplan/layout/engine.py:71,103`
+         *     ложен и для них (вторая сторона борта — проезжая часть, сетка заполнения — по охвату
+         *     участка), но это не отклонение по норме, и непройденных проверок у них нет. Сейчас
+         *     раскладка такие места не сохраняет; не путать с зонами запрета из `/zones`.
+         */
+        get: operations["get_rejected"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/norms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Справочник норм
+         * @description Новый эндпоинт. Записи `greenplan/norms/default.yaml`; `act`, `clause` и `text` —
+         *     разбор `citation` («743-ПП — газопровод»). Номеров пунктов в источнике нет, поэтому
+         *     `clause` сейчас `null`.
+         */
+        get: operations["get_norms"];
         put?: never;
         post?: never;
         delete?: never;
@@ -207,7 +281,7 @@ export interface components {
             /**
              * @description Изменение: необязателен. Примерные границы участка
              *     `[min_lon, min_lat, max_lon, max_lat]` в WGS84. Без него этап `georeferencing`
-             *     пропускается, а `zones`, `planting` и `Position.lon/lat` остаются в локальных
+             *     пропускается, а `zones`, `planting`, `obstacles` и `rejected` остаются в локальных
              *     координатах чертежа (так бэкенд уже поступает с проектами без bbox).
              */
             bbox_user?: [
@@ -245,97 +319,101 @@ export interface components {
             job: components["schemas"]["JobStatus"];
         };
         /**
-         * @description Обоснование результата обработки. Нормы собраны в справочник `norms`, проверки ссылаются
-         *     на них по `norm_id`.
+         * @description Запись `/explanation` в текущем формате бэкенда. Допустимы новые свойства: клиенты
+         *     их пропускают.
          */
-        Explanation: {
-            /** @description Справочник норм, ключ — `norm_id`. */
-            norms: {
-                [key: string]: components["schemas"]["Norm"];
-            };
-            /** @description Все посадки результата, по одной записи на точку из `/planting`. */
-            plantings: components["schemas"]["PlantingExplanation"][];
-            /**
-             * @description Места-кандидаты, которые правило посадки рассматривало, но отклонило из-за
-             *     нормативного отступа. Не путать с зонами запрета из `/zones`.
-             */
-            rejected: components["schemas"]["RejectedSite"][];
-        };
-        Norm: {
-            /** @description Акт полностью, например «ПП Москвы от 10.09.2002 № 743-ПП». */
-            act: string;
-            /**
-             * @description Пункт, таблица или строка таблицы, например «прил. 1, табл. 2, стр. 4». `null`, если
-             *     пункт не сопоставлен: сейчас в `norms/default.yaml` номеров пунктов нет. Фронтенд
-             *     не показывает пункт, которого нет.
-             */
-            clause: string | null;
-            /** @description Текст нормы по-русски. */
-            text: string;
-        };
-        PlantingExplanation: {
+        ExplanationEntry: {
             /** @description Как в `/planting` и в XDATA `GREENPLAN` DXF, например «TREE_ROW_CURB-00001». */
             id: string;
             plant_type: components["schemas"]["PlantType"];
-            rule: components["schemas"]["PlantingRuleRef"];
-            position: components["schemas"]["Position"];
-            /**
-             * @description Проверки отступов от объектов, ближайших к посадке, по одной на каждый тип объекта,
-             *     для которого есть норма. У посадки все проверки пройдены: `actual_m >= required_m`.
-             */
-            checks: components["schemas"]["Check"][];
-        };
-        PlantingRuleRef: {
             /** @description Идентификатор правила из `layout/default.yaml`, например «TREE_ROW_CURB». */
-            id: string;
-            name_ru: string;
-        };
-        RejectedSite: {
-            position: components["schemas"]["Position"];
-            plant_type: components["schemas"]["PlantType"];
-            /** @description Проверки, которые не пройдены (`actual_m < required_m`). */
-            failed_checks: components["schemas"]["Check"][];
-        };
-        Position: {
-            /** @description Локальная координата чертежа, м — та же система, что у окружностей в DXF. */
+            rule_id: string;
+            rule_name_ru: string | null;
+            /** @description Координата чертежа, м — та же система, что у окружностей в DXF, и при геопривязке. */
             x: number;
-            /** @description Локальная координата чертежа, м. */
+            /** @description Координата чертежа, м. */
             y: number;
-            /** @description Долгота WGS84; `null`, если геопривязки нет. */
-            lon: number | null;
-            /** @description Широта WGS84; `null`, если геопривязки нет. */
-            lat: number | null;
+            /**
+             * @description Добавочное, необязательное. Проверки отступов от ближайших объектов — по одной на
+             *     каждую пару «категория, подтип», для которой есть норма. У посадки все проверки
+             *     пройдены: `actual_m >= required_m`.
+             */
+            checks?: components["schemas"]["ExplanationCheck"][];
         };
-        Check: {
-            obstacle: components["schemas"]["Obstacle"];
+        ExplanationCheck: {
+            /** @description Как `obstacle_category` в `/zones`, например `underground_utilities`. */
+            category: string;
+            /** @description Как `obstacle_subtype` в `/zones`; `null` у категорий без подтипа. */
+            subtype: string | null;
             /** @description Нормативный отступ для этого типа посадки, м. */
             required_m: number;
             /**
-             * @description Фактическое расстояние от точки посадки до ближайшей точки объекта, м, округлено
-             *     до 0,01.
+             * @description Расстояние от точки ствола до ближайшей точки объекта, м, посчитанное бэкендом
+             *     в метрической системе обработки (UTM или чертёж), округлено до 0,01.
              */
             actual_m: number;
-            /** @description Ключ в `Explanation.norms`. */
-            norm_id: string;
+            /** @description Как `citation` в `/zones`, например «743-ПП — газопровод». */
+            citation: string;
         };
-        /** @description Объект подосновы, от которого считается отступ. */
-        Obstacle: {
-            /** @description Как `obstacle_category` в `/zones`, например `underground_utilities`, `road_edge`. */
-            category: string;
+        ObstaclesFeatureCollection: {
+            /** @constant */
+            type: "FeatureCollection";
+            metadata: components["schemas"]["CrsMetadata"];
+            features: components["schemas"]["ObstacleFeature"][];
+        };
+        ObstacleFeature: {
+            /** @constant */
+            type: "Feature";
+            geometry: components["schemas"]["PointGeometry"] | components["schemas"]["LineStringGeometry"] | components["schemas"]["MultiLineStringGeometry"] | components["schemas"]["PolygonGeometry"] | components["schemas"]["MultiPolygonGeometry"];
+            properties: {
+                /** @description Как `obstacle_category` в `/zones`. */
+                category: string;
+                /** @description Как `obstacle_subtype` в `/zones`. */
+                subtype: string | null;
+                /** @description Слой исходного DXF. */
+                layer: string;
+                /**
+                 * @description Handle сущности DXF. `null` для сущностей из xref и взорванных блоков — у них
+                 *     нет handle (`greenplan/model.py`, `Feature.handle`).
+                 */
+                handle: string | null;
+            };
+        };
+        RejectedSitesFeatureCollection: {
+            /** @constant */
+            type: "FeatureCollection";
+            metadata: components["schemas"]["CrsMetadata"];
+            features: components["schemas"]["RejectedSite"][];
+        };
+        RejectedSite: {
+            /** @constant */
+            type: "Feature";
+            geometry: components["schemas"]["PointGeometry"];
+            properties: {
+                plant_type: components["schemas"]["PlantType"];
+                rule_id: string;
+                /** @description Непройденные проверки (`actual_m < required_m`). */
+                failed_checks: components["schemas"]["ExplanationCheck"][];
+            };
+        };
+        Norm: {
+            obstacle_category: string;
+            obstacle_subtype: string | null;
+            /** @description Отступ для деревьев, м. */
+            tree_m: number;
+            /** @description Отступ для кустарников, м. */
+            shrub_m: number;
+            /** @description Строка как в `/zones`, например «743-ПП — газопровод». */
+            citation: string;
+            /** @description Акт, например «743-ПП»; полное название — по решению бэкенда. */
+            act: string;
             /**
-             * @description Как `obstacle_subtype` в `/zones`, например `gas`, `water`. `null` у категорий без
-             *     подтипа (`road_edge` в `norms/default.yaml`).
+             * @description Пункт, таблица или строка таблицы. `null`, пока номеров пунктов в источнике нет:
+             *     фронтенд не показывает пункт, которого нет.
              */
-            subtype: string | null;
-            /** @description Название типа объекта, например «газопровод». */
-            label_ru: string;
-            /** @description Слой исходного DXF. */
-            layer: string | null;
-            /**
-             * @description Handle сущности DXF. `null` для сущностей из xref и взорванных блоков — у них нет
-             *     handle (см. `greenplan/model.py`, `Feature.handle`).
-             */
-            handle: string | null;
+            clause: string | null;
+            /** @description Текст нормы по-русски, например «газопровод». */
+            text: string;
         };
         /** @description Все поля необязательны; не заданное берётся из `GET /processing-defaults`. */
         RunRequest: {
@@ -447,6 +525,16 @@ export interface components {
             type: "Point";
             coordinates: number[];
         };
+        LineStringGeometry: {
+            /** @constant */
+            type: "LineString";
+            coordinates: number[][];
+        };
+        MultiLineStringGeometry: {
+            /** @constant */
+            type: "MultiLineString";
+            coordinates: number[][][];
+        };
         PolygonGeometry: {
             /** @constant */
             type: "Polygon";
@@ -470,7 +558,7 @@ export interface components {
             /** @constant */
             type: "FeatureCollection";
             metadata: components["schemas"]["CrsMetadata"] & {
-                /** @description `false` — граница работ не найдена, взят весь газон. */
+                /** @description `false` — граница участка не найдена, взят весь газон. */
                 used_site_boundary: boolean;
                 /** @description Категории объектов без нормы; отступ от них не строился. */
                 uncovered_categories: {
@@ -486,7 +574,7 @@ export interface components {
             geometry: components["schemas"]["PolygonGeometry"] | components["schemas"]["MultiPolygonGeometry"];
             properties: components["schemas"]["ExtentZoneProperties"] | components["schemas"]["AllowedZoneProperties"] | components["schemas"]["ProhibitedZoneProperties"];
         };
-        /** @description Диагностические контуры — граница работ, газон и их пересечение. */
+        /** @description Диагностические контуры — граница участка, газон и их пересечение. */
         ExtentZoneProperties: {
             /** @enum {string} */
             zone_type: "site_boundary" | "lawn_raw" | "base_area";
@@ -758,16 +846,82 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Обоснование результата. */
+            /** @description По записи на каждую точку из `/planting`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Explanation"];
+                    "application/json": components["schemas"]["ExplanationEntry"][];
                 };
             };
             404: components["responses"]["ResultNotReady"];
+        };
+    };
+    get_obstacles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GeoJSON FeatureCollection. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/geo+json": components["schemas"]["ObstaclesFeatureCollection"];
+                };
+            };
+            404: components["responses"]["ResultNotReady"];
+        };
+    };
+    get_rejected: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GeoJSON FeatureCollection точек. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/geo+json": components["schemas"]["RejectedSitesFeatureCollection"];
+                };
+            };
+            404: components["responses"]["ResultNotReady"];
+        };
+    };
+    get_norms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Нормы отступов. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Norm"][];
+                };
+            };
         };
     };
     get_zones: {
