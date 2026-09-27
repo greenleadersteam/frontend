@@ -1,4 +1,4 @@
-import { Button, Group, Stack, Textarea, TextInput } from '@mantine/core';
+import { Button, Group, Stack, Text, Textarea, TextInput } from '@mantine/core';
 import { schemaResolver, useForm } from '@mantine/form';
 import type { JSX } from 'react';
 import { z } from 'zod';
@@ -28,9 +28,11 @@ const detailsSchema = z.object({
 type DetailsStepProps = {
   initial: ProjectDetails | null;
   onSubmit: (details: ProjectDetails) => void;
+  // Почему создать проект нельзя (сервер не умеет); null — можно.
+  blockedReason: string | null;
 };
 
-export function DetailsStep({ initial, onSubmit }: DetailsStepProps): JSX.Element {
+export function DetailsStep({ initial, onSubmit, blockedReason }: DetailsStepProps): JSX.Element {
   const form = useForm({
     mode: 'controlled',
     initialValues: initial ?? { name: '', description: '' },
@@ -67,8 +69,19 @@ export function DetailsStep({ initial, onSubmit }: DetailsStepProps): JSX.Elemen
           key={form.key('description')}
           {...form.getInputProps('description')}
         />
+        {blockedReason !== null && (
+          <Text id="create-blocked" size="sm" c="dimmed">
+            {blockedReason}
+          </Text>
+        )}
         <Group justify="flex-end">
-          <Button type="submit">Далее: архив</Button>
+          <Button
+            type="submit"
+            disabled={blockedReason !== null}
+            aria-describedby={blockedReason === null ? undefined : 'create-blocked'}
+          >
+            Далее: архив
+          </Button>
         </Group>
       </Stack>
     </form>

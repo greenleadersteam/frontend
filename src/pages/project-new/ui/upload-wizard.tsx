@@ -1,6 +1,8 @@
 import { Button, Group, Modal, Stack, Stepper, Text, Title } from '@mantine/core';
 import { type JSX, useEffect, useReducer, useRef } from 'react';
 
+import { useCapability } from '@/shared/config';
+
 import { useArchiveUpload } from '../model/use-archive-upload';
 import { useLeaveGuard } from '../model/use-leave-guard';
 import { initialWizardState, type WizardEntry, wizardReducer } from '../model/wizard';
@@ -11,6 +13,9 @@ import { UploadProgress } from './upload-progress';
 import classes from './upload-wizard.module.css';
 
 const STEP_INDEX = { details: 0, archive: 1, processing: 2 } as const;
+
+const CREATE_UNSUPPORTED =
+  'Сервер не принимает проект без области участка, а задать её в мастере нельзя. Архив можно загрузить в черновик, созданный раньше, — из списка проектов.';
 
 type UploadWizardProps = {
   // Существующий проект из списка: мастер начинается с шага «Архив» или с выбора главного DXF.
@@ -23,6 +28,10 @@ export function UploadWizard({ entry }: UploadWizardProps): JSX.Element {
   const { blocker, leaving, leave } = useLeaveGuard(state, upload.abort);
   const { step, project } = state;
   const uploading = state.upload.kind === 'creating' || state.upload.kind === 'uploading';
+  // Сервер без optionalBbox требует область участка (bbox_user), а задать её в мастере пока
+  // нельзя: создание нового проекта заблокировано на первом шаге, а не отказом 422 после
+  // загрузки архива.
+  const optionalBbox = useCapability('optionalBbox');
 
   // При смене шага кнопка, на которой был фокус, исчезает: фокус переходит на заголовок,
   // чтобы клавиатура и скринридер не теряли позицию. Первый показ фокус не трогает.
@@ -52,6 +61,7 @@ export function UploadWizard({ entry }: UploadWizardProps): JSX.Element {
           onSubmit={(details) => {
             dispatch({ type: 'detailsSubmitted', details });
           }}
+          blockedReason={optionalBbox ? null : CREATE_UNSUPPORTED}
         />
       )}
 

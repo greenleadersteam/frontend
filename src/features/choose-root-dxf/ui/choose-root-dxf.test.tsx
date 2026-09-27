@@ -1,11 +1,23 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type * as Config from '@/shared/config';
 import { renderWithProviders, server } from '@/shared/lib/test';
 
 import { ChooseRootDxf } from './choose-root-dxf';
+
+const capability = vi.hoisted(() => ({ runs: true }));
+
+vi.mock('@/shared/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof Config>()),
+  useCapability: (name: string) => name !== 'runs' || capability.runs,
+}));
+
+beforeEach(() => {
+  capability.runs = true;
+});
 
 const AMBIGUOUS_ID = 'd1f3b5d7e9a14e2c4b6d8f0a2c4e6b8d';
 const CANDIDATES = ['ГП/Генплан.dxf', 'ГП/Генплан_изм2.dxf'];
@@ -76,5 +88,29 @@ describe('ChooseRootDxf', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Сервер не смог обработать запрос/);
     expect(screen.getByRole('radio', { name: 'ГП/Генплан.dxf' })).toBeChecked();
     expect(screen.getByRole('button', { name: 'Продолжить обработку' })).toBeInTheDocument();
+  });
+
+  test('сервер без runs — объяснение сразу, без запроса и без выбора', async () => {
+    capability.runs = false;
+    const requests: string[] = [];
+    server.events.on('request:start', ({ request }) => {
+      requests.push(request.method + ' ' + new URL(request.url).pathname);
+    });
+    renderChoice();
+
+    expect(
+      await screen.findByText(
+        'Сервер пока не умеет выбирать чертёж. Оставьте в архиве один главный чертёж и загрузите архив снова.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.getByText('ГП/Генплан_изм2.dxf')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Загрузить другой архив' })).toHaveAttribute(
+      'data-variant',
+      'filled',
+    );
+    // Без возможности фокус с места не уводится: объяснение показано сразу, а не вместо кнопки.
+    expect(document.body).toHaveFocus();
+    expect(requests.filter((request) => request.includes('/runs'))).toEqual([]);
   });
 });
