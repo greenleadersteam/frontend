@@ -20,15 +20,15 @@ import { Link } from 'react-router';
 
 import { type ProjectState, ProjectStatusBadge } from '@/entities/project';
 import { paths, PRODUCT_NAME, projectPath } from '@/shared/config';
+import { formatNumber } from '@/shared/lib/format';
 import { EmptyState, Icon } from '@/shared/ui';
 
 import classes from './dev-ui-page.module.css';
 
 // Песочница для сверки кода с утверждённым образцом (design.md). Доступна только в dev-режимах.
 
-const numberFormat = new Intl.NumberFormat('ru-RU');
 const megabytes = (sent: number, total: number) =>
-  `${numberFormat.format(sent)} из ${numberFormat.format(total)}\u00A0МБ`;
+  `${formatNumber(sent)} из ${formatNumber(total)}\u00A0МБ`;
 
 const STATES: { state: ProjectState; progressPct?: number; caption?: string }[] = [
   { state: { kind: 'draft' } },

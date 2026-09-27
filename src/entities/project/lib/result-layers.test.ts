@@ -1,6 +1,7 @@
 import type { ExpressionSpecification } from 'maplibre-gl';
 import { describe, expect, test } from 'vitest';
 
+import { metersPerDegree } from '@/shared/lib/geodesy';
 import { resultLayerColors } from '@/shared/theme';
 
 import type {
@@ -529,7 +530,11 @@ describe('отклонённые места и живая изгородь', () 
     const [first] = ring.geometry.coordinates;
     const [lon = 0, lat = 0] = first ?? [];
     // Первая вершина — на востоке, на радиусе кроны дерева 1,5 м.
-    expect((lon - 37.6) * 111_320 * Math.cos((LAT * Math.PI) / 180)).toBeCloseTo(1.5, 3);
+    expect((lon - 37.6) * metersPerDegree(LAT).lon).toBeCloseTo(1.5, 6);
+    // Радиус кроны в старом приближении (111 320 м × cos φ) — в пределах 0,5 %.
+    expect(Math.abs((lon - 37.6) * 111_320 * Math.cos((LAT * Math.PI) / 180) - 1.5)).toBeLessThan(
+      1.5 * 0.005,
+    );
     expect(lat).toBeCloseTo(LAT, 9);
     expect(ring.geometry.coordinates.at(-1)?.[0]).toBeCloseTo(lon, 9);
     expect(cross?.geometry.type).toBe('MultiLineString');

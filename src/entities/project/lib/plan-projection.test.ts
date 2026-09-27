@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
+import { metersPerDegree } from '@/shared/lib/geodesy';
+
 import {
   createPlanProjection,
   CROWN_RADIUS_M,
@@ -44,11 +46,11 @@ describe('createPlanProjection', () => {
     expect(bottom).toBeCloseTo(150 + (20 * 5.6) / 2);
   });
 
-  test('WGS84: долгота сжата на cos φ, масштаб в метрах совпадает по осям', () => {
+  test('WGS84: долгота сжата по эллипсоиду, масштаб в метрах совпадает по осям', () => {
     const lat = 55.76;
-    const cos = Math.cos((lat * Math.PI) / 180);
-    const degLon = 60 / (111_320 * cos);
-    const degLat = 60 / 111_320;
+    const degree = metersPerDegree(lat);
+    const degLon = 60 / degree.lon;
+    const degLat = 60 / degree.lat;
     // Квадрат 60 × 60 м в квадратном холсте должен остаться квадратом.
     const { project, pixelsPerMeter } = createPlanProjection({
       extent: { minX: 37.64, minY: lat - degLat / 2, maxX: 37.64 + degLon, maxY: lat + degLat / 2 },
@@ -84,4 +86,25 @@ describe('crownRadiusPx', () => {
 test('pixelsPerMeterAtZoom: на экваторе zoom 0 — весь мир в 512 пикселях', () => {
   expect(pixelsPerMeterAtZoom(0, 0) * 40_075_016.686).toBeCloseTo(512);
   expect(pixelsPerMeterAtZoom(18, 60)).toBeCloseTo(2 * pixelsPerMeterAtZoom(18, 0) * 2 ** 0, 6);
+});
+
+// Г2 → Г3: длина градуса — по эллипсоиду вместо 111 320 м × cos φ. Превью и радиусы крон
+// в пикселях от этого почти не меняются.
+test('переход на эллипсоид меняет масштаб превью меньше чем на 0,5 % по обеим осям', () => {
+  for (const lat of [55.14, 55.76, 56.02]) {
+    const extent = { minX: 37.6, minY: lat - 0.005, maxX: 37.61, maxY: lat + 0.005 };
+    const { project, pixelsPerMeter } = createPlanProjection({
+      extent,
+      width: 400,
+      height: 300,
+      geographic: true,
+    });
+    const [x0, y0] = project([extent.minX, extent.minY]);
+    const [x1, y1] = project([extent.maxX, extent.maxY]);
+    // Прежняя формула: 111 320 м в градусе широты, долгота — с cos φ средней широты.
+    const oldWidthM = 0.01 * 111_320 * Math.cos((lat * Math.PI) / 180);
+    const oldHeightM = 0.01 * 111_320;
+    expect(Math.abs((x1 - x0) / pixelsPerMeter / oldWidthM - 1)).toBeLessThan(0.005);
+    expect(Math.abs((y0 - y1) / pixelsPerMeter / oldHeightM - 1)).toBeLessThan(0.005);
+  }
 });

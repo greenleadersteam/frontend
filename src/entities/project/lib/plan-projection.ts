@@ -1,3 +1,5 @@
+import { metersPerDegree } from '@/shared/lib/geodesy';
+
 // Точка GeoJSON: [x, y] в локальных метрах чертежа или [lon, lat] в WGS84.
 export type Position = readonly number[];
 
@@ -7,8 +9,6 @@ export type PlanProjection = {
   project: (position: Position) => [x: number, y: number];
   pixelsPerMeter: number;
 };
-
-const METERS_PER_DEGREE = 111_320;
 
 // Метка бэкенда для геометрии без геопривязки: ../backend/greenplan/export/geojson.py:18.
 const LOCAL_CRS = 'local drawing coordinates, no geo-reference available';
@@ -41,8 +41,9 @@ type ProjectionOptions = {
   padding?: number;
 };
 
-// Равнопромежуточная проекция: для WGS84 долгота сжимается на cos φ средней широты,
-// чтобы метр по горизонтали и по вертикали был одной длины. Север — вверх.
+// Равнопромежуточная проекция: для WGS84 долгота сжимается отношением длин градуса долготы
+// и широты на средней широте (эллипсоид, metersPerDegree), чтобы метр по горизонтали и по
+// вертикали был одной длины. Север — вверх.
 export function createPlanProjection({
   extent,
   width,
@@ -50,7 +51,8 @@ export function createPlanProjection({
   geographic,
   padding = 0.08,
 }: ProjectionOptions): PlanProjection {
-  const xScale = geographic ? Math.cos((((extent.minY + extent.maxY) / 2) * Math.PI) / 180) : 1;
+  const degree = metersPerDegree((extent.minY + extent.maxY) / 2);
+  const xScale = geographic ? degree.lon / degree.lat : 1;
   const spanX = Math.max((extent.maxX - extent.minX) * xScale, Number.EPSILON);
   const spanY = Math.max(extent.maxY - extent.minY, Number.EPSILON);
 
@@ -65,7 +67,7 @@ export function createPlanProjection({
       offsetX + (x - extent.minX) * xScale * scale,
       offsetY + (extent.maxY - y) * scale,
     ],
-    pixelsPerMeter: geographic ? scale / METERS_PER_DEGREE : scale,
+    pixelsPerMeter: geographic ? scale / degree.lat : scale,
   };
 }
 

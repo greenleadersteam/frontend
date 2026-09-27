@@ -7,6 +7,7 @@ import type {
 } from 'maplibre-gl';
 
 import { MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '@/shared/config';
+import { metersPerDegree } from '@/shared/lib/geodesy';
 import {
   MAP_LABEL_FONT,
   resultLayerColors as colors,
@@ -297,7 +298,7 @@ export function statusRings(
   statuses: ReadonlyMap<string, PlantingStatus>,
   latitude: number,
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, { id: string; status: PlantingStatus }> {
-  const metersToLon = 1 / (METERS_PER_DEGREE * Math.cos((latitude * Math.PI) / 180));
+  const degree = metersPerDegree(latitude);
   return {
     type: 'FeatureCollection',
     features: planting.features.flatMap(({ geometry, properties }) => {
@@ -311,7 +312,7 @@ export function statusRings(
           id: properties.id,
           geometry: {
             type: 'LineString' as const,
-            coordinates: ringAround(geometry.coordinates, radius, metersToLon),
+            coordinates: ringAround(geometry.coordinates, radius, degree),
           },
           properties: { id: properties.id, status },
         },
@@ -328,7 +329,7 @@ export function editedPlantingFeatures(
   status: PlantingStatus,
   latitude: number,
 ): GeoJSON.FeatureCollection {
-  const metersToLon = 1 / (METERS_PER_DEGREE * Math.cos((latitude * Math.PI) / 180));
+  const degree = metersPerDegree(latitude);
   const radius = CROWN_RADIUS_M[plantType];
   return {
     type: 'FeatureCollection',
@@ -342,7 +343,7 @@ export function editedPlantingFeatures(
         type: 'Feature',
         geometry: {
           type: 'LineString',
-          coordinates: ringAround(point, radius + STATUS_RING_GAP_M[plantType], metersToLon),
+          coordinates: ringAround(point, radius + STATUS_RING_GAP_M[plantType], degree),
         },
         properties: { status },
       },
@@ -365,8 +366,6 @@ export const resultCounts = ({ planting, zones }: ResultData) => {
   };
 };
 
-const METERS_PER_DEGREE = 111_320;
-
 // Прозрачность «можно» подобрана по скриншоту с подложкой и без: область читается поверх
 // газона и не спорит со штриховкой зон запрета.
 const ALLOWED_OPACITY = 0.55;
@@ -374,20 +373,29 @@ const ALLOWED_OPACITY = 0.55;
 // Круг радиусом в метрах вокруг точки карты — ломаной: у круговых слоёв MapLibre нет пунктира.
 const RING_STEPS = 32;
 
-function ringAround([lon = 0, lat = 0]: readonly number[], radiusM: number, metersToLon: number) {
+// Длина градуса — на эллипсоиде WGS 84 на широте посадок (metersPerDegree).
+function ringAround(
+  [lon = 0, lat = 0]: readonly number[],
+  radiusM: number,
+  degree: { lat: number; lon: number },
+) {
   return Array.from({ length: RING_STEPS + 1 }, (_, step) => {
     const angle = (step / RING_STEPS) * 2 * Math.PI;
     return [
-      lon + radiusM * Math.cos(angle) * metersToLon,
-      lat + (radiusM * Math.sin(angle)) / METERS_PER_DEGREE,
+      lon + (radiusM * Math.cos(angle)) / degree.lon,
+      lat + (radiusM * Math.sin(angle)) / degree.lat,
     ];
   });
 }
 
 // Косой крест внутри круга: отклонённое место отличается от посадки формой, а не только цветом.
-function crossAt([lon = 0, lat = 0]: readonly number[], halfM: number, metersToLon: number) {
-  const dx = halfM * metersToLon;
-  const dy = halfM / METERS_PER_DEGREE;
+function crossAt(
+  [lon = 0, lat = 0]: readonly number[],
+  halfM: number,
+  degree: { lat: number; lon: number },
+) {
+  const dx = halfM / degree.lon;
+  const dy = halfM / degree.lat;
   return [
     [
       [lon - dx, lat - dy],
@@ -418,7 +426,7 @@ export function resultSources(
       crown_radius_m: CROWN_RADIUS_M[feature.properties.plant_type],
     },
   }));
-  const metersToLon = 1 / (METERS_PER_DEGREE * Math.cos((latitude * Math.PI) / 180));
+  const degree = metersPerDegree(latitude);
   const highlights = plantingFeatures
     .filter(({ properties }) => properties.plant_type === 'tree')
     .map(({ geometry, properties }) => {
@@ -428,7 +436,7 @@ export function resultSources(
         type: 'Feature' as const,
         geometry: {
           type: 'Point' as const,
-          coordinates: [lon - offset * metersToLon, lat + offset / METERS_PER_DEGREE],
+          coordinates: [lon - offset / degree.lon, lat + offset / degree.lat],
         },
         properties: { id: properties.id, crown_radius_m: 0.45 * properties.crown_radius_m },
       };
@@ -520,7 +528,7 @@ export function resultSources(
               type: 'Feature' as const,
               geometry: {
                 type: 'LineString' as const,
-                coordinates: ringAround(geometry.coordinates, radius, metersToLon),
+                coordinates: ringAround(geometry.coordinates, radius, degree),
               },
               properties: { rejected_index: index, part: 'ring' },
             },
@@ -528,7 +536,7 @@ export function resultSources(
               type: 'Feature' as const,
               geometry: {
                 type: 'MultiLineString' as const,
-                coordinates: crossAt(geometry.coordinates, 0.35 * radius, metersToLon),
+                coordinates: crossAt(geometry.coordinates, 0.35 * radius, degree),
               },
               properties: { rejected_index: index, part: 'cross' },
             },
