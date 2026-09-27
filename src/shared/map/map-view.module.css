@@ -14,11 +14,17 @@
   inset: 0;
 
   /* Подписи элементов MapLibre — вторичный текст на полупрозрачной «Земле», без «·». */
+  /* Длинная атрибуция снимка переносится, не заходя под кнопки масштаба справа. */
+  & :global(.maplibregl-ctrl-bottom-left) {
+    max-width: calc(100% - 4 * var(--mantine-spacing-xl));
+  }
+
+  /* Шрифт интерфейса: inherit взял бы шрифт .maplibregl-map из CSS MapLibre. */
   & :global(.maplibregl-ctrl-attrib),
   & :global(.maplibregl-ctrl-scale) {
     background: color-mix(in srgb, var(--app-map-earth) 80%, transparent);
     color: var(--app-text-muted);
-    font-family: inherit;
+    font-family: var(--mantine-font-family);
     font-size: var(--mantine-font-size-xs);
     font-variant-numeric: tabular-nums;
   }

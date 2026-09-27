@@ -12,10 +12,17 @@ import {
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { type JSX, type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
 
-import { BASEMAP_BOUNDS, getRuntimeConfig, MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '@/shared/config';
+import {
+  BASEMAP_BOUNDS,
+  getRuntimeConfig,
+  type ImageryConfig,
+  MAP_MAX_ZOOM,
+  MAP_MIN_ZOOM,
+} from '@/shared/config';
 import { Icon } from '@/shared/ui';
 
-import { BASEMAP_SOURCE, basemapStyle, loadLabelFont } from './basemap-style';
+import { basemapStyle, loadLabelFont } from './basemap-style';
+import { BASEMAP_SOURCE, type BasemapKind, IMAGERY_SOURCES } from './basemaps';
 import classes from './map-view.module.css';
 import { openBasemapArchive } from './pmtiles-protocol';
 
@@ -38,6 +45,11 @@ type MapViewProps = {
   // false — карта без подложки и без охвата Москвы: координаты не привязаны к городу.
   basemap: boolean;
   basemapVisible: boolean;
+  // Какую подложку показать; «Снимок» — только если передан imagery.
+  basemapKind?: BasemapKind;
+  // Космоснимок из конфига контура; без него карта строится только со «Схемой».
+  imagery?: ImageryConfig | null;
+  maxZoom?: number;
   // Тихая подпись в углу вместо атрибуции подложки.
   note?: string;
   // Стиль загружен: потребитель добавляет свои источники и слои.
@@ -60,6 +72,9 @@ export function MapView({
   label,
   basemap: withBasemap,
   basemapVisible,
+  basemapKind = 'scheme',
+  imagery = null,
+  maxZoom = MAP_MAX_ZOOM,
   note,
   onReady,
   onBasemapResolved,
@@ -89,9 +104,9 @@ export function MapView({
     try {
       created = new MapLibreMap({
         container,
-        style: basemapStyle(archiveUrl),
+        style: basemapStyle(archiveUrl, imagery),
         minZoom: MAP_MIN_ZOOM,
-        maxZoom: MAP_MAX_ZOOM,
+        maxZoom,
         ...(withBasemap && { maxBounds: BASEMAP_BOUNDS }),
         bounds,
         fitBoundsOptions: { padding, maxZoom: FIT_MAX_ZOOM },
@@ -118,14 +133,9 @@ export function MapView({
     created.touchZoomRotate.disableRotation();
     created.keyboard.disableRotation();
     created.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left');
-    if (archiveUrl !== null) {
-      created.addControl(
-        new AttributionControl({
-          compact: false,
-          customAttribution: '© участники OpenStreetMap, Protomaps',
-        }),
-        'bottom-left',
-      );
+    // Атрибуция — у источников подложки: MapLibre показывает её, пока слой источника виден.
+    if (archiveUrl !== null || imagery !== null) {
+      created.addControl(new AttributionControl({ compact: false }), 'bottom-left');
     }
     created.on('webglcontextlost', onUnavailable);
     created.on('load', () => {
@@ -159,12 +169,19 @@ export function MapView({
 
   useEffect(() => {
     if (map === null) return;
+    const shown: Record<string, boolean> = {
+      [BASEMAP_SOURCE]: basemapVisible && basemapKind === 'scheme',
+      ...Object.fromEntries(
+        IMAGERY_SOURCES.map((source) => [source, basemapVisible && basemapKind === 'imagery']),
+      ),
+    };
     for (const layer of map.getStyle().layers) {
-      if ('source' in layer && layer.source === BASEMAP_SOURCE) {
-        map.setLayoutProperty(layer.id, 'visibility', basemapVisible ? 'visible' : 'none');
+      const visible = 'source' in layer ? shown[layer.source] : undefined;
+      if (visible !== undefined) {
+        map.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
       }
     }
-  }, [map, basemapVisible]);
+  }, [map, basemapVisible, basemapKind]);
 
   useEffect(() => {
     map?.getCanvas().setAttribute('aria-label', label);

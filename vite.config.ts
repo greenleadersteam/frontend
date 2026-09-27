@@ -11,14 +11,18 @@ import { serveBasemap } from './vite-plugins/serve-basemap.ts';
 
 const DEFAULT_API_PROXY_TARGET = 'https://backend.greenleaders.online';
 
+// Космоснимок модуля геопривязки (imagery в public/config.json): MapLibre грузит растровые тайлы
+// через fetch, поэтому источник нужен и в connect-src, и в img-src.
+const IMAGERY_ORIGIN = 'https://server.arcgisonline.com';
+
 // CSP production из .claude/rules/security.md: preview проверяет сборку в тех же условиях.
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${IMAGERY_ORIGIN}`,
   "font-src 'self'",
-  "connect-src 'self'",
+  `connect-src 'self' ${IMAGERY_ORIGIN}`,
   "worker-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",

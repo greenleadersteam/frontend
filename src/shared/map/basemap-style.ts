@@ -1,9 +1,17 @@
 import { type Flavor, layers } from '@protomaps/basemaps';
-import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
+import type { LayerSpecification, SourceSpecification, StyleSpecification } from 'maplibre-gl';
 
+import type { ImageryConfig } from '@/shared/config';
 import { basemapColors as colors, MAP_LABEL_FONT } from '@/shared/theme';
 
-export const BASEMAP_SOURCE = 'basemap';
+import {
+  BASEMAP_SOURCE,
+  IMAGERY_LABELS_SOURCE,
+  IMAGERY_NATIVE_ZOOM,
+  IMAGERY_SOURCE,
+  IMAGERY_SOURCES,
+  SCHEME_ATTRIBUTION,
+} from './basemaps';
 
 // Подписи рисуются в браузере шрифтом интерфейса, уже загруженным из
 // @fontsource-variable/mulish: без glyphs и font-faces MapLibre растеризует глифы локально.
@@ -138,20 +146,77 @@ function refine(layer: LayerSpecification): LayerSpecification {
 export const basemapLayers = (): LayerSpecification[] =>
   layers(BASEMAP_SOURCE, FLAVOR, { lang: 'ru' }).filter(isKept).map(refine);
 
+// AttributionControl MapLibre вставляет атрибуцию как HTML, а строка снимка приходит из конфига
+// контура — недоверенные данные (security.md): выводится только текстом.
+const escapeHtml = (text: string): string =>
+  text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+// Снимок и подписи к нему — растровые слои под всеми остальными, по умолчанию скрыты: какую
+// подложку показать, решает MapView. Атрибуция — у источника: MapLibre показывает её, только
+// пока слой источника виден.
+function imagerySources(imagery: ImageryConfig): Record<string, SourceSpecification> {
+  const raster = (url: string, attribution?: string): SourceSpecification => ({
+    type: 'raster',
+    tiles: [url],
+    tileSize: 256,
+    maxzoom: IMAGERY_NATIVE_ZOOM,
+    ...(attribution !== undefined && { attribution: escapeHtml(attribution) }),
+  });
+  return {
+    [IMAGERY_SOURCE]: raster(imagery.tilesUrl, imagery.attribution),
+    [IMAGERY_LABELS_SOURCE]: raster(imagery.labelsUrl),
+  };
+}
+
+const imageryLayers = (): LayerSpecification[] =>
+  IMAGERY_SOURCES.map((source) => ({
+    id: source,
+    type: 'raster',
+    source,
+    layout: { visibility: 'none' },
+  }));
+
 // Без архива — однотонная «Земля»: слои результата ложатся на неё так же, как на подложку.
-export function basemapStyle(archiveUrl: string | null): StyleSpecification {
+export function basemapStyle(
+  archiveUrl: string | null,
+  imagery: ImageryConfig | null = null,
+): StyleSpecification {
+  const background: LayerSpecification = {
+    id: 'background',
+    type: 'background',
+    paint: { 'background-color': colors.earth },
+  };
+  const imageryPart =
+    imagery === null
+      ? { sources: {}, layers: [] }
+      : {
+          sources: imagerySources(imagery),
+          layers: imageryLayers(),
+        };
   if (archiveUrl === null) {
     return {
       version: 8,
-      sources: {},
-      layers: [
-        { id: 'background', type: 'background', paint: { 'background-color': colors.earth } },
-      ],
+      sources: imageryPart.sources,
+      layers: [background, ...imageryPart.layers],
     };
   }
+  const [base, ...rest] = basemapLayers();
   return {
     version: 8,
-    sources: { [BASEMAP_SOURCE]: { type: 'vector', url: `pmtiles://${archiveUrl}` } },
-    layers: basemapLayers(),
+    sources: {
+      [BASEMAP_SOURCE]: {
+        type: 'vector',
+        url: `pmtiles://${archiveUrl}`,
+        attribution: SCHEME_ATTRIBUTION,
+      },
+      ...imageryPart.sources,
+    },
+    // Снимок — над фоном схемы, под её остальными слоями: схема и снимок видны порознь.
+    layers: base === undefined ? imageryPart.layers : [base, ...imageryPart.layers, ...rest],
   };
 }

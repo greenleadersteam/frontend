@@ -11,7 +11,7 @@ export {
   projectUploadPath,
 } from './paths';
 export { PRODUCT_NAME } from './product';
-export type { Capability } from './runtime-config';
+export type { Capability, ImageryConfig } from './runtime-config';
 export {
   CAPABILITIES,
   getRuntimeConfig,

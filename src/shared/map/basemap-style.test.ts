@@ -3,7 +3,8 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { basemapColors } from '@/shared/theme';
 
-import { BASEMAP_SOURCE, basemapLayers, basemapStyle, loadLabelFont } from './basemap-style';
+import { basemapLayers, basemapStyle, loadLabelFont } from './basemap-style';
+import { BASEMAP_SOURCE } from './basemaps';
 
 const COLOR = /^(#|rgba?\(|hsla?\()/i;
 
@@ -77,6 +78,7 @@ describe('basemapStyle', () => {
     expect(style.sources[BASEMAP_SOURCE]).toEqual({
       type: 'vector',
       url: 'pmtiles://http://localhost/basemap/moscow.pmtiles',
+      attribution: '© участники OpenStreetMap, Protomaps',
     });
   });
 

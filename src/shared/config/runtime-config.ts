@@ -22,6 +22,33 @@ const sameOriginPath = z
   .startsWith('/')
   .refine(isSameOrigin, { message: 'должен быть путём на том же origin' });
 
+// Адрес тайлов космоснимка — внешний сервис, поэтому только https и только шаблон XYZ, который
+// понимает MapLibre. Проверка разбором URL, а не по префиксу (security.md).
+const isHttps = (value: string): boolean => {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const tileTemplate = z
+  .string()
+  .refine(isHttps, { message: 'должен быть адресом https://' })
+  .refine((value) => value.includes('{z}/{y}/{x}'), {
+    message: 'должен содержать шаблон {z}/{y}/{x}',
+  });
+
+// Космоснимок для модуля геопривязки. В контуре заказчика его нет (null): переключатель
+// подложек показывает только «Схему». Условия и атрибуция — забота того, кто вписал источник.
+const imagerySchema = z.strictObject({
+  tilesUrl: tileTemplate,
+  labelsUrl: tileTemplate,
+  attribution: z.string().min(1),
+});
+
+export type ImageryConfig = z.infer<typeof imagerySchema>;
+
 // Что сервер умеет сверх базового API (контракт-предложение). Фронт не угадывает это по 404,
 // а читает явный список из конфига контура.
 export const CAPABILITIES = [
@@ -61,6 +88,8 @@ const runtimeConfigSchema = z.strictObject({
   apiBaseUrl: sameOriginPath,
   // Архив подложки PMTiles; null — карта без подложки.
   basemapUrl: sameOriginPath.nullable(),
+  // Без поля — снимка нет: внешний источник включают только явно.
+  imagery: imagerySchema.nullable().default(null),
   // Демо на моках для показа. Без поля — выключено: контур заказчика получает демо, только
   // если его явно включили, и может выключить без пересборки образа.
   demoMode: z.enum(['available', 'off']).default('off'),

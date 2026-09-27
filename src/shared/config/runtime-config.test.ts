@@ -21,8 +21,8 @@ describe('loadRuntimeConfig', () => {
     };
     const fetchMock = respondWith(JSON.stringify(config));
 
-    await expect(loadRuntimeConfig()).resolves.toEqual(config);
-    expect(getRuntimeConfig()).toEqual(config);
+    await expect(loadRuntimeConfig()).resolves.toEqual({ ...config, imagery: null });
+    expect(getRuntimeConfig()).toEqual({ ...config, imagery: null });
     expect(fetchMock).toHaveBeenCalledWith(
       '/config.json',
       expect.objectContaining({ cache: 'no-store' }),
@@ -42,8 +42,45 @@ describe('loadRuntimeConfig', () => {
     await expect(loadRuntimeConfig()).resolves.toEqual({
       apiBaseUrl: '/api',
       basemapUrl: null,
+      imagery: null,
       demoMode: 'off',
       serverCapabilities: [],
+    });
+  });
+
+  describe('imagery', () => {
+    const imagery = {
+      tilesUrl:
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      labelsUrl:
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Powered by Esri',
+    };
+    const withImagery = (value: unknown) =>
+      respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null, imagery: value }));
+
+    test('принимает снимок по https с шаблоном {z}/{y}/{x}', async () => {
+      withImagery(imagery);
+
+      await expect(loadRuntimeConfig()).resolves.toMatchObject({ imagery });
+    });
+
+    test('null — снимка нет', async () => {
+      withImagery(null);
+
+      await expect(loadRuntimeConfig()).resolves.toMatchObject({ imagery: null });
+    });
+
+    test.each([
+      ['http вместо https', { ...imagery, tilesUrl: imagery.tilesUrl.replace('https', 'http') }],
+      ['не https-схема', { ...imagery, labelsUrl: 'javascript:alert(1)//{z}/{y}/{x}' }],
+      ['без шаблона', { ...imagery, tilesUrl: 'https://tiles.example.org/{z}/{x}/{y}' }],
+      ['без атрибуции', { ...imagery, attribution: '' }],
+      ['лишнее поле', { ...imagery, maxZoom: 21 }],
+    ])('отклоняет: %s', async (_name, value) => {
+      withImagery(value);
+
+      await expect(loadRuntimeConfig()).rejects.toThrow('imagery');
     });
   });
 
