@@ -1,119 +1,243 @@
+import { formatMeters } from '@/shared/lib/format';
+import { isInside, type LocalPoint, nearestOnBoundary } from '@/shared/lib/geometry';
+
 import type { components } from '../../generated/proposed';
+import { NORMS } from './norms';
 import { processingDefaults } from './processing-defaults';
+import { chooseSpecies } from './species';
 
 type Schemas = components['schemas'];
 type PlantType = Schemas['PlantType'];
 type ZoneFeature = Schemas['ZoneFeature'];
-
-// Настоящий формат /explanation — плоский список без норм и расстояний
-// (../backend/greenplan/explain/builder.py:17-32), координаты — в метрах чертежа. Необязательных
-// checks из контракта-предложения мок не отдаёт: бэкенд их пока не считает.
-type ExplanationEntry = Schemas['ExplanationEntry'];
+type ExplanationCheck = Schemas['ExplanationCheck'];
+type ManualGeoreference = Schemas['ManualGeoreference'];
+type EditedPlanting = Schemas['EditedPlanting'];
+type CheckedPlanting = Schemas['CheckedPlanting'];
 
 export type RunParams = {
   plantTypes: readonly PlantType[];
   rules: Readonly<Record<string, { spacing: number; offset: number | null }>>;
 };
 
+// Демо реализует весь контракт-предложение: к формату бэкенда добавлены checks, порода,
+// препятствия и отклонённые места.
 export type SiteResult = {
-  explanation: ExplanationEntry[];
+  explanation: Schemas['ExplanationEntry'][];
   zones: Schemas['ZonesFeatureCollection'];
   planting: Schemas['PlantingFeatureCollection'];
+  obstacles: Schemas['ObstaclesFeatureCollection'];
+  rejected: Schemas['RejectedSitesFeatureCollection'];
 };
 
-type Point = readonly [x: number, y: number];
+type Point = LocalPoint;
 type Rect = { x1: number; y1: number; x2: number; y2: number };
-type Shape = { kind: 'segment'; from: Point; to: Point } | { kind: 'point'; at: Point };
+type Shape =
+  | { kind: 'segment'; from: Point; to: Point }
+  | { kind: 'point'; at: Point }
+  | { kind: 'polygon'; ring: Point[] };
 
-// Участок 60 × 20 м вдоль улицы: бортовой камень по нижней кромке газона, под газоном кабель
-// и газопровод вдоль улицы, поперёк — водопровод, на газоне одно существующее дерево.
-// В бэкенде тестовых DXF нет (../backend/tests собирает их в коде), поэтому геометрия своя.
+// Участок 60 × 20 м вдоль улицы: бортовой камень по нижней кромке газона, за ним тротуар;
+// под газоном кабель и газопровод вдоль улицы, поперёк — водопровод, на газоне одно
+// существующее дерево и колодец, к северу — здание. В бэкенде тестовых DXF нет (../backend/tests
+// собирает их в коде), поэтому геометрия своя.
 const LAWN: Rect = { x1: 0, y1: 0, x2: 60, y2: 20 };
 const SITE_BOUNDARY: Rect = { x1: 0, y1: -3, x2: 60, y2: 20 };
 
-// Участок на Покровке. Метры в градусы — теми же рядами эллипсоида WGS84, что в
-// entities/project/lib/local-frame.ts: иначе «Покровка» и «Шаболовка» (те же метры без
-// геопривязки) расходились бы в расстояниях. shared не импортирует сущность — формула повторена.
-const ORIGIN = { lon: 37.6452, lat: 55.7593 };
-const ORIGIN_RADIANS = (ORIGIN.lat * Math.PI) / 180;
-const METERS_PER_DEGREE = {
-  lat: 111_132.954 - 559.822 * Math.cos(2 * ORIGIN_RADIANS) + 1.175 * Math.cos(4 * ORIGIN_RADIANS),
-  lon: 111_412.84 * Math.cos(ORIGIN_RADIANS) - 93.5 * Math.cos(3 * ORIGIN_RADIANS),
+// Привязка «метры чертежа → WGS84» — подобием вокруг опорной точки, как в контракте
+// PUT /georeference: поворот от истинного севера против часовой, масштаб. Метры в градусы —
+// теми же рядами эллипсоида WGS84, что в entities/project/lib/local-frame.ts: иначе «Покровка»
+// и «Шаболовка» (те же метры без геопривязки) расходились бы в расстояниях.
+export type Placement = {
+  anchorWgs84: { lat: number; lon: number };
+  anchorDrawing: Point;
+  rotationDeg: number;
+  scale: number;
 };
-const toLonLat = (x: number, y: number): [number, number] => [
-  ORIGIN.lon + x / METERS_PER_DEGREE.lon,
-  ORIGIN.lat + y / METERS_PER_DEGREE.lat,
-];
 
-// Нормы и отступы — ../backend/greenplan/norms/default.yaml. Пунктов в источнике нет.
-type SiteNorm = { id: string; row: string; tree: number; shrub: number };
+// Участок на Покровке: так его привязывает bbox_user демо-проекта.
+export const DEFAULT_PLACEMENT: Placement = {
+  anchorWgs84: { lat: 55.7593, lon: 37.6452 },
+  anchorDrawing: [0, 0],
+  rotationDeg: 0,
+  scale: 1,
+};
 
-const NORMS = {
-  roadEdge: { id: '743-pp-road-edge', row: 'край тротуара/бортовой камень', tree: 0.7, shrub: 0.5 },
-  powerCable: {
-    id: '743-pp-power-cable',
-    row: 'силовой кабель и кабель связи',
-    tree: 2,
-    shrub: 0.7,
-  },
-  gas: { id: '743-pp-gas', row: 'газопровод', tree: 1.5, shrub: 1.5 },
-  water: { id: '743-pp-water', row: 'водопровод, дренаж', tree: 2, shrub: 2 },
-  existingTree: {
-    id: '743-pp-existing-tree',
-    row: 'расстояние между озеленением, однорядная посадка',
-    tree: 5,
-    shrub: 1.5,
-  },
-} satisfies Record<string, SiteNorm>;
+export const placementOf = (georeference: ManualGeoreference): Placement => ({
+  anchorWgs84: georeference.anchor_wgs84,
+  anchorDrawing: [georeference.anchor_drawing.x, georeference.anchor_drawing.y],
+  rotationDeg: georeference.rotation_deg,
+  scale: georeference.scale,
+});
+
+function metersPerDegree(lat: number) {
+  const radians = (lat * Math.PI) / 180;
+  return {
+    lat: 111_132.954 - 559.822 * Math.cos(2 * radians) + 1.175 * Math.cos(4 * radians),
+    lon: 111_412.84 * Math.cos(radians) - 93.5 * Math.cos(3 * radians),
+  };
+}
+
+function toLonLat({ anchorWgs84, anchorDrawing, rotationDeg, scale }: Placement, [x, y]: Point) {
+  const angle = (rotationDeg * Math.PI) / 180;
+  const dx = (x - anchorDrawing[0]) * scale;
+  const dy = (y - anchorDrawing[1]) * scale;
+  const east = dx * Math.cos(angle) - dy * Math.sin(angle);
+  const north = dx * Math.sin(angle) + dy * Math.cos(angle);
+  const perDegree = metersPerDegree(anchorWgs84.lat);
+  return [anchorWgs84.lon + east / perDegree.lon, anchorWgs84.lat + north / perDegree.lat];
+}
+
+function fromLonLat(
+  { anchorWgs84, anchorDrawing, rotationDeg, scale }: Placement,
+  [lon, lat]: Point,
+) {
+  const angle = (rotationDeg * Math.PI) / 180;
+  const perDegree = metersPerDegree(anchorWgs84.lat);
+  const east = (lon - anchorWgs84.lon) * perDegree.lon;
+  const north = (lat - anchorWgs84.lat) * perDegree.lat;
+  const dx = east * Math.cos(angle) + north * Math.sin(angle);
+  const dy = -east * Math.sin(angle) + north * Math.cos(angle);
+  return [anchorDrawing[0] + dx / scale, anchorDrawing[1] + dy / scale] as const;
+}
+
+const GEOGRAPHIC_CRS = 'EPSG:4326 (WGS84 lon/lat)';
+const DRAWING_CRS = 'local drawing coordinates, no geo-reference available';
+
+// null — без геопривязки: координаты отдаются в метрах чертежа, как у бэкенда.
+const projectPoint = (placement: Placement | null, point: Point): number[] =>
+  placement === null ? [point[0], point[1]] : toLonLat(placement, point);
 
 type SiteObstacle = {
-  norm: SiteNorm;
+  // Норма из norms.ts; null — у бэкенда нормы нет, отступ не строится.
+  normId: string | null;
   obstacle: { category: string; subtype: string | null };
   shape: Shape;
+  // Как в parsed.geojson бэкенда (../backend/greenplan/export/geojson.py:20-47): правило
+  // распознавания из rules/default.yaml, слой, тип сущности и handle.
+  source: { ruleId: string; status: string; layer: string; dxftype: string; handle: string };
 };
 
 const OBSTACLES: SiteObstacle[] = [
   {
-    norm: NORMS.roadEdge,
-    obstacle: {
-      category: 'road_edge',
-      subtype: null,
-    },
+    normId: '743-pp-road-edge',
+    obstacle: { category: 'road_edge', subtype: null },
     shape: { kind: 'segment', from: [0, 0], to: [60, 0] },
+    source: {
+      ruleId: '5',
+      status: 'proxy_low_confidence',
+      layer: 'Бортовой камень',
+      dxftype: 'LWPOLYLINE',
+      handle: '2A1',
+    },
   },
   {
-    norm: NORMS.powerCable,
-    obstacle: {
-      category: 'underground_utilities',
-      subtype: 'power_cable',
-    },
+    normId: '743-pp-power-cable',
+    obstacle: { category: 'underground_utilities', subtype: 'power_cable' },
     shape: { kind: 'segment', from: [0, 4.5], to: [60, 4.5] },
+    source: {
+      ruleId: '3',
+      status: 'auto',
+      layer: 'Кабель электроснабжения',
+      dxftype: 'LWPOLYLINE',
+      handle: '2B4',
+    },
   },
   {
-    norm: NORMS.gas,
-    obstacle: {
-      category: 'underground_utilities',
-      subtype: 'gas',
-    },
+    normId: '743-pp-gas',
+    obstacle: { category: 'underground_utilities', subtype: 'gas' },
     shape: { kind: 'segment', from: [0, 12], to: [60, 12] },
+    source: {
+      ruleId: '3',
+      status: 'auto',
+      layer: 'Газопровод',
+      dxftype: 'LWPOLYLINE',
+      handle: '2C7',
+    },
   },
   {
-    norm: NORMS.water,
-    obstacle: {
-      category: 'underground_utilities',
-      subtype: 'water',
-    },
+    normId: '743-pp-water',
+    obstacle: { category: 'underground_utilities', subtype: 'water' },
     shape: { kind: 'segment', from: [28, 0], to: [28, 20] },
+    source: {
+      ruleId: '3',
+      status: 'auto',
+      layer: 'Водопровод',
+      dxftype: 'LINE',
+      handle: '2D0',
+    },
   },
   {
-    norm: NORMS.existingTree,
-    obstacle: {
-      category: 'green_existing',
-      subtype: 'existing_tree',
-    },
+    normId: '743-pp-existing-tree',
+    obstacle: { category: 'green_existing', subtype: 'existing_tree' },
     shape: { kind: 'point', at: [48, 16] },
+    source: {
+      ruleId: '7',
+      status: 'auto',
+      layer: 'Дендроплан',
+      dxftype: 'INSERT',
+      handle: '31E',
+    },
+  },
+  {
+    normId: null,
+    obstacle: { category: 'buildings', subtype: null },
+    shape: {
+      kind: 'polygon',
+      ring: [
+        [8, 23],
+        [24, 23],
+        [24, 31],
+        [8, 31],
+        [8, 23],
+      ],
+    },
+    source: {
+      ruleId: '4',
+      status: 'auto',
+      layer: 'Здания',
+      dxftype: 'LWPOLYLINE',
+      handle: '1F3',
+    },
+  },
+  {
+    normId: null,
+    obstacle: { category: 'footpath_edge', subtype: null },
+    shape: { kind: 'segment', from: [0, -1.5], to: [60, -1.5] },
+    source: {
+      ruleId: '6',
+      status: 'no_default_source',
+      layer: 'Тротуар',
+      dxftype: 'LWPOLYLINE',
+      handle: '2A5',
+    },
+  },
+  {
+    normId: null,
+    obstacle: { category: 'wells_hatches', subtype: null },
+    shape: { kind: 'point', at: [14, 17] },
+    source: {
+      ruleId: '12',
+      status: 'auto',
+      layer: 'Колодцы',
+      dxftype: 'INSERT',
+      handle: '33A',
+    },
   },
 ];
+
+type NormedObstacle = SiteObstacle & { norm: (typeof NORMS)[number] };
+
+// Препятствия с нормой — от них строятся зоны и проверки.
+const NORMED: NormedObstacle[] = OBSTACLES.flatMap((obstacle) => {
+  const norm = NORMS.find(({ id }) => id === obstacle.normId);
+  return norm === undefined ? [] : [{ ...obstacle, norm }];
+});
+
+// Категории без нормы: как у бэкенда, отступ от них не строился
+// (../backend/greenplan/zoning/engine.py:158-168).
+const UNCOVERED_CATEGORIES = OBSTACLES.filter(({ normId }) => normId === null).map(
+  ({ obstacle }) => obstacle,
+);
 
 const range = (from: number, to: number, step: number): number[] => {
   const values: number[] = [];
@@ -136,42 +260,74 @@ const CANDIDATES: Record<string, (spacing: number, offset: number | null) => Poi
   SHRUB_FILL_LAWN: (spacing) => grid(range(1.5, 13.5, spacing), range(8, 15, spacing)),
 };
 
-function distance([px, py]: Point, shape: Shape): number {
-  if (shape.kind === 'point') return Math.hypot(px - shape.at[0], py - shape.at[1]);
-  const [ax, ay] = shape.from;
-  const [bx, by] = shape.to;
-  const lengthSquared = (bx - ax) ** 2 + (by - ay) ** 2;
-  const t = Math.max(
-    0,
-    Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / lengthSquared),
-  );
-  return Math.hypot(px - (ax + t * (bx - ax)), py - (ay + t * (by - ay)));
+// Расстояние до препятствия — теми же функциями, что проверки на фронте (shared/lib/geometry):
+// отрезок — вырожденное кольцо из двух вершин, многоугольник — кольцо.
+function distance(point: Point, shape: Shape): number {
+  switch (shape.kind) {
+    case 'point':
+      return Math.hypot(point[0] - shape.at[0], point[1] - shape.at[1]);
+    case 'segment':
+      return nearestOnBoundary(point, [[[shape.from, shape.to]]])?.distance ?? Infinity;
+    case 'polygon':
+      return isInside(point, [[shape.ring]])
+        ? 0
+        : (nearestOnBoundary(point, [[shape.ring]])?.distance ?? Infinity);
+    default: {
+      const unexpected: never = shape;
+      return unexpected;
+    }
+  }
 }
 
 const round = (value: number, digits: number): number => Number(value.toFixed(digits));
 
-const setback = (norm: SiteNorm, plantType: PlantType): number =>
-  plantType === 'tree' ? norm.tree : norm.shrub;
+const setback = (norm: NormedObstacle['norm'], plantType: PlantType): number =>
+  plantType === 'tree' ? norm.tree_m : norm.shrub_m;
+
+type MeasuredCheck = { check: ExplanationCheck; violated: boolean };
+
+// Проверки посадки — по одной на каждое препятствие с нормой, как checks в контракте. Нарушение
+// решается по точному расстоянию, как у раскладки; округляется только выводимое actual_m.
+function checksAt(point: Point, plantType: PlantType): MeasuredCheck[] {
+  return NORMED.map(({ norm, obstacle, shape }) => {
+    const actual = distance(point, shape);
+    const required = setback(norm, plantType);
+    return {
+      check: {
+        category: obstacle.category,
+        subtype: obstacle.subtype,
+        required_m: required,
+        actual_m: round(actual, 2),
+        citation: norm.citation,
+        norm_id: norm.id,
+      },
+      violated: actual < required,
+    };
+  });
+}
 
 // Раскладка бэкенда ставит посадку, только если её точка вне всех буферов
 // (../backend/greenplan/layout/engine.py:71,103).
 const violatesSetback = (point: Point, plantType: PlantType): boolean =>
-  OBSTACLES.some(({ norm, shape }) => distance(point, shape) < setback(norm, plantType));
+  NORMED.some(({ norm, shape }) => distance(point, shape) < setback(norm, plantType));
 
-const boundsOf = (shape: Shape, buffer: number): Rect =>
-  shape.kind === 'point'
-    ? {
-        x1: shape.at[0] - buffer,
-        y1: shape.at[1] - buffer,
-        x2: shape.at[0] + buffer,
-        y2: shape.at[1] + buffer,
-      }
-    : {
-        x1: Math.min(shape.from[0], shape.to[0]) - buffer,
-        y1: Math.min(shape.from[1], shape.to[1]) - buffer,
-        x2: Math.max(shape.from[0], shape.to[0]) + buffer,
-        y2: Math.max(shape.from[1], shape.to[1]) + buffer,
-      };
+const insideRect = ([x, y]: Point, rect: Rect): boolean =>
+  x >= rect.x1 && x <= rect.x2 && y >= rect.y1 && y <= rect.y2;
+
+const boundsOf = (shape: Shape, buffer: number): Rect => {
+  const points =
+    shape.kind === 'point'
+      ? [shape.at]
+      : shape.kind === 'segment'
+        ? [shape.from, shape.to]
+        : shape.ring;
+  return {
+    x1: Math.min(...points.map(([x]) => x)) - buffer,
+    y1: Math.min(...points.map(([, y]) => y)) - buffer,
+    x2: Math.max(...points.map(([x]) => x)) + buffer,
+    y2: Math.max(...points.map(([, y]) => y)) + buffer,
+  };
+};
 
 const consecutivePairs = (values: number[]): [number, number][] =>
   values.flatMap((start, index) => {
@@ -220,17 +376,29 @@ const arc = ([cx, cy]: Point, radius: number, from: number, steps: number): Poin
     return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)] as const;
   });
 
-// Буфер со скруглёнными концами: у точки — круг, у отрезка — «стадион».
+// Буфер со скруглёнными концами: у точки — круг, у отрезка — «стадион». Многоугольников среди
+// нормированных препятствий мока нет.
 function bufferOf(shape: Shape, radius: number): Point[] {
-  if (shape.kind === 'point') return arc(shape.at, radius, 0, 2 * ARC_STEPS - 1);
-  const [ax, ay] = shape.from;
-  const [bx, by] = shape.to;
-  // Направление нормали к отрезку: от неё дуга у конца обходит его через продолжение отрезка.
-  const normal = Math.atan2(bx - ax, -(by - ay));
-  return [
-    ...arc(shape.to, radius, normal, ARC_STEPS),
-    ...arc(shape.from, radius, normal - Math.PI, ARC_STEPS),
-  ];
+  switch (shape.kind) {
+    case 'point':
+      return arc(shape.at, radius, 0, 2 * ARC_STEPS - 1);
+    case 'segment': {
+      const [ax, ay] = shape.from;
+      const [bx, by] = shape.to;
+      // Направление нормали к отрезку: от неё дуга у конца обходит его через продолжение.
+      const normal = Math.atan2(bx - ax, -(by - ay));
+      return [
+        ...arc(shape.to, radius, normal, ARC_STEPS),
+        ...arc(shape.from, radius, normal - Math.PI, ARC_STEPS),
+      ];
+    }
+    case 'polygon':
+      throw new Error('Буфер многоугольника в моке не нужен');
+    default: {
+      const unexpected: never = shape;
+      return unexpected;
+    }
+  }
 }
 
 // Выпуклый многоугольник, обрезанный прямоугольником (Сазерленд — Ходжмен).
@@ -263,19 +431,22 @@ const crossY = ([ax, ay]: Point, [bx, by]: Point, y: number): Point => [
   y,
 ];
 
-function buildZones(plantTypes: readonly PlantType[], project: (point: Point) => number[]) {
-  const ring = (points: Point[]): number[][] => [...points, ...points.slice(0, 1)].map(project);
-  const rectRing = ({ x1, y1, x2, y2 }: Rect) =>
-    ring([
-      [x1, y1],
-      [x2, y1],
-      [x2, y2],
-      [x1, y2],
-    ]);
+type Project = (point: Point) => number[];
 
+const closedRing = (points: Point[], project: Project): number[][] =>
+  [...points, ...points.slice(0, 1)].map(project);
+
+const rectPoints = ({ x1, y1, x2, y2 }: Rect): Point[] => [
+  [x1, y1],
+  [x2, y1],
+  [x2, y2],
+  [x1, y2],
+];
+
+function buildZones(plantTypes: readonly PlantType[], project: Project): ZoneFeature[] {
   const polygon = (rect: Rect): ZoneFeature['geometry'] => ({
     type: 'Polygon',
-    coordinates: [rectRing(rect)],
+    coordinates: [closedRing(rectPoints(rect), project)],
   });
 
   const extents: ZoneFeature[] = [
@@ -294,14 +465,14 @@ function buildZones(plantTypes: readonly PlantType[], project: (point: Point) =>
       type: 'MultiPolygon',
       coordinates: subtract(
         LAWN,
-        OBSTACLES.map(({ norm, shape }) => boundsOf(shape, setback(norm, plantType))),
-      ).map((rect) => [rectRing(rect)]),
+        NORMED.map(({ norm, shape }) => boundsOf(shape, setback(norm, plantType))),
+      ).map((rect) => [closedRing(rectPoints(rect), project)]),
     },
     properties: { zone_type: 'allowed', plant_type: plantType },
   }));
 
   const prohibited: ZoneFeature[] = plantTypes.flatMap((plantType) =>
-    OBSTACLES.flatMap(({ norm, obstacle, shape }) => {
+    NORMED.flatMap(({ norm, obstacle, shape }) => {
       const buffer = setback(norm, plantType);
       // Как у бэкенда: буфер препятствия, обрезанный допустимой областью base_area
       // (zoning/engine.py:135); в моке она совпадает с газоном.
@@ -310,7 +481,7 @@ function buildZones(plantTypes: readonly PlantType[], project: (point: Point) =>
       return [
         {
           type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [ring(clipped)] },
+          geometry: { type: 'Polygon', coordinates: [closedRing(clipped, project)] },
           // Формат citation и reason — как у бэкенда: ../backend/greenplan/zoning/engine.py:141-151.
           properties: {
             zone_type: 'prohibited',
@@ -318,7 +489,7 @@ function buildZones(plantTypes: readonly PlantType[], project: (point: Point) =>
             obstacle_category: obstacle.category,
             obstacle_subtype: obstacle.subtype,
             distance_m: buffer,
-            citation: `743-ПП — ${norm.row}`,
+            citation: norm.citation,
             reason: `< ${String(buffer)} м от объекта типа «${obstacle.subtype ?? obstacle.category}»`,
           },
         } satisfies ZoneFeature,
@@ -329,14 +500,31 @@ function buildZones(plantTypes: readonly PlantType[], project: (point: Point) =>
   return [...extents, ...allowed, ...prohibited];
 }
 
-// Категории, которые есть в подоснове, но для которых у бэкенда нет нормы: отступ от них
-// не строился (../backend/greenplan/zoning/engine.py:158-168).
-const UNCOVERED_CATEGORIES = [{ category: 'wells_hatches', subtype: null }];
+function obstacleGeometry(shape: Shape, project: Project): Schemas['ObstacleFeature']['geometry'] {
+  switch (shape.kind) {
+    case 'point':
+      return { type: 'Point', coordinates: project(shape.at) };
+    case 'segment':
+      return { type: 'LineString', coordinates: [project(shape.from), project(shape.to)] };
+    case 'polygon':
+      return { type: 'Polygon', coordinates: [shape.ring.map(project)] };
+    default: {
+      const unexpected: never = shape;
+      return unexpected;
+    }
+  }
+}
+
+// Отклонённых мест в ответе — не больше этого: на крупном участке их тысячи, демо показывает
+// характерные.
+const MAX_REJECTED = 15;
 
 type Placed = { id: string; plantType: PlantType; ruleId: string; ruleName: string; point: Point };
+type Rejected = { plantType: PlantType; ruleId: string; point: Point };
 
-export function buildSiteResult(params: RunParams, georeferenced: boolean): SiteResult {
+export function buildSiteResult(params: RunParams, placement: Placement | null): SiteResult {
   const placed: Placed[] = [];
+  const rejected: Rejected[] = [];
 
   for (const [ruleId, rule] of Object.entries(params.rules)) {
     const defaults = processingDefaults.planting_rules[ruleId];
@@ -346,7 +534,11 @@ export function buildSiteResult(params: RunParams, georeferenced: boolean): Site
     if (!params.plantTypes.includes(plantType)) continue;
 
     for (const point of candidates(rule.spacing, rule.offset)) {
-      if (violatesSetback(point, plantType)) continue;
+      if (violatesSetback(point, plantType)) {
+        // Как в контракте /rejected: только кандидаты в допустимой области, отклонённые по норме.
+        if (insideRect(point, LAWN)) rejected.push({ plantType, ruleId, point });
+        continue;
+      }
       placed.push({
         id: `${ruleId}-${String(placed.length + 1).padStart(5, '0')}`,
         plantType,
@@ -357,19 +549,18 @@ export function buildSiteResult(params: RunParams, georeferenced: boolean): Site
     }
   }
 
-  const project = ([x, y]: Point): number[] => (georeferenced ? toLonLat(x, y) : [x, y]);
-  const crs = georeferenced
-    ? 'EPSG:4326 (WGS84 lon/lat)'
-    : 'local drawing coordinates, no geo-reference available';
+  const project: Project = (point) => projectPoint(placement, point);
+  const crs = placement === null ? DRAWING_CRS : GEOGRAPHIC_CRS;
 
   return {
-    explanation: placed.map(({ id, plantType, ruleId, ruleName, point: [x, y] }) => ({
+    explanation: placed.map(({ id, plantType, ruleId, ruleName, point }) => ({
       id,
       plant_type: plantType,
       rule_id: ruleId,
       rule_name_ru: ruleName,
-      x: round(x, 2),
-      y: round(y, 2),
+      x: round(point[0], 2),
+      y: round(point[1], 2),
+      checks: checksAt(point, plantType).map(({ check }) => check),
     })),
     zones: {
       type: 'FeatureCollection',
@@ -379,11 +570,133 @@ export function buildSiteResult(params: RunParams, georeferenced: boolean): Site
     planting: {
       type: 'FeatureCollection',
       metadata: { crs },
-      features: placed.map(({ id, plantType, ruleId, point }) => ({
+      features: placed.map(({ id, plantType, ruleId, point }, index) => {
+        const species = chooseSpecies(plantType, ruleId, params, index);
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: project(point) },
+          properties: {
+            id,
+            plant_type: plantType,
+            rule_id: ruleId,
+            species_id: species.id,
+            species_reason_ru: species.reason,
+          },
+        };
+      }),
+    },
+    obstacles: {
+      type: 'FeatureCollection',
+      metadata: { crs, source_insunits: 6, scale_to_meters: 1 },
+      features: OBSTACLES.map(({ obstacle, shape, source }) => ({
+        type: 'Feature',
+        geometry: obstacleGeometry(shape, project),
+        properties: {
+          rule_id: source.ruleId,
+          category: obstacle.category,
+          subtype: obstacle.subtype,
+          status: source.status,
+          layer: source.layer,
+          dxftype: source.dxftype,
+          handle: source.handle,
+        },
+      })),
+    },
+    rejected: {
+      type: 'FeatureCollection',
+      metadata: { crs },
+      features: rejected.slice(0, MAX_REJECTED).map(({ plantType, ruleId, point }) => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: project(point) },
-        properties: { id, plant_type: plantType, rule_id: ruleId },
+        properties: {
+          plant_type: plantType,
+          rule_id: ruleId,
+          failed_checks: checksAt(point, plantType)
+            .filter(({ violated }) => violated)
+            .map(({ check }) => check),
+        },
       })),
     },
   };
+}
+
+// Наименьший шаг правил этой обработки для типа посадки: ближе к соседней посадке того же
+// типа сервис посадку не поставил бы (../backend/greenplan/layout/engine.py:74-77). У правки
+// нет правила посадки, поэтому берётся наименьший шаг — самое мягкое из требований.
+const minSpacing = (params: RunParams, plantType: PlantType): number =>
+  Math.min(
+    ...Object.entries(params.rules)
+      .filter(([ruleId]) => processingDefaults.planting_rules[ruleId]?.plant_type === plantType)
+      .map(([, rule]) => rule.spacing),
+  );
+
+// Перепроверка правок, как в контракте PUT /plantings: сначала нормы, потом допустимая область
+// и шаг. Координаты — в системе ответа /planting.
+export function checkPlantings(
+  plantings: EditedPlanting[],
+  placement: Placement | null,
+  params: RunParams,
+): CheckedPlanting[] {
+  const local = plantings.map(({ geometry }) => {
+    const [x = 0, y = 0] = geometry.coordinates;
+    return placement === null ? ([x, y] as const) : fromLonLat(placement, [x, y]);
+  });
+
+  return plantings.map((planting, index) => {
+    const point = local[index] ?? ([0, 0] as const);
+    const { plant_type: plantType } = planting.properties;
+    const measured = checksAt(point, plantType);
+    const base = { ...planting.properties, checks: measured.map(({ check }) => check) };
+
+    if (measured.some(({ violated }) => violated)) {
+      return { ...planting, properties: { ...base, status: 'forbidden', rejection: null } };
+    }
+    if (!insideRect(point, LAWN)) {
+      return {
+        ...planting,
+        properties: {
+          ...base,
+          status: 'rejected',
+          rejection: {
+            reason: 'outside_site',
+            text_ru: 'Точка вне газона в границе участка',
+            neighbour_id: null,
+          },
+        },
+      };
+    }
+    const spacing = minSpacing(params, plantType);
+    const neighbour = plantings
+      .map((other, otherIndex) => ({ other, at: local[otherIndex] ?? point }))
+      .filter(({ other }) => other !== planting && other.properties.plant_type === plantType)
+      .map(({ other, at }) => ({ other, gap: Math.hypot(at[0] - point[0], at[1] - point[1]) }))
+      .filter(({ gap }) => gap < spacing)
+      .sort((a, b) => a.gap - b.gap)[0];
+    if (neighbour !== undefined) {
+      return {
+        ...planting,
+        properties: {
+          ...base,
+          status: 'rejected',
+          rejection: {
+            reason: 'spacing',
+            text_ru: `До соседней посадки ${formatMeters(neighbour.gap, 1)} при шаге ${formatMeters(spacing, 1)}`,
+            neighbour_id: neighbour.other.properties.id,
+          },
+        },
+      };
+    }
+    return { ...planting, properties: { ...base, status: 'allowed', rejection: null } };
+  });
+}
+
+// Координаты посадок для DXF — в метрах чертежа, как пишет ../backend/greenplan/io/dxf_sink.py.
+export function drawingPoints(
+  plantings: { coordinates: number[]; plantType: PlantType }[],
+  placement: Placement | null,
+): { point: Point; plantType: PlantType }[] {
+  return plantings.map(({ coordinates: [x = 0, y = 0], plantType }) => ({
+    point: placement === null ? ([x, y] as const) : fromLonLat(placement, [x, y]),
+    plantType,
+  }));
 }

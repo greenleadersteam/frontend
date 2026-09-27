@@ -1,17 +1,22 @@
+import type { components as Proposed } from '../generated/proposed';
 import type { components as Real } from '../generated/schema';
 import { processingDefaults } from './fixtures/processing-defaults';
 import { type MockArchive, projectSeeds } from './fixtures/projects';
-import type { RunParams } from './fixtures/site';
+import { DEFAULT_PLACEMENT, type Placement, placementOf, type RunParams } from './fixtures/site';
 
 type ProjectResponse = Real['schemas']['ProjectResponse'];
 type JobStatus = Real['schemas']['JobStatus'];
 type JobError = Real['schemas']['JobError'];
 type UploadErrorCode = Real['schemas']['UploadErrorCode'];
+type ManualGeoreference = Proposed['schemas']['ManualGeoreference'];
+type CheckedPlantings = Proposed['schemas']['CheckedPlantingsFeatureCollection'];
 type BBox = [number, number, number, number];
 
 type MockRun = {
   queuedAt: number;
   params: RunParams;
+  // Главный чертёж последнего /runs: PUT /georeference переобрабатывает с ним же.
+  rootDxf: string | null;
   failure: JobError | null;
   // Сценарные проекты из фикстур не занимают слоты, иначе после запуска мока загрузки
   // отвечали бы 429, пока их обработки не закончатся.
@@ -27,7 +32,18 @@ export type MockProject = {
   updatedAt: number;
   archive: MockArchive | null;
   run: MockRun | null;
+  // Привязка, присланная через PUT /georeference; важнее bbox.
+  georeference: ManualGeoreference | null;
+  // Последние правки посадок (PUT /plantings); новая обработка их сбрасывает.
+  edits: CheckedPlantings | null;
 };
+
+// Как проект привязан к местности: присланная привязка, иначе bbox демо-проекта, иначе —
+// без геопривязки, в метрах чертежа.
+export function placementOfProject(project: MockProject): Placement | null {
+  if (project.georeference !== null) return placementOf(project.georeference);
+  return project.bbox === null ? null : DEFAULT_PLACEMENT;
+}
 
 // Как GREENPLAN_API_MAX_CONCURRENT_JOBS в ../backend/docker-compose.yml:14.
 const MAX_ACTIVE_RUNS = 2;
@@ -78,9 +94,15 @@ export const defaultRunParams = (): RunParams => ({
   ),
 });
 
-function failureOf(archive: MockArchive, rootDxf: string | null): JobError | null {
+// Присланная привязка заменяет запрос к geobridge: сбои этапа геопривязки ей не грозят.
+function failureOf(
+  archive: MockArchive,
+  rootDxf: string | null,
+  manualGeoreference: boolean,
+): JobError | null {
   const { defect } = archive;
   if (defect === null) return null;
+  if (manualGeoreference && FAILURE_STAGE[defect.code] === 'georeferencing') return null;
   if (defect.code === 'ambiguous_root_dxf') {
     if (rootDxf !== null && defect.candidates.includes(rootDxf)) return null;
     return {
@@ -106,15 +128,18 @@ export function resetMockDb(now = Date.now()): void {
       createdAt,
       updatedAt: createdAt,
       archive,
+      georeference: null,
+      edits: null,
       run:
         run === null || archive === null
           ? null
           : {
               queuedAt: now - run.queuedSecondsAgo * 1000,
               params: defaultRunParams(),
+              rootDxf: null,
               failure:
                 transient === null
-                  ? failureOf(archive, null)
+                  ? failureOf(archive, null, false)
                   : { code: transient, message: FAILURE_MESSAGES[transient] },
               occupiesSlot: false,
             },
@@ -127,7 +152,8 @@ function jobAt(project: MockProject, now: number): JobStatus {
   if (run === null) return { stage: 'draft', progress_pct: 0 };
 
   // Без bbox бэкенд пропускает геопривязку: ../backend/greenplan/api/jobs.py:296.
-  const stages = STAGES.filter(({ stage }) => stage !== 'georeferencing' || project.bbox !== null);
+  const georeferenced = placementOfProject(project) !== null;
+  const stages = STAGES.filter(({ stage }) => stage !== 'georeferencing' || georeferenced);
   // Воркер перезаписывает started_at при старте, поэтому время в очереди в длительность не входит.
   const workerStartedAt = run.queuedAt + STAGES[0].durationMs;
   let stageStart = run.queuedAt;
@@ -157,16 +183,31 @@ function jobAt(project: MockProject, now: number): JobStatus {
   return {
     stage: 'ready',
     progress_pct: 100,
-    georeference:
-      project.bbox === null
-        ? null
-        : {
-            confidence: 'validated',
-            matched_labels: ['1204', '1207', '1311'],
-            residuals_m: { '1204': 0.12, '1207': 0.08, '1311': 0.21 },
-          },
+    georeference: georeferenceInfo(project),
     started_at: toIso(workerStartedAt),
     finished_at: toIso(stageStart),
+  };
+}
+
+// Как GeoreferenceInfo бэкенда (../backend/greenplan/api/jobs.py:83-86). Присланная привязка
+// отмечается confidence «manual»: невязки — по её опорным точкам, если они были.
+function georeferenceInfo(project: MockProject): JobStatus['georeference'] {
+  const manual = project.georeference;
+  if (manual !== null) {
+    const points = manual.control_points.filter(({ used }) => used);
+    return {
+      confidence: 'manual',
+      matched_labels: points.map(({ label }, index) => label ?? String(index + 1)),
+      residuals_m: Object.fromEntries(
+        points.map(({ label, residual_m }, index) => [label ?? String(index + 1), residual_m]),
+      ),
+    };
+  }
+  if (project.bbox === null) return null;
+  return {
+    confidence: 'validated',
+    matched_labels: ['1204', '1207', '1311'],
+    residuals_m: { '1204': 0.12, '1207': 0.08, '1311': 0.21 },
   };
 }
 
@@ -201,6 +242,8 @@ export function createProject(
     updatedAt: now,
     archive: null,
     run: null,
+    georeference: null,
+    edits: null,
   };
   projects.set(project.id, project);
   return project;
@@ -232,10 +275,12 @@ export function startRun(
   now: number,
 ): void {
   project.archive = archive;
+  project.edits = null;
   project.run = {
     queuedAt: now,
     params,
-    failure: failureOf(archive, rootDxf),
+    rootDxf,
+    failure: failureOf(archive, rootDxf, project.georeference !== null),
     occupiesSlot: true,
   };
 }

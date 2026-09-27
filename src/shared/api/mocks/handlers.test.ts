@@ -294,7 +294,8 @@ describe('результат', () => {
     expect(body.length).toBeLessThanOrEqual(40);
     const [entry] = body;
     expect(Object.keys(entry ?? {}).sort()).toEqual(
-      ['id', 'plant_type', 'rule_id', 'rule_name_ru', 'x', 'y'].sort(),
+      // checks — добавочное поле контракта: демо реализует контракт целиком.
+      ['checks', 'id', 'plant_type', 'rule_id', 'rule_name_ru', 'x', 'y'].sort(),
     );
     expect(entry?.id).toMatch(/^[A-Z_]+-\d{5}$/);
     expect(entry?.plant_type).toMatch(/^(tree|shrub)$/);

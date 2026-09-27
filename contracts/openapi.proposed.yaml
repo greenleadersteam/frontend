@@ -12,6 +12,23 @@ info:
     свойства. Клиент, написанный под текущий API, продолжает работать; фронтенд подхватывает
     новое, когда оно появится.
 
+    У каждой новой функции есть имя возможности (`serverCapabilities` в runtime-конфиге
+    фронтенда). Фронтенд не угадывает, что умеет сервер, по ответам 404: администратор контура
+    перечисляет реализованные возможности, и только они включаются в интерфейсе.
+
+    | Возможность | Что реализовать |
+    |---|---|
+    | `obstacles` | `GET /projects/{project_id}/obstacles` |
+    | `rejected` | `GET /projects/{project_id}/rejected` |
+    | `norms` | `GET /norms` |
+    | `explanationChecks` | `checks` в `/explanation` |
+    | `species` | `GET /species`, `species_id` и `species_reason_ru` у посадки |
+    | `plantingEdits` | `PUT` и `GET /projects/{project_id}/plantings` |
+    | `editedDxf` | `/dxf` с правками и `?variant=original` |
+    | `runs` | `POST /projects/{project_id}/runs` |
+    | `manualGeoreference` | `PUT /projects/{project_id}/georeference` |
+    | `optionalBbox` | создание проекта без `bbox_user` |
+
     Что предлагается:
     - `GET /projects/{project_id}/obstacles` — главная просьба: распознанные объекты подосновы
       в той же системе координат, что `/zones` (источник — `processed/parsed.geojson`, который
@@ -20,7 +37,11 @@ info:
     - `GET /projects/{project_id}/explanation` — формат прежний, у элемента необязательное
       поле `checks` с расстояниями, посчитанными бэкендом;
     - `GET /projects/{project_id}/rejected` — места-кандидаты, отклонённые из-за отступа;
-    - `GET /norms` — справочник норм из `norms/default.yaml`;
+    - `GET /norms` — справочник норм из `norms/default.yaml` с пунктами нормативных актов;
+    - `GET /species` — справочник пород; у посадки добавочно порода и причина выбора;
+    - `PUT` и `GET /projects/{project_id}/plantings` — правки посадок с перепроверкой норм,
+      `/dxf` с правками;
+    - `PUT /projects/{project_id}/georeference` — готовые параметры привязки от клиента;
     - `POST /projects/{project_id}/runs` — повторная обработка загруженного архива с параметрами;
     - `GET /processing-defaults` — параметры обработки по умолчанию и допустимые диапазоны;
     - перечисления для `status`, `job.stage`; необязательный `bbox_user`; лимиты длины
@@ -160,6 +181,8 @@ paths:
         (`greenplan/explain/builder.py`). Добавочное изменение — необязательное поле `checks`
         у элемента: проверки отступов с расстоянием, посчитанным бэкендом. Пока его нет,
         фронтенд выводит проверки сам из `/zones` (и из `/obstacles`, когда он появится).
+
+        Возможность: `explanationChecks`.
       operationId: get_explanation
       parameters:
         - $ref: '#/components/parameters/ProjectId'
@@ -186,6 +209,8 @@ paths:
 
         Без путей сервера: `metadata.root_file`, `metadata.source_folder` и
         `properties.source_file` из `parsed.geojson` в ответ не попадают.
+
+        Возможность: `obstacles`.
       operationId: get_obstacles
       parameters:
         - $ref: '#/components/parameters/ProjectId'
@@ -210,6 +235,8 @@ paths:
         ложен и для них (вторая сторона борта — проезжая часть, сетка заполнения — по охвату
         участка), но это не отклонение по норме, и непройденных проверок у них нет. Сейчас
         раскладка такие места не сохраняет; не путать с зонами запрета из `/zones`.
+
+        Возможность: `rejected`.
       operationId: get_rejected
       parameters:
         - $ref: '#/components/parameters/ProjectId'
@@ -227,9 +254,12 @@ paths:
     get:
       summary: Справочник норм
       description: |
-        Новый эндпоинт. Записи `greenplan/norms/default.yaml`; `act`, `clause` и `text` —
-        разбор `citation` («743-ПП — газопровод»). Номеров пунктов в источнике нет, поэтому
-        `clause` сейчас `null`.
+        Новый эндпоинт. Записи `greenplan/norms/default.yaml` с сопоставленными пунктами
+        нормативных актов. Сопоставление пунктов для каждой нормы — в `contracts/norms-verified.md`
+        фронтенда (акт, пункт, таблица, строка, значения и URL первоисточника). Где пункт
+        подтвердить не удалось, `clause` — `null`: фронтенд не показывает пункт, которого нет.
+
+        Возможность: `norms`.
       operationId: get_norms
       responses:
         '200':
@@ -240,6 +270,133 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Norm'
+
+  /species:
+    get:
+      summary: Справочник пород
+      description: |
+        Новый эндпоинт. Породы деревьев и кустарников из ассортимента для озеленения Москвы
+        с параметрами кроны и корневой системы. Каждая запись ссылается на источник данных
+        (`source`). Проверенный фронтендом справочник — `contracts/species-verified.md`.
+
+        Возможность: `species`.
+      operationId: get_species
+      responses:
+        '200':
+          description: Породы.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Species'
+
+  /projects/{project_id}/plantings:
+    get:
+      summary: Последняя сохранённая версия посадок с правками
+      description: |
+        Новый эндпоинт. Последний список, сохранённый через `PUT`, со статусами. Если правок не
+        было — 204 без тела: тогда актуален исходный результат `/planting`. 404 — только «нет
+        проекта или результата», как у остальных эндпоинтов результата.
+
+        Возможность: `plantingEdits`.
+      operationId: get_plantings
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Посадки с правками и статусами.
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/CheckedPlantingsFeatureCollection'
+        '204':
+          description: Правок не было.
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+    put:
+      summary: Сохранить правки посадок
+      description: |
+        Новый эндпоинт. Полный список посадок после правок пользователя: перемещённые,
+        добавленные, со сменой породы; удалённых в списке нет. Координаты — в той же системе,
+        что `/planting` (метка в `metadata.crs`). Сервер перепроверяет каждую посадку по нормам
+        и раскладке и отвечает тем же списком со статусами:
+        - `allowed` — все проверки пройдены;
+        - `forbidden` — точка в зоне запрета; в `checks` есть непройденная проверка;
+        - `rejected` — нормы соблюдены, но сервис не поставил бы сюда посадку: нарушен шаг
+          между посадками или точка вне допустимой области (газон ∩ граница участка);
+          причина — в `rejection`.
+
+        Сохраняется всегда, даже с `forbidden` и `rejected`: правку проектировщика сервис не
+        отбрасывает, а объясняет. Исходный результат обработки не меняется.
+
+        Возможность: `plantingEdits`.
+      operationId: put_plantings
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/geo+json:
+            schema:
+              $ref: '#/components/schemas/EditedPlantingsFeatureCollection'
+      responses:
+        '200':
+          description: Сохранено; посадки со статусами.
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/CheckedPlantingsFeatureCollection'
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /projects/{project_id}/georeference:
+    put:
+      summary: Задать геопривязку готовыми параметрами
+      description: |
+        Новый эндпоинт. Клиент передаёт параметры подобия «чертёж → местность», найденные
+        вручную или по опорным точкам, вместо запроса к geobridge. Проект переобрабатывается
+        с этой привязкой: результаты (`/zones`, `/planting`, `/obstacles`) — в WGS84.
+
+        Поворот задан от истинного севера, против часовой стрелки, вокруг опорной точки.
+        Пересчёт к сетке UTM (зона — по долготе опорной точки) и сближение меридианов —
+        на стороне сервера. Масштаб — метров местности в метре чертежа после
+        `scale_to_meters`, обычно около 1.
+
+        Ответ 202: проект снова в обработке (`queued`), как после `upload`. Параметры привязки
+        сохраняются в `job.georeference` и участвуют в экспорте DXF и правках посадок. Параметры
+        обработки и `root_dxf` последнего запуска (`/runs`) сохраняются: привязка меняет только
+        геопривязку, а не выбор главного чертежа.
+
+        Возможность: `manualGeoreference`.
+      operationId: put_georeference
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualGeoreference'
+      responses:
+        '202':
+          description: Привязка принята, проект в обработке.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '404':
+          $ref: '#/components/responses/ProjectNotFound'
+        '409':
+          description: Архив ещё не загружен или идёт обработка.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
 
   /projects/{project_id}/zones:
     get:
@@ -261,7 +418,10 @@ paths:
   /projects/{project_id}/planting:
     get:
       summary: Точки посадок
-      description: Описывает текущий вывод `greenplan/export/planting.py`; формат не меняется.
+      description: |
+        Описывает текущий вывод `greenplan/export/planting.py`. Добавочно у посадки — порода
+        `species_id` и причина её выбора `species_reason_ru` (возможность `species`). Это исходный
+        результат обработки: правки пользователя живут отдельно, в `/plantings`.
       operationId: get_planting
       parameters:
         - $ref: '#/components/parameters/ProjectId'
@@ -281,9 +441,20 @@ paths:
       description: |
         Главный DXF архива плюс слой `GREENING_PROPOSED`. Сейчас спецификация указывает
         `application/json`, а бэкенд отдаёт файл.
+
+        Добавочно (возможность `editedDxf`): если через `PUT /plantings` сохранены правки,
+        по умолчанию отдаётся вариант с правками — слой посадок строится из сохранённого
+        списка. `?variant=original` — исходный результат обработки.
       operationId: get_dxf
       parameters:
         - $ref: '#/components/parameters/ProjectId'
+        - name: variant
+          in: query
+          required: false
+          description: '`edited` (по умолчанию, если есть правки) или `original`.'
+          schema:
+            type: string
+            enum: [edited, original]
       responses:
         '200':
           description: DXF-файл.
@@ -522,6 +693,9 @@ components:
         citation:
           type: string
           description: Как `citation` в `/zones`, например «743-ПП — газопровод».
+        norm_id:
+          type: string
+          description: Ссылка на запись `/norms` (`Norm.id`).
 
     ObstaclesFeatureCollection:
       type: object
@@ -530,7 +704,16 @@ components:
         type:
           const: FeatureCollection
         metadata:
-          $ref: '#/components/schemas/CrsMetadata'
+          allOf:
+            - $ref: '#/components/schemas/CrsMetadata'
+            - type: object
+              properties:
+                source_insunits:
+                  type: integer
+                  description: '`$INSUNITS` главного DXF, как в `parsed.geojson`.'
+                scale_to_meters:
+                  type: number
+                  description: Множитель единиц чертежа в метры, как в `parsed.geojson`.
         features:
           type: array
           items:
@@ -551,17 +734,35 @@ components:
             - $ref: '#/components/schemas/MultiPolygonGeometry'
         properties:
           type: object
-          required: [category, subtype, layer, handle]
+          description: |
+            Свойства — как в `parsed.geojson` (`greenplan/export/geojson.py`), кроме
+            `source_file`: путь на сервере наружу не отдаётся.
+          required: [rule_id, category, subtype, status, layer, dxftype, handle]
           properties:
+            rule_id:
+              type: string
+              description: Правило распознавания из `rules/default.yaml`.
             category:
               type: string
               description: Как `obstacle_category` в `/zones`.
             subtype:
               type: [string, 'null']
               description: Как `obstacle_subtype` в `/zones`.
+            status:
+              type: string
+              description: Статус правила распознавания, например `auto`, `proxy_low_confidence`.
             layer:
               type: string
               description: Слой исходного DXF.
+            dxftype:
+              type: string
+              description: Тип сущности DXF, например `LWPOLYLINE`, `INSERT`.
+            label:
+              type: string
+              description: Подпись геодезического пункта; только у `geodetic_points`.
+            elevation:
+              type: number
+              description: Отметка горизонтали; только у `contours`.
             handle:
               type: [string, 'null']
               description: |
@@ -606,8 +807,23 @@ components:
 
     Norm:
       type: object
-      required: [obstacle_category, obstacle_subtype, tree_m, shrub_m, citation, act, clause, text]
+      required:
+        [
+          id,
+          obstacle_category,
+          obstacle_subtype,
+          tree_m,
+          shrub_m,
+          citation,
+          act,
+          clause,
+          text,
+          source_url,
+        ]
       properties:
+        id:
+          type: string
+          description: Постоянный идентификатор нормы, например `743-pp-gas`; на него ссылается `norm_id`.
         obstacle_category:
           type: string
         obstacle_subtype:
@@ -622,8 +838,10 @@ components:
           type: string
           description: Строка как в `/zones`, например «743-ПП — газопровод».
         act:
-          type: string
-          description: Акт, например «743-ПП»; полное название — по решению бэкенда.
+          type: [string, 'null']
+          description: |
+            Акт, например «ПП Москвы от 10.09.2002 № 743-ПП, прил. 1»; `null`, если значение —
+            собственное решение сервиса и в нормативных актах строки нет.
         clause:
           type: [string, 'null']
           description: |
@@ -632,6 +850,228 @@ components:
         text:
           type: string
           description: Текст нормы по-русски, например «газопровод».
+        source_url:
+          type: [string, 'null']
+          description: Адрес первоисточника (docs.cntd.ru, base.garant.ru); `null`, если не найден.
+
+    Species:
+      type: object
+      required: [id, name_ru, name_lat, plant_type, crown_diameter_m, height_m, root_system, source]
+      properties:
+        id:
+          type: string
+          description: Постоянный идентификатор, например `tilia_cordata`.
+        name_ru:
+          type: string
+          description: Название по-русски, например «Липа мелколистная».
+        name_lat:
+          type: string
+          description: Латинское название, например «Tilia cordata».
+        plant_type:
+          $ref: '#/components/schemas/PlantType'
+        crown_diameter_m:
+          type: [number, 'null']
+          description: |
+            Типичный диаметр кроны взрослого растения, м; `null`, если источник его не даёт.
+            Не выдумывается: от него зависит правило выбора породы.
+        height_m:
+          type: number
+          description: Типичная высота взрослого растения, м.
+        root_system:
+          type: [string, 'null']
+          enum: [shallow, deep, mixed, null]
+          description: |
+            Корневая система — поверхностная, глубокая (стержневая) или смешанная; `null`, если
+            источник её не называет.
+        source:
+          type: string
+          description: Откуда данные о породе — документ или справочник, лучше с адресом.
+
+    PlantingOrigin:
+      type: string
+      enum: [auto, manual]
+      description: '`auto` — поставлена обработкой, `manual` — добавлена или перемещена пользователем.'
+
+    EditedPlantingsFeatureCollection:
+      type: object
+      required: [type, metadata, features]
+      properties:
+        type:
+          const: FeatureCollection
+        metadata:
+          $ref: '#/components/schemas/CrsMetadata'
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/EditedPlanting'
+
+    EditedPlanting:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type:
+          const: Feature
+        geometry:
+          $ref: '#/components/schemas/PointGeometry'
+        properties:
+          type: object
+          required: [id, plant_type, species_id, origin]
+          properties:
+            id:
+              type: string
+              description: Прежний `id` у посадки из `/planting`, новый — у добавленной.
+            plant_type:
+              $ref: '#/components/schemas/PlantType'
+            species_id:
+              type: [string, 'null']
+              description: Порода из `/species`; `null` — порода не выбрана.
+            origin:
+              $ref: '#/components/schemas/PlantingOrigin'
+
+    CheckedPlantingsFeatureCollection:
+      type: object
+      required: [type, metadata, features]
+      properties:
+        type:
+          const: FeatureCollection
+        metadata:
+          allOf:
+            - $ref: '#/components/schemas/CrsMetadata'
+            - type: object
+              required: [saved_at]
+              properties:
+                saved_at:
+                  type: string
+                  format: date-time
+                  description: Когда сохранены правки.
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckedPlanting'
+
+    CheckedPlanting:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type:
+          const: Feature
+        geometry:
+          $ref: '#/components/schemas/PointGeometry'
+        properties:
+          type: object
+          required: [id, plant_type, species_id, origin, status, checks, rejection]
+          properties:
+            id:
+              type: string
+            plant_type:
+              $ref: '#/components/schemas/PlantType'
+            species_id:
+              type: [string, 'null']
+            origin:
+              $ref: '#/components/schemas/PlantingOrigin'
+            status:
+              type: string
+              enum: [allowed, forbidden, rejected]
+              description: |
+                `allowed` — проверки пройдены; `forbidden` — точка в зоне запрета; `rejected` — нормы
+                соблюдены, но нарушен шаг или граница (см. `rejection`).
+            checks:
+              type: array
+              description: Проверки отступов от ближайших объектов, как в `/explanation`.
+              items:
+                $ref: '#/components/schemas/ExplanationCheck'
+            rejection:
+              description: Причина статуса `rejected`; у остальных — `null`.
+              anyOf:
+                - $ref: '#/components/schemas/PlantingRejection'
+                - type: 'null'
+
+    PlantingRejection:
+      type: object
+      required: [reason, text_ru]
+      properties:
+        reason:
+          type: string
+          enum: [spacing, outside_site]
+          description: '`spacing` — ближе шага к соседней посадке; `outside_site` — вне газона или границы участка.'
+        text_ru:
+          type: string
+          description: Объяснение по-русски, например «До соседнего дерева 3,2 м при шаге 5 м».
+        neighbour_id:
+          type: [string, 'null']
+          description: Соседняя посадка, с которой нарушен шаг.
+
+    ManualGeoreference:
+      type: object
+      required: [anchor_wgs84, anchor_drawing, rotation_deg, scale, method, rms_m, control_points]
+      properties:
+        anchor_wgs84:
+          type: object
+          required: [lat, lon]
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+          description: Опорная точка на местности, WGS84.
+        anchor_drawing:
+          type: object
+          required: [x, y]
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+          description: Та же точка в координатах чертежа, м (после `scale_to_meters`).
+        rotation_deg:
+          type: number
+          description: Поворот чертежа от истинного севера, градусы, против часовой стрелки.
+        scale:
+          type: number
+          exclusiveMinimum: 0
+          description: Метров местности в метре чертежа.
+        method:
+          type: string
+          enum: [manual, control_points]
+          description: '`manual` — совмещение вручную; `control_points` — подгонка по опорным точкам.'
+        rms_m:
+          type: [number, 'null']
+          description: Средняя квадратичная невязка по опорным точкам, м; `null` при ручном совмещении.
+        control_points:
+          type: array
+          description: Опорные точки с невязками; пустой список при ручном совмещении.
+          items:
+            $ref: '#/components/schemas/ControlPoint'
+
+    ControlPoint:
+      type: object
+      required: [drawing, wgs84, residual_m, used]
+      properties:
+        label:
+          type: [string, 'null']
+          description: Подпись пункта, если есть.
+        drawing:
+          type: object
+          required: [x, y]
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+        wgs84:
+          type: object
+          required: [lat, lon]
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+        residual_m:
+          type: number
+          description: Невязка точки после подгонки, м.
+        used:
+          type: boolean
+          description: Участвует в подгонке; `false` — контрольная точка.
 
     RunRequest:
       type: object
@@ -938,3 +1378,11 @@ components:
               $ref: '#/components/schemas/PlantType'
             rule_id:
               type: string
+            species_id:
+              type: [string, 'null']
+              description: Добавочно (возможность `species`) — порода из `/species`.
+            species_reason_ru:
+              type: [string, 'null']
+              description: |
+                Добавочно — одна-две фразы, почему выбрана порода, по проверенному правилу:
+                например «Корневая система поверхностная — подходит при близких сетях».

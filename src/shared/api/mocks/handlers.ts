@@ -1,6 +1,7 @@
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, type JsonBodyType } from 'msw';
 
 import { MAX_ARCHIVE_BYTES } from '../archive-limit';
+import type { components as Proposed } from '../generated/proposed';
 import {
   createProject,
   defaultRunParams,
@@ -8,16 +9,22 @@ import {
   findProject,
   listProjects,
   type MockProject,
+  placementOfProject,
   slotsAvailable,
   startRun,
   statusAt,
   toProjectResponse,
   updateProject,
 } from './db';
+import { NORMS } from './fixtures/norms';
 import { processingDefaults } from './fixtures/processing-defaults';
 import type { MockArchive } from './fixtures/projects';
-import { RESULT_DXF } from './fixtures/result-dxf';
-import { buildSiteResult, type RunParams } from './fixtures/site';
+import { plantingDxf } from './fixtures/result-dxf';
+import { buildSiteResult, checkPlantings, drawingPoints, type RunParams } from './fixtures/site';
+import { SPECIES } from './fixtures/species';
+
+type EditedPlanting = Proposed['schemas']['EditedPlanting'];
+type ManualGeoreference = Proposed['schemas']['ManualGeoreference'];
 
 // Совпадает с apiBaseUrl в public/config.json: мок подменяет тот же адрес, что и прокси Vite.
 const API = '/api';
@@ -261,7 +268,11 @@ const encodeRfc5987 = (value: string): string =>
     (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
   );
 
-type ReadyResult = { project: MockProject; result: ReturnType<typeof buildSiteResult> };
+type ReadyResult = {
+  project: MockProject;
+  run: NonNullable<MockProject['run']>;
+  result: ReturnType<typeof buildSiteResult>;
+};
 
 // Как _require_ready_dir: ../backend/greenplan/api/app.py:48-54.
 function readyResult(projectId: string): ReadyResult | Response {
@@ -271,8 +282,122 @@ function readyResult(projectId: string): ReadyResult | Response {
   if (status !== 'ready' || project.run === null) {
     return detail(404, `Project data not available yet (status: ${status})`);
   }
-  return { project, result: buildSiteResult(project.run.params, project.bbox !== null) };
+  return {
+    project,
+    run: project.run,
+    result: buildSiteResult(project.run.params, placementOfProject(project)),
+  };
 }
+
+const geoJson = (body: JsonBodyType) =>
+  HttpResponse.json(body, { headers: { 'Content-Type': 'application/geo+json' } });
+
+const isPlantType = (value: unknown): value is 'tree' | 'shrub' =>
+  value === 'tree' || value === 'shrub';
+
+// Разбор тела PUT /plantings по контракту EditedPlantingsFeatureCollection. Мок проверяет
+// ровно то, от чего зависит перепроверка: точку, тип, породу и происхождение.
+function parsePlantings(body: unknown): EditedPlanting[] | ValidationIssue {
+  const invalid = (loc: (string | number)[], msg: string, input: unknown): ValidationIssue => ({
+    type: 'value_error',
+    loc: ['body', ...loc],
+    msg,
+    input,
+  });
+  if (!isRecord(body) || !Array.isArray(body.features)) {
+    return invalid(['features'], 'Field required', body);
+  }
+  const plantings: EditedPlanting[] = [];
+  for (const [index, feature] of body.features.entries()) {
+    const geometry = isRecord(feature) ? feature.geometry : undefined;
+    const properties = isRecord(feature) ? feature.properties : undefined;
+    const coordinates = isRecord(geometry) ? geometry.coordinates : undefined;
+    if (
+      !Array.isArray(coordinates) ||
+      coordinates.length !== 2 ||
+      !coordinates.every(isFiniteNumber)
+    ) {
+      return invalid(['features', index, 'geometry'], 'Point [x, y] expected', geometry);
+    }
+    if (
+      !isRecord(properties) ||
+      typeof properties.id !== 'string' ||
+      !isPlantType(properties.plant_type) ||
+      !(properties.species_id === null || typeof properties.species_id === 'string') ||
+      !(properties.origin === 'auto' || properties.origin === 'manual')
+    ) {
+      return invalid(['features', index, 'properties'], 'Invalid planting properties', properties);
+    }
+    plantings.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates },
+      properties: {
+        id: properties.id,
+        plant_type: properties.plant_type,
+        species_id: properties.species_id,
+        origin: properties.origin,
+      },
+    });
+  }
+  return plantings;
+}
+
+// Разбор тела PUT /georeference: числа там, где контракт их требует.
+function parseGeoreference(body: unknown): ManualGeoreference | ValidationIssue {
+  const invalid = (loc: string, input: unknown): ValidationIssue => ({
+    type: 'value_error',
+    loc: ['body', loc],
+    msg: 'Invalid value',
+    input,
+  });
+  if (!isRecord(body)) return notAnObject(body);
+  const { anchor_wgs84: wgs84, anchor_drawing: drawing, rotation_deg, scale, method, rms_m } = body;
+  if (!isRecord(wgs84) || !isFiniteNumber(wgs84.lat) || !isFiniteNumber(wgs84.lon)) {
+    return invalid('anchor_wgs84', wgs84);
+  }
+  if (!isRecord(drawing) || !isFiniteNumber(drawing.x) || !isFiniteNumber(drawing.y)) {
+    return invalid('anchor_drawing', drawing);
+  }
+  if (!isFiniteNumber(rotation_deg)) return invalid('rotation_deg', rotation_deg);
+  if (!isFiniteNumber(scale) || scale <= 0) return invalid('scale', scale);
+  if (method !== 'manual' && method !== 'control_points') return invalid('method', method);
+  if (!(rms_m === null || isFiniteNumber(rms_m))) return invalid('rms_m', rms_m);
+  if (!Array.isArray(body.control_points)) return invalid('control_points', body.control_points);
+  const controlPoints: ManualGeoreference['control_points'] = [];
+  for (const point of body.control_points) {
+    if (
+      !isRecord(point) ||
+      !isRecord(point.drawing) ||
+      !isFiniteNumber(point.drawing.x) ||
+      !isFiniteNumber(point.drawing.y) ||
+      !isRecord(point.wgs84) ||
+      !isFiniteNumber(point.wgs84.lat) ||
+      !isFiniteNumber(point.wgs84.lon) ||
+      !isFiniteNumber(point.residual_m) ||
+      typeof point.used !== 'boolean'
+    ) {
+      return invalid('control_points', point);
+    }
+    controlPoints.push({
+      label: typeof point.label === 'string' ? point.label : null,
+      drawing: { x: point.drawing.x, y: point.drawing.y },
+      wgs84: { lat: point.wgs84.lat, lon: point.wgs84.lon },
+      residual_m: point.residual_m,
+      used: point.used,
+    });
+  }
+  return {
+    anchor_wgs84: { lat: wgs84.lat, lon: wgs84.lon },
+    anchor_drawing: { x: drawing.x, y: drawing.y },
+    rotation_deg,
+    scale,
+    method,
+    rms_m,
+    control_points: controlPoints,
+  };
+}
+
+const isIssue = (value: object): value is ValidationIssue => 'msg' in value && 'loc' in value;
 
 export const handlers = [
   http.get(`${API}/projects`, () =>
@@ -400,10 +525,97 @@ export const handlers = [
     });
   }),
 
-  http.get<ProjectParams>(`${API}/projects/:projectId/dxf`, ({ params }) => {
+  http.get<ProjectParams>(`${API}/projects/:projectId/obstacles`, ({ params }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
-    return new HttpResponse(RESULT_DXF, {
+    return geoJson(ready.result.obstacles);
+  }),
+
+  http.get<ProjectParams>(`${API}/projects/:projectId/rejected`, ({ params }) => {
+    const ready = readyResult(params.projectId);
+    if (ready instanceof Response) return ready;
+    return geoJson(ready.result.rejected);
+  }),
+
+  http.get(`${API}/norms`, () => HttpResponse.json(NORMS)),
+
+  http.get(`${API}/species`, () => HttpResponse.json(SPECIES)),
+
+  http.get<ProjectParams>(`${API}/projects/:projectId/plantings`, ({ params }) => {
+    const ready = readyResult(params.projectId);
+    if (ready instanceof Response) return ready;
+    // Правок не было — штатный случай, а не 404: 404 значит «нет проекта или результата».
+    if (ready.project.edits === null) return new HttpResponse(null, { status: 204 });
+    return geoJson(ready.project.edits);
+  }),
+
+  http.put<ProjectParams>(`${API}/projects/:projectId/plantings`, async ({ params, request }) => {
+    const ready = readyResult(params.projectId);
+    if (ready instanceof Response) return ready;
+    const parsed = await readJson(request);
+    if (!parsed.ok) return validationError([jsonInvalid()]);
+    const plantings = parsePlantings(parsed.body);
+    if (!Array.isArray(plantings)) return validationError([plantings]);
+
+    const placement = placementOfProject(ready.project);
+    ready.project.edits = {
+      type: 'FeatureCollection',
+      metadata: {
+        crs: ready.result.planting.metadata.crs,
+        saved_at: new Date().toISOString(),
+      },
+      features: checkPlantings(plantings, placement, ready.run.params),
+    };
+    return geoJson(ready.project.edits);
+  }),
+
+  http.put<ProjectParams>(
+    `${API}/projects/:projectId/georeference`,
+    async ({ params, request }) => {
+      const project = findProject(params.projectId);
+      if (project === undefined) return projectNotFound();
+      const now = Date.now();
+      const status = statusAt(project, now);
+      const { archive } = project;
+      if (archive === null) return detail(409, 'No archive uploaded for this project');
+      if (status !== 'ready' && status !== 'failed') {
+        return detail(409, `Project is not runnable in status '${status}'`);
+      }
+      const parsed = await readJson(request);
+      if (!parsed.ok) return validationError([jsonInvalid()]);
+      const georeference = parseGeoreference(parsed.body);
+      if (isIssue(georeference)) return validationError([georeference]);
+      if (!slotsAvailable(now)) return tooManyJobs();
+
+      project.georeference = georeference;
+      startRun(
+        project,
+        archive,
+        project.run?.params ?? defaultRunParams(),
+        project.run?.rootDxf ?? null,
+        now,
+      );
+      return HttpResponse.json(toProjectResponse(project, now), { status: 202 });
+    },
+  ),
+
+  http.get<ProjectParams>(`${API}/projects/:projectId/dxf`, ({ params, request }) => {
+    const ready = readyResult(params.projectId);
+    if (ready instanceof Response) return ready;
+    const variant = new URL(request.url).searchParams.get('variant');
+    const { edits } = ready.project;
+    const source =
+      edits !== null && variant !== 'original' ? edits.features : ready.result.planting.features;
+    const dxf = plantingDxf(
+      drawingPoints(
+        source.map(({ geometry, properties }) => ({
+          coordinates: geometry.coordinates,
+          plantType: properties.plant_type,
+        })),
+        placementOfProject(ready.project),
+      ),
+    );
+    return new HttpResponse(dxf, {
       headers: {
         'Content-Type': 'application/dxf',
         'Content-Disposition': `attachment; filename="planting.dxf"; filename*=UTF-8''${encodeRfc5987(ready.project.name)}.dxf`,
