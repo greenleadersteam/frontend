@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
+import type { LocalPoint } from '@/shared/lib/geometry';
+
 import { dimensionLines } from './dimension-lines';
-import { createLocalFrame, type LocalPoint } from './local-frame';
+import { createLocalFrame } from './local-frame';
 import type { PlantingCheck, ProhibitedZone } from './planting-checks';
 
 // Метры чертежа у экватора: условные lon/lat ≈ метры / 111 319,5 — проверяем в метрах обратно.

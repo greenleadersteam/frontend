@@ -1,7 +1,15 @@
+import {
+  area,
+  boundaryIndex,
+  isInside,
+  type LocalPoint,
+  type LocalPolygon,
+  nearestOnBoundary,
+} from '@/shared/lib/geometry';
+
 import type { ZonesFeatureCollection } from '../api/project-result-api';
 import type { PlantType } from '../model/project';
-import { area, boundaryIndex, isInside, type LocalPolygon, nearestOnBoundary } from './geometry';
-import type { LocalFrame, LocalPoint } from './local-frame';
+import type { LocalFrame } from './local-frame';
 import type { Position } from './plan-projection';
 
 type ZoneFeature = ZonesFeatureCollection['features'][number];

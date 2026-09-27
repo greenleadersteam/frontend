@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
-import { area, boundaryIndex, isInside, type LocalPolygon, nearestOnBoundary } from './geometry';
-import type { LocalPoint } from './local-frame';
+import {
+  area,
+  boundaryIndex,
+  isInside,
+  type LocalPoint,
+  type LocalPolygon,
+  nearestOnBoundary,
+} from './geometry';
 
 const square = (x: number, y: number, size: number): LocalPoint[] => [
   [x, y],

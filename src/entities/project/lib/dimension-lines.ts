@@ -1,6 +1,7 @@
 import { formatMeters } from '@/shared/lib/format';
+import type { LocalPoint } from '@/shared/lib/geometry';
 
-import type { LocalFrame, LocalPoint } from './local-frame';
+import type { LocalFrame } from './local-frame';
 import type { PlantingCheck } from './planting-checks';
 
 // На карте — не больше трёх ближайших ограничений: больше линий у одной посадки не читается.

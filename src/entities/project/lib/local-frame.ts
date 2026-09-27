@@ -1,7 +1,6 @@
-import type { Extent, Position } from './plan-projection';
+import type { LocalPoint } from '@/shared/lib/geometry';
 
-// Точка в локальных метрах вокруг центра участка: x — на восток, y — на север.
-export type LocalPoint = readonly [x: number, y: number];
+import type { Extent, Position } from './plan-projection';
 
 export type LocalFrame = {
   // Координаты данных (WGS84 или метры чертежа) → локальные метры.
