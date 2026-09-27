@@ -19,12 +19,17 @@ import {
   lawnArea,
   lawnSummary,
   type LocalFrame,
+  MANUAL_IMAGE,
+  manualDiamond,
   OBSTACLE_LAYERS,
   obstacleGroup,
   type ObstaclesFeatureCollection,
+  overlappingCrowns,
   pixelsPerMeterAtZoom,
   type PlantingCheck,
   type PlantingFeatureCollection,
+  type PlantingStatus,
+  plantingStatus,
   type PlantType,
   plantTypeFilters,
   type PreparedObstacles,
@@ -42,15 +47,23 @@ import {
   type Species,
   toMapRejected,
 } from '@/entities/project';
+import {
+  EditToolbar,
+  type FinalPlanting,
+  plantingEditsActions,
+  useEditMode,
+} from '@/features/edit-plantings';
+import { useAppDispatch } from '@/shared/lib/store';
 import { Icon } from '@/shared/ui';
 
 import { LawnPanel } from './lawn-panel';
-import { LayersPanel, type LayerVisibility } from './layers-panel';
+import { type EditMark, LayersPanel, type LayerVisibility } from './layers-panel';
 import { ObstaclePanel } from './obstacle-panel';
 import { PlantingPanel } from './planting-panel';
 import { RejectedPanel } from './rejected-panel';
 import { resultLabel } from './result-label';
 import classes from './result-map.module.css';
+import { usePlanEditing } from './use-plan-editing';
 import { ZonePanel } from './zone-panel';
 
 // maplibre-gl, его стили, pmtiles и стиль подложки грузятся, только когда карта показывается.
@@ -74,6 +87,9 @@ export type Selection =
   | { kind: 'lawn' }
   | null;
 
+// Результат с правками: итоговая расстановка вместо /planting.
+export type EditedResult = Omit<ResultData, 'planting'> & { planting: FinalPlanting };
+
 // Объекты подосновы: в координатах карты для слоёв и подготовленные для проверок.
 export type MapObstacles = { map: ObstaclesFeatureCollection; prepared: PreparedObstacles };
 
@@ -84,10 +100,15 @@ export type CenterRequest = {
 };
 
 type ResultMapProps = {
-  // Данные бэкенда: по ним считаются проверки.
-  data: ResultData;
+  projectId: string;
+  // Расстановка сервиса из /planting: от неё считаются правки.
+  source: PlantingFeatureCollection;
+  // Данные бэкенда с правками: по ним считаются проверки.
+  data: EditedResult;
+  // Статусы правленых посадок и статусы сервера после сохранения.
+  statuses: ReadonlyMap<string, PlantingStatus>;
   // Те же данные в координатах карты.
-  mapData: ResultData;
+  mapData: EditedResult;
   // Охват в координатах карты: [запад, юг, восток, север].
   bounds: [number, number, number, number];
   frame: LocalFrame;
@@ -128,7 +149,10 @@ function plantingChecks(
 }
 
 export function ResultMap({
+  projectId,
+  source,
   data,
+  statuses,
   mapData,
   bounds,
   frame,
@@ -182,6 +206,14 @@ export function ResultMap({
   const zoneRef = useRef<number | null>(null);
   const obstacleRef = useRef<number | null>(null);
   const rejectedRef = useRef<number | null>(null);
+  const dispatch = useAppDispatch();
+  const mode = useEditMode(projectId);
+  // Обработчик щелчка создаётся один раз при загрузке карты: режим правки он читает отсюда.
+  const addingRef = useRef(false);
+  useEffect(() => {
+    addingRef.current = mode.editing && mode.tool !== 'select';
+  }, [mode.editing, mode.tool]);
+  const mapRejected = rejected === null ? null : toMapRejected(rejected, frame);
 
   const selectedPlanting =
     selection?.kind === 'planting'
@@ -192,6 +224,17 @@ export function ResultMap({
     selection?.kind === 'obstacle' ? obstacles?.prepared.obstacles[selection.index] : undefined;
   const selectedEntry =
     selectedPlanting === undefined ? undefined : explanation.get(selectedPlanting.properties.id);
+  // Перемещённая или добавленная: /explanation описывает исходную точку или ничего. Её проверки
+  // считаются по новой точке, а координаты чертежа — свои только у плана в метрах чертежа.
+  const selectedChanged =
+    selectedPlanting !== undefined &&
+    (selectedPlanting.properties.origin === 'manual' ||
+      selectedPlanting.properties.moved_from !== null);
+  const [drawingX, drawingY] = selectedChanged
+    ? geographic
+      ? []
+      : selectedPlanting.geometry.coordinates
+    : [selectedEntry?.x, selectedEntry?.y];
   const selectedRejected =
     selection?.kind === 'rejected' ? rejected?.features[selection.index] : undefined;
   const rejectedChecks =
@@ -204,7 +247,14 @@ export function ResultMap({
           obstacles?.prepared ?? null,
         );
   const checks =
-    rejectedChecks ?? plantingChecks(selectedPlanting, selectedEntry, frame, prepared, obstacles);
+    rejectedChecks ??
+    plantingChecks(
+      selectedPlanting,
+      selectedChanged ? undefined : selectedEntry,
+      frame,
+      prepared,
+      obstacles,
+    );
   // Тип посадки выбранной точки — для отступа подписей размеров от кроны.
   const selectedPlantType =
     selectedPlanting?.properties.plant_type ?? selectedRejected?.properties.plant_type ?? null;
@@ -366,24 +416,92 @@ export function ResultMap({
     openedPanelRef.current?.focus();
   }, [selection]);
 
+  // Правка меняет расстановку: источники посадок, блика, изгороди и колец статуса
+  // пересобираются по итоговой расстановке.
+  useEffect(() => {
+    if (map === null) return;
+    const next = resultSources(mapData, obstacles?.map ?? null, mapRejected, statuses, latitude);
+    for (const id of [
+      RESULT_SOURCE.planting,
+      RESULT_SOURCE.highlights,
+      RESULT_SOURCE.hedges,
+      RESULT_SOURCE.status,
+    ]) {
+      const { data: features } = next[id];
+      void map.getSource<GeoJSONSource>(id)?.setData(features);
+    }
+  }, [map, mapData, obstacles, mapRejected, statuses, latitude]);
+
+  // Откуда перемещена выбранная посадка — пунктир от исходной точки к новой.
+  const selectedMovedFrom = selectedPlanting?.properties.moved_from ?? null;
+  const selectedPoint = selectedPlanting?.geometry.coordinates;
+  useEffect(() => {
+    if (map === null) return;
+    void map.getSource<GeoJSONSource>(RESULT_SOURCE.moved)?.setData({
+      type: 'FeatureCollection',
+      features:
+        selectedMovedFrom === null || selectedPoint === undefined
+          ? []
+          : [
+              {
+                type: 'Feature',
+                geometry: {
+                  type: 'LineString',
+                  coordinates: [
+                    frame.toMap(frame.toLocal(selectedMovedFrom)),
+                    frame.toMap(frame.toLocal(selectedPoint)),
+                  ],
+                },
+                properties: {},
+              },
+            ],
+    });
+  }, [map, frame, selectedMovedFrom, selectedPoint]);
+
+  usePlanEditing({
+    map,
+    projectId,
+    mode,
+    visible,
+    frame,
+    latitude,
+    plantings: new Map(
+      data.planting.features.map(({ geometry, properties }) => [
+        properties.id,
+        { point: geometry.coordinates, plantType: properties.plant_type },
+      ]),
+    ),
+    // Выбор мог пережить отмену добавления: клавиши правки — только для существующей посадки.
+    selectedId: selectedPlanting?.properties.id ?? null,
+    onSelect: (id) => {
+      onSelect(id === null ? null : { kind: 'planting', id });
+    },
+    defaultSpecies: (type) =>
+      [...species.values()].find(({ plant_type: speciesType }) => speciesType === type)?.id ?? null,
+    statusAt: (point, type) => plantingStatus(point, type, prepared, obstacles?.prepared ?? null),
+    checksAt: (point, type) =>
+      obstacles === null
+        ? checksForPlanting(point, type, prepared)
+        : checksAgainstObstacles(point, type, undefined, obstacles.prepared),
+    metersPerPixel: () => 1 / pixelsPerMeterAtZoom(zoom, latitude),
+  });
+
   const addResult = (target: MapLibreMap) => {
     const pixelRatio = target.getPixelRatio();
     target.addImage(HATCH_IMAGE, hatchPattern(pixelRatio), { pixelRatio });
-    for (const [id, source] of Object.entries(
-      resultSources(
-        mapData,
-        obstacles?.map ?? null,
-        rejected === null ? null : toMapRejected(rejected, frame),
-        latitude,
-      ),
+    target.addImage(MANUAL_IMAGE, manualDiamond(pixelRatio), { pixelRatio });
+    for (const [id, spec] of Object.entries(
+      resultSources(mapData, obstacles?.map ?? null, mapRejected, statuses, latitude),
     )) {
-      target.addSource(id, source);
+      target.addSource(id, spec);
     }
     for (const layer of resultLayers(latitude)) target.addLayer(layer);
 
     // Приоритет щелчка: посадка (и полоса изгороди) > отклонённое место > объект > зона
     // запрета > газон; щелчок по пустому месту снимает выбор.
     target.on('click', (event) => {
+      // Щелчок в режиме добавления ставит посадку (usePlanEditing), а не выбирает.
+      if (addingRef.current) return;
       const [planting] = target.queryRenderedFeatures(event.point, { layers: SELECTABLE_LAYERS });
       const id: unknown = planting?.properties.id;
       if (typeof id === 'string') {
@@ -437,11 +555,12 @@ export function ResultMap({
       RESULT_LAYER.zones,
       RESULT_LAYER.lawn,
     ]) {
+      // В режиме добавления курсор — перекрестие и над слоями.
       target.on('mouseenter', layer, () => {
-        target.getCanvas().style.cursor = 'pointer';
+        if (!addingRef.current) target.getCanvas().style.cursor = 'pointer';
       });
       target.on('mouseleave', layer, () => {
-        target.getCanvas().style.cursor = '';
+        if (!addingRef.current) target.getCanvas().style.cursor = '';
       });
     }
     target.on('zoomend', () => {
@@ -498,13 +617,65 @@ export function ResultMap({
         )
       : null;
   const [lon, lat] = selectedPlanting?.geometry.coordinates ?? [];
+  // Правка выбранной посадки: статус, на сколько перемещена, пересекаются ли кроны.
+  const selectedLocal =
+    selectedPlanting === undefined ? null : frame.toLocal(selectedPlanting.geometry.coordinates);
+  // Статус — у правленых и у любой посадки в режиме правки: вне его посадки сервиса клиент
+  // не проверяет.
+  const edit =
+    selectedPlanting === undefined || selectedLocal === null || !(mode.editing || selectedChanged)
+      ? null
+      : {
+          status: statuses.get(selectedPlanting.properties.id) ?? 'allowed',
+          movedBy:
+            selectedMovedFrom === null
+              ? null
+              : Math.hypot(
+                  selectedLocal[0] - frame.toLocal(selectedMovedFrom)[0],
+                  selectedLocal[1] - frame.toLocal(selectedMovedFrom)[1],
+                ),
+          overlaps: overlappingCrowns(
+            {
+              id: selectedPlanting.properties.id,
+              point: selectedLocal,
+              plantType: selectedPlanting.properties.plant_type,
+            },
+            data.planting.features.map(({ geometry, properties }) => ({
+              id: properties.id,
+              point: frame.toLocal(geometry.coordinates),
+              plantType: properties.plant_type,
+            })),
+          ),
+        };
   const panel =
     selectedPlanting !== undefined ? (
       <PlantingPanel
         ref={openedPanelRef}
         planting={selectedPlanting.properties}
         entry={selectedEntry}
+        drawing={
+          drawingX === undefined || drawingY === undefined ? null : { x: drawingX, y: drawingY }
+        }
         species={selectedSpecies}
+        edit={edit}
+        editing={mode.editing}
+        speciesOptions={[...species.values()].filter(
+          ({ plant_type: type }) => type === selectedPlanting.properties.plant_type,
+        )}
+        onSpeciesChange={(speciesId) => {
+          dispatch(
+            plantingEditsActions.speciesChanged({
+              projectId,
+              id: selectedPlanting.properties.id,
+              speciesId,
+            }),
+          );
+        }}
+        onRestore={() => {
+          dispatch(
+            plantingEditsActions.restored({ projectId, id: selectedPlanting.properties.id }),
+          );
+        }}
         coordinates={geographic && lon !== undefined && lat !== undefined ? { lat, lon } : null}
         checks={checks}
         uncovered={data.zones.metadata.uncovered_categories}
@@ -578,6 +749,14 @@ export function ResultMap({
         }}
       />
     ) : null;
+  const shownStatuses = new Set(statuses.values());
+  const editMarks: EditMark[] = [
+    ...(data.planting.features.some(({ properties }) => properties.origin === 'manual')
+      ? (['manual'] as const)
+      : []),
+    ...(shownStatuses.has('forbidden') ? (['forbidden'] as const) : []),
+    ...(shownStatuses.has('rejected') ? (['rejected'] as const) : []),
+  ];
   const layersPanel = (
     <LayersPanel
       counts={{ ...counts, zones: counts.zonesByType[plantType] }}
@@ -599,6 +778,7 @@ export function ResultMap({
       selectedId={selection?.kind === 'planting' ? selection.id : null}
       onSelect={selectFromList}
       inPopover={narrow}
+      editMarks={editMarks}
     />
   );
 
@@ -622,6 +802,20 @@ export function ResultMap({
             onBasemapResolved={setBasemapAvailable}
             onUnavailable={onUnavailable}
           >
+            {mode.editing && (
+              <div className={classes.topCenter}>
+                <EditToolbar
+                  projectId={projectId}
+                  source={source}
+                  // Выбор мог пережить отмену добавления: удалять можно только то, что есть.
+                  selectedId={selectedPlanting?.properties.id ?? null}
+                  active={visible}
+                  onRemoved={() => {
+                    onSelect(null);
+                  }}
+                />
+              </div>
+            )}
             <div className={classes.topLeft}>
               {narrow ? (
                 <Popover position="bottom-start" shadow="md">

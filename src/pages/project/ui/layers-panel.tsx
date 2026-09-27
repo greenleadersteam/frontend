@@ -27,6 +27,9 @@ import { LegendSymbol } from './legend-symbol';
 
 export type LayerVisibility = Record<ResultLayerGroup | 'basemap', boolean>;
 
+// Знаки правок на плане: ромб добавленной вручную и кольца статусов.
+export type EditMark = 'manual' | 'forbidden' | 'rejected';
+
 type CountedGroup = 'trees' | 'shrubs' | 'zones';
 
 type LayersPanelProps = {
@@ -55,6 +58,8 @@ type LayersPanelProps = {
   onSelect: (id: string | null) => void;
   // Панель внутри Popover (узкий экран).
   inPopover: boolean;
+  // Знаки правок, которые есть на плане; пусто — правок нет, легенды нет.
+  editMarks: EditMark[];
 };
 
 // На крупном участке посадок тысячи: список показывает первые совпадения поиска.
@@ -75,6 +80,12 @@ const PLANT_TYPES = [
   { value: 'tree', label: 'Деревья' },
   { value: 'shrub', label: 'Кустарники' },
 ];
+
+const EDIT_MARKS = {
+  manual: { symbol: 'manual', label: 'Добавлена вручную' },
+  forbidden: { symbol: 'statusForbidden', label: 'Нарушает норму' },
+  rejected: { symbol: 'statusRejected', label: 'Вне разрешённой области' },
+} as const satisfies Record<EditMark, { symbol: string; label: string }>;
 
 const OBSTACLE_ROWS = [
   { group: 'utilities', label: 'Сети' },
@@ -99,6 +110,7 @@ export function LayersPanel({
   selectedId,
   onSelect,
   inPopover,
+  editMarks,
 }: LayersPanelProps): JSX.Element {
   // Искать можно только среди видимых посадок: скрытая не должна становиться выбранной.
   const options = planting.features
@@ -150,6 +162,16 @@ export function LayersPanel({
           spoken={formatCount(counts[group], RESULT_COUNT_FORMS[group])}
         />
       ))}
+      {editMarks.length > 0 && (
+        <ul className={classes.legend} aria-label="Условные знаки правок">
+          {editMarks.map((mark) => (
+            <li key={mark} className={classes.legendItem}>
+              <LegendSymbol kind={EDIT_MARKS[mark].symbol} />
+              <Text size="xs">{EDIT_MARKS[mark].label}</Text>
+            </li>
+          ))}
+        </ul>
+      )}
       {allowedArea !== null && (
         <LayerSwitch
           kind="allowed"

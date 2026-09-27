@@ -1,12 +1,15 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, test } from 'vitest';
 
+import { plantingEditsSlice } from '@/features/edit-plantings';
 import { renderWithProviders } from '@/shared/lib/test';
 
 import { routes } from './routes';
 
 const headingAt = async (path: string) => {
-  renderWithProviders(routes, path);
+  renderWithProviders(routes, path, {
+    [plantingEditsSlice.name]: plantingEditsSlice.reducer,
+  });
   // Маршрут ленивый: первое открытие грузит и трансформирует модуль страницы, под нагрузкой
   // это дольше секунды ожидания по умолчанию.
   return screen.findByRole('heading', { level: 1 }, { timeout: 5000 });

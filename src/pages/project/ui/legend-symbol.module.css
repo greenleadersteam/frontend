@@ -134,3 +134,21 @@
   stroke: var(--mantine-color-clay-6);
   stroke-width: 1.5;
 }
+
+/* Ромб «добавлено вручную» — белый с тёмной обводкой, как manualDiamond в result-layers.ts. */
+.manual {
+  fill: var(--mantine-color-white);
+  stroke: var(--mantine-color-stone-9);
+  stroke-width: 1;
+}
+
+/* Кольцо статуса: сплошное — нарушает норму, пунктир — вне разрешённой области; ритм 2 : 1,5 толщины, как на карте. */
+.statusRing {
+  fill: none;
+  stroke: var(--mantine-color-clay-6);
+  stroke-width: 1.5;
+}
+
+.statusRing[data-dash='dashed'] {
+  stroke-dasharray: 3 2.25;
+}

@@ -14,6 +14,7 @@ import {
   dimensionLabelsMinZoom,
   hatchPattern,
   hedgeRows,
+  manualDiamond,
   plantTypeFilters,
   RESULT_LAYER,
   RESULT_SOURCE,
@@ -21,6 +22,7 @@ import {
   resultExtent,
   resultLayers,
   resultSources,
+  statusRings,
   utilityLabelsMinZoom,
 } from './result-layers';
 
@@ -225,6 +227,13 @@ describe('источники и слои результата', () => {
       RESULT_LAYER.treeShadows,
       RESULT_LAYER.trees,
       RESULT_LAYER.treeHighlights,
+      RESULT_LAYER.statusForbidden,
+      RESULT_LAYER.statusRejected,
+      RESULT_LAYER.manualMark,
+      RESULT_LAYER.movedLine,
+      RESULT_LAYER.editCrown,
+      RESULT_LAYER.editForbidden,
+      RESULT_LAYER.editRejected,
       RESULT_LAYER.utilityLabels,
       RESULT_LAYER.dimensionMargin,
       RESULT_LAYER.dimensionSetback,
@@ -236,7 +245,9 @@ describe('источники и слои результата', () => {
   });
 
   test('газон, граница участка и «можно» — свой источник, без base_area и зон запрета', () => {
-    const { data } = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.site];
+    const { data } = resultSources({ planting, zones }, null, null, new Map(), LAT)[
+      RESULT_SOURCE.site
+    ];
 
     expect(data).toMatchObject({
       features: [
@@ -259,7 +270,9 @@ describe('источники и слои результата', () => {
   });
 
   test('посадки — с promoteId по id и радиусом кроны по типу', () => {
-    const source = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.planting];
+    const source = resultSources({ planting, zones }, null, null, new Map(), LAT)[
+      RESULT_SOURCE.planting
+    ];
 
     expect(source.promoteId).toBe('id');
     expect(source.data).toMatchObject({
@@ -271,7 +284,9 @@ describe('источники и слои результата', () => {
   });
 
   test('блик — только у деревьев, к северо-западу от центра кроны', () => {
-    const { data } = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.highlights];
+    const { data } = resultSources({ planting, zones }, null, null, new Map(), LAT)[
+      RESULT_SOURCE.highlights
+    ];
     if (typeof data === 'string' || data.type !== 'FeatureCollection') throw new Error('данные');
     const [highlight] = data.features;
     if (highlight?.geometry.type !== 'Point') throw new Error('ожидалась точка');
@@ -285,14 +300,16 @@ describe('источники и слои результата', () => {
   });
 
   test('на карте — только зоны запрета; охват — по ним и по посадкам', () => {
-    const { data } = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.zones];
+    const { data } = resultSources({ planting, zones }, null, null, new Map(), LAT)[
+      RESULT_SOURCE.zones
+    ];
 
     expect(data).toMatchObject({
       features: [{ properties: { zone_type: 'prohibited', zone_index: 0 } }],
     });
-    expect(resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.zones].promoteId).toBe(
-      'zone_index',
-    );
+    expect(
+      resultSources({ planting, zones }, null, null, new Map(), LAT)[RESULT_SOURCE.zones].promoteId,
+    ).toBe('zone_index');
     expect(resultExtent({ planting, zones })).toEqual({
       minX: 37.599,
       minY: 55.749,
@@ -329,7 +346,7 @@ describe('источники и слои результата', () => {
   });
 
   test('объекты: сети, кромки и здания с номером, цветом сети и подписью; остальное не рисуется', () => {
-    const { data, promoteId } = resultSources({ planting, zones }, obstacles, null, LAT)[
+    const { data, promoteId } = resultSources({ planting, zones }, obstacles, null, new Map(), LAT)[
       RESULT_SOURCE.obstacles
     ];
 
@@ -357,7 +374,7 @@ describe('источники и слои результата', () => {
       ],
     });
     expect(
-      resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.obstacles].data,
+      resultSources({ planting, zones }, null, null, new Map(), LAT)[RESULT_SOURCE.obstacles].data,
     ).toMatchObject({ features: [] });
   });
 
@@ -391,6 +408,69 @@ describe('hatchPattern', () => {
     // Линия продолжается через край плитки: картинка бесшовная.
     expect(pixel(15, 1)).toEqual([0xd9, 0xa8, 0x9a, 255]);
     expect(pixel(8, 8)[3]).toBe(255);
+  });
+});
+
+describe('знаки правок', () => {
+  const planting: PlantingFeatureCollection = {
+    type: 'FeatureCollection',
+    metadata: { crs: 'EPSG:4326' },
+    features: ['a', 'b', 'c', 'd'].map((id, index) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [37.6 + index * 0.001, LAT] },
+      properties: { id, plant_type: index === 3 ? 'shrub' : 'tree', rule_id: 'R' },
+    })),
+  };
+
+  test('кольца — только у нарушающих и вне области, чуть шире кроны', () => {
+    const statuses = new Map([
+      ['a', 'forbidden' as const],
+      ['b', 'allowed' as const],
+      ['d', 'rejected' as const],
+    ]);
+
+    const { features } = statusRings(planting, statuses, LAT);
+
+    expect(features.map(({ id, properties }) => [id, properties.status])).toEqual([
+      ['a', 'forbidden'],
+      ['d', 'rejected'],
+    ]);
+    const [ring] = features;
+    const [first, ...rest] = ring?.geometry.coordinates ?? [];
+    // Замкнутое кольцо вокруг ствола радиусом кроны дерева 1,5 м плюс зазор 0,35 м.
+    expect(rest.at(-1)).toEqual(first);
+    const northmost = Math.max(...(ring?.geometry.coordinates.map(([, lat = 0]) => lat) ?? []));
+    expect((northmost - LAT) * 111_320).toBeCloseTo(1.85, 2);
+  });
+
+  test('слои колец: сплошное и пунктирное clay.6, скрываются на время жеста', () => {
+    const layers = resultLayers(LAT);
+    const paint = (id: string) => {
+      const layer = layers.find((candidate) => candidate.id === id);
+      return layer?.type === 'line' ? layer.paint : undefined;
+    };
+
+    expect(paint(RESULT_LAYER.statusForbidden)).toMatchObject({
+      'line-color': resultLayerColors.statusRing,
+      'line-width': 2,
+    });
+    expect(paint(RESULT_LAYER.statusForbidden)).not.toHaveProperty('line-dasharray');
+    expect(paint(RESULT_LAYER.statusRejected)).toHaveProperty('line-dasharray');
+    expect(paint(RESULT_LAYER.statusRejected)?.['line-opacity']).toEqual(
+      expect.arrayContaining([['boolean', ['feature-state', 'dragging'], false]]),
+    );
+  });
+
+  test('ромб «добавлено вручную»: белый с тёмной обводкой, углы прозрачны', () => {
+    const { width, height, data } = manualDiamond(2);
+    const pixel = (x: number, y: number) =>
+      Array.from(data.slice((y * width + x) * 4, (y * width + x) * 4 + 4));
+
+    expect([width, height]).toEqual([18, 18]);
+    expect(pixel(9, 9)).toEqual([255, 255, 255, 255]);
+    expect(pixel(0, 0)[3]).toBe(0);
+    // Край ромба по горизонтали — обводка stone.9.
+    expect(pixel(0, 9)).toEqual([0x2e, 0x2a, 0x27, 255]);
   });
 });
 
@@ -440,7 +520,7 @@ describe('отклонённые места и живая изгородь', () 
   };
 
   test('пунктирный круг радиусом кроны и косой крест; цель для щелчка — по номеру', () => {
-    const sources = resultSources({ planting, zones }, null, rejected, LAT);
+    const sources = resultSources({ planting, zones }, null, rejected, new Map(), LAT);
     const { data } = sources[RESULT_SOURCE.rejected];
     if (typeof data === 'string' || data.type !== 'FeatureCollection') throw new Error('данные');
     const [ring, cross] = data.features;

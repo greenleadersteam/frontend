@@ -33,6 +33,14 @@
   }
 }
 
+/* Панель правки — сверху по центру карты, над слоями и под панелями по краям. */
+.topCenter {
+  position: absolute;
+  top: var(--mantine-spacing-lg);
+  left: 50%;
+  translate: -50% 0;
+}
+
 .topLeft {
   bottom: calc(var(--mantine-spacing-xl) * 3);
   left: var(--mantine-spacing-lg);

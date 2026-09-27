@@ -30,6 +30,11 @@ export const resultLayerColors = {
   zoneOutline: clay[6],
   // Отклонённое место — пунктирный круг с крестом.
   rejected: clay[6],
+  // Правки: кольцо статуса, ромб добавленной вручную, линия перемещения.
+  statusRing: clay[6],
+  manualMark: WHITE,
+  manualMarkOutline: stone[9],
+  movedLine: stone[6],
   // Газон — где вообще зелень; «можно» — где разрешено сажать выбранный тип посадки. Граница
   // участка — линия чертежа, не ошибки.
   lawn: sage[1],

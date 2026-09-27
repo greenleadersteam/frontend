@@ -1,3 +1,4 @@
+import type { UnknownAction } from '@reduxjs/toolkit';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -6,6 +7,7 @@ import { type RouteObject, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { dimensionLabelsMinZoom } from '@/entities/project';
+import { plantingEditsActions, plantingEditsSlice } from '@/features/edit-plantings';
 import type * as Config from '@/shared/config';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { renderWithProviders, server } from '@/shared/lib/test';
@@ -14,48 +16,93 @@ import { ProjectPage } from './project-page';
 
 // Карта в jsdom не рисуется: модуль карты подменяется на границе ленивого импорта.
 // Подмена отдаёт экрану объект с теми методами MapLibre, которыми экран пользуется.
-type Handler = (event: {
+type MapEvent = {
   point: { x: number; y: number };
   lngLat: { lng: number; lat: number };
-}) => void;
+  features?: { properties: Record<string, unknown> }[];
+  preventDefault?: () => void;
+};
+type Handler = (event: MapEvent) => void;
 type QueryOptions = { layers: string[] };
 
 const mapMock = vi.hoisted(() => ({ unavailable: false }));
 
 // Моки реализуют весь контракт, и сервер в тестах объявляет все возможности. Проверки по зонам
 // запрета — поведение сервера без /obstacles: такие тесты выключают возможность obstacles.
-const serverMock = vi.hoisted(() => ({ obstacles: true }));
+// Черновик правок в браузере — поведение сервера без plantingEdits.
+const serverMock = vi.hoisted(() => ({ obstacles: true, plantingEdits: true }));
 vi.mock('@/shared/config', async (importOriginal) => {
   const actual = await importOriginal<typeof Config>();
   return {
     ...actual,
-    useCapability: (name: Config.Capability) =>
-      name === 'obstacles' ? serverMock.obstacles : actual.useCapability(name),
+    useCapability: (name: Config.Capability) => {
+      if (name === 'obstacles') return serverMock.obstacles;
+      if (name === 'plantingEdits') return serverMock.plantingEdits;
+      return actual.useCapability(name);
+    },
   };
 });
 
 function createFakeMap() {
-  const handlers = new Map<string, Handler>();
-  const canvas = { style: { cursor: '' }, focus: vi.fn() };
-  const dimensions = { setData: vi.fn<(data: unknown) => Promise<void>>(() => Promise.resolve()) };
+  // Ключ — событие или «событие:слой»; на одно событие подписываются и выбор, и правка.
+  const handlers = new Map<string, Set<Handler>>();
+  const keyOf = (event: string, layerOrHandler: string | Handler) =>
+    typeof layerOrHandler === 'string' ? `${event}:${layerOrHandler}` : event;
+  const subscribe = (key: string, handler: Handler) => {
+    handlers.set(key, (handlers.get(key) ?? new Set()).add(handler));
+  };
+  // Настоящий элемент в документе: клавиши с фокусом на карте всплывают до window, как в браузере.
+  // Фокус подменён — тесты проверяют, куда его переводит экран.
+  const canvas = document.body.appendChild(document.createElement('canvas'));
+  const focus = vi.fn();
+  canvas.focus = focus;
+  const container = { style: { touchAction: '' } };
+  const sources = new Map<string, { setData: ReturnType<typeof vi.fn> }>();
+  const source = (id: string) => {
+    const existing = sources.get(id);
+    if (existing !== undefined) return existing;
+    const created = { setData: vi.fn<(data: unknown) => Promise<void>>(() => Promise.resolve()) };
+    sources.set(id, created);
+    return created;
+  };
   return {
-    handlers,
+    emit: (key: string, event: MapEvent) => {
+      for (const handler of handlers.get(key) ?? []) handler(event);
+    },
     canvas,
-    dimensions,
+    focus,
+    container,
+    dimensions: source('result-dimensions'),
+    source,
     getPixelRatio: () => 1,
     addImage: vi.fn(),
     addSource: vi.fn(),
     addLayer: vi.fn(),
     on: vi.fn((event: string, layerOrHandler: string | Handler, handler?: Handler) => {
-      if (typeof layerOrHandler === 'function') handlers.set(event, layerOrHandler);
-      else if (handler !== undefined) handlers.set(`${event}:${layerOrHandler}`, handler);
+      const callback = typeof layerOrHandler === 'function' ? layerOrHandler : handler;
+      if (callback !== undefined) subscribe(keyOf(event, layerOrHandler), callback);
     }),
+    once: vi.fn((event: string, handler: Handler) => {
+      const wrapped: Handler = (payload) => {
+        handlers.get(event)?.delete(wrapped);
+        handler(payload);
+      };
+      subscribe(event, wrapped);
+    }),
+    off: vi.fn((event: string, layerOrHandler: string | Handler, handler?: Handler) => {
+      const callback = typeof layerOrHandler === 'function' ? layerOrHandler : handler;
+      if (callback !== undefined) handlers.get(keyOf(event, layerOrHandler))?.delete(callback);
+    }),
+    dragPan: { enable: vi.fn(), disable: vi.fn() },
+    keyboard: { enable: vi.fn(), disable: vi.fn() },
     queryRenderedFeatures: vi.fn<
       (point: unknown, options: QueryOptions) => { properties: Record<string, unknown> }[]
     >(() => []),
     getCanvas: () => canvas,
+    getCanvasContainer: () => container,
     getZoom: vi.fn(() => 19),
-    getSource: (id: string) => (id === 'result-dimensions' ? dimensions : undefined),
+    getCenter: () => ({ lng: 37.6452, lat: 55.7593 + 300 / 111_330 }),
+    getSource: source,
     setLayoutProperty: vi.fn(),
     setFilter: vi.fn(),
     setFeatureState: vi.fn(),
@@ -131,21 +178,37 @@ const routes: RouteObject[] = [
   { path: '/', Component: ProjectsStub },
 ];
 
-const renderProject = (id: string) => renderWithProviders(routes, `/projects/${id}`);
+// Действия правок, дошедшие до store: тест перетаскивания считает их.
+let editActions: UnknownAction[] = [];
+const reducers = {
+  [plantingEditsSlice.name]: (
+    state: ReturnType<typeof plantingEditsSlice.reducer> | undefined,
+    action: UnknownAction,
+  ) => {
+    if (action.type.startsWith(`${plantingEditsSlice.name}/`)) editActions.push(action);
+    return plantingEditsSlice.reducer(state, action);
+  },
+};
+const renderProject = (id: string) => renderWithProviders(routes, `/projects/${id}`, reducers);
 
 beforeEach(() => {
   fakeMap = createFakeMap();
   mapMock.unavailable = false;
   serverMock.obstacles = true;
+  serverMock.plantingEdits = true;
+  editActions = [];
 });
 
 afterEach(() => {
+  fakeMap.canvas.remove();
   // Подмены браузерных API в отдельных тестах; restoreAllMocks их не откатывает.
   Reflect.deleteProperty(navigator, 'clipboard');
   Reflect.deleteProperty(URL, 'createObjectURL');
   Reflect.deleteProperty(URL, 'revokeObjectURL');
   vi.useRealTimers();
   vi.restoreAllMocks();
+  // eslint-disable-next-line no-restricted-properties -- черновик правок из тестов режима правки
+  window.localStorage.clear();
   server.events.removeAllListeners();
 });
 
@@ -468,7 +531,7 @@ const clickMap = (
   });
   act(() => {
     // Точка щелчка — у восточного конца изгороди демо-участка (x ≈ 58,5 м, y ≈ −0,8 м).
-    fakeMap.handlers.get('click')?.({
+    fakeMap.emit('click', {
       point: { x: 10, y: 10 },
       lngLat: { lng: 37.6452 + 58.5 / 62_780, lat: 55.7593 - 0.8 / 111_330 },
     });
@@ -665,7 +728,7 @@ describe('панель «Посадка»', () => {
       { source: 'result-planting', id: FIRST_TREE },
       { selected: false },
     );
-    expect(fakeMap.canvas.focus).toHaveBeenCalled();
+    expect(fakeMap.focus).toHaveBeenCalled();
     expect(lastDimensions()).toEqual([]);
   });
 
@@ -678,7 +741,7 @@ describe('панель «Посадка»', () => {
     await userEvent.keyboard('{Escape}');
 
     expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
-    expect(fakeMap.canvas.focus).not.toHaveBeenCalled();
+    expect(fakeMap.focus).not.toHaveBeenCalled();
     expect(shrubs).toHaveFocus();
   });
 
@@ -739,7 +802,7 @@ describe('панель «Посадка»', () => {
 
     await userEvent.click(within(panel).getByRole('button', { name: 'Закрыть' }));
     expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
-    expect(fakeMap.canvas.focus).toHaveBeenCalledTimes(1);
+    expect(fakeMap.focus).toHaveBeenCalledTimes(1);
 
     await selectFirstTree();
     clickMap(null);
@@ -1200,7 +1263,7 @@ async function firstTreeCoordinates(): Promise<number[] | undefined> {
 }
 
 const renderRegister = async (id = READY_ID) => {
-  renderWithProviders(routes, `/projects/${id}?view=register`);
+  renderWithProviders(routes, `/projects/${id}?view=register`, reducers);
   return screen.findByRole('table');
 };
 
@@ -1492,5 +1555,502 @@ describe('удаление с экрана проекта', () => {
 
     expect(await screen.findByRole('menuitem', { name: 'Удалить проект' })).toBeDisabled();
     expect(screen.getByText('Удалить можно после завершения обработки')).toBeInTheDocument();
+  });
+});
+
+// Точка карты со сдвигом в метрах от опорной: перетаскивание и добавление зависят только
+// от сдвига, а не от абсолютного положения курсора.
+const BASE = { lng: 37.6452, lat: 55.7593 };
+const lngLatAt = (east: number, north: number) => ({
+  lng: BASE.lng + east / 62_780,
+  lat: BASE.lat + north / 111_330,
+});
+
+const startEditing = async () => {
+  await userEvent.click(await screen.findByRole('button', { name: 'Править расстановку' }));
+  return screen.findByRole('group', { name: 'Правка расстановки' });
+};
+
+// Жест мышью: захват посадки на слое деревьев, несколько движений, отпускание.
+const dragTree = async (id: string, steps: { east: number; north: number }[]) => {
+  const preventDefault = vi.fn();
+  act(() => {
+    fakeMap.emit('mousedown:trees', {
+      point: { x: 0, y: 0 },
+      lngLat: lngLatAt(0, 0),
+      features: [{ properties: { id } }],
+      preventDefault,
+    });
+  });
+  for (const { east, north } of steps) {
+    act(() => {
+      fakeMap.emit('mousemove', { point: { x: 0, y: 0 }, lngLat: lngLatAt(east, north) });
+    });
+  }
+  // Отрисовка жеста — не чаще кадра: ждём хотя бы один кадр.
+  await act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+  // Кнопку отпускают где угодно, в том числе над панелями поверх карты: конец жеста — на window.
+  act(() => {
+    window.dispatchEvent(new MouseEvent('mouseup'));
+  });
+  return preventDefault;
+};
+
+const movedActions = () => editActions.filter((action) => plantingEditsActions.moved.match(action));
+
+describe('правка расстановки', () => {
+  test('«Править расстановку» открывает панель правки, «Готово» закрывает', async () => {
+    renderProject(READY_ID);
+
+    const toolbar = await startEditing();
+
+    for (const name of [
+      'Добавить дерево',
+      'Добавить кустарник',
+      'Удалить выбранную',
+      'Отменить (Ctrl+Z)',
+      'Повторить (Ctrl+Shift+Z)',
+      'Сбросить к расстановке сервиса',
+    ]) {
+      expect(within(toolbar).getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    expect(fakeMap.container.style.touchAction).toBe('none');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    expect(screen.queryByRole('group', { name: 'Правка расстановки' })).not.toBeInTheDocument();
+    expect(fakeMap.container.style.touchAction).toBe('');
+  });
+
+  test('перетаскивание: одно действие на жест, статус и «Вернуть на место»', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    await startEditing();
+
+    // Первое дерево — в 2,2 м от бортового камня с отступом 0,7 м: на 2 м к югу норма нарушена.
+    const preventDefault = await dragTree(FIRST_TREE, [
+      { east: 0, north: -0.5 },
+      { east: 0, north: -1 },
+      { east: 0, north: -1.5 },
+      { east: 0, north: -2 },
+    ]);
+
+    expect(movedActions()).toHaveLength(1);
+    expect(preventDefault).toHaveBeenCalled();
+    expect(fakeMap.dragPan.disable).toHaveBeenCalledTimes(1);
+    expect(fakeMap.dragPan.enable).toHaveBeenCalledTimes(1);
+    // Во время жеста перетаскиваемая посадка рисуется в своём источнике, после — источник пуст.
+    expect(fakeMap.source('result-edit').setData).toHaveBeenLastCalledWith({
+      type: 'FeatureCollection',
+      features: [],
+    });
+    const panel = await screen.findByRole('region', { name: FIRST_TREE_TITLE });
+    expect(within(panel).getByText('Нарушает норму')).toBeInTheDocument();
+    expect(within(panel).getByText('Перемещено на 2 м')).toBeInTheDocument();
+    // /explanation хранит координаты чертежа исходной точки: у перемещённой их не показываем.
+    expect(within(panel).queryByText(/^В координатах чертежа/)).not.toBeInTheDocument();
+    expect(screen.getByText('Правок: 1')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('list', { name: 'Условные знаки правок' })).getByText(
+        'Нарушает норму',
+      ),
+    ).toBeInTheDocument();
+
+    await userEvent.click(within(panel).getByRole('button', { name: 'Вернуть на место' }));
+    expect(within(panel).queryByText('Нарушает норму')).not.toBeInTheDocument();
+    expect(screen.getByText('Правок: 0')).toBeInTheDocument();
+  });
+
+  test('жест без сдвига правкой не считается', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    await startEditing();
+
+    await dragTree(FIRST_TREE, []);
+
+    expect(movedActions()).toHaveLength(0);
+    expect(screen.getByText('Правок: 0')).toBeInTheDocument();
+  });
+
+  test('вне режима правки посадка не тянется', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    await screen.findByRole('button', { name: 'Править расстановку' });
+
+    await dragTree(FIRST_TREE, [{ east: 0, north: -2 }]);
+
+    expect(movedActions()).toHaveLength(0);
+    expect(fakeMap.dragPan.disable).not.toHaveBeenCalled();
+  });
+
+  test('добавление кустарника вне газона: «Вне разрешённой области», Esc — выход', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    const toolbar = await startEditing();
+
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'Добавить кустарник' }));
+    expect(within(toolbar).getByRole('button', { name: 'Добавить кустарник' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(fakeMap.canvas.style.cursor).toBe('crosshair');
+    // В 300 м к северу — за пределами участка и газона, вдали от сетей и зданий.
+    act(() => {
+      fakeMap.emit('click', { point: { x: 5, y: 5 }, lngLat: lngLatAt(0, 300) });
+    });
+
+    // Порода добавленной — первая подходящая из справочника.
+    const panel = await screen.findByRole('region', { name: 'Сирень обыкновенная' });
+    expect(within(panel).getByText('Вне разрешённой области')).toBeInTheDocument();
+    expect(within(toolbar).getByText('Правок: 1')).toBeInTheDocument();
+    const legend = screen.getByRole('list', { name: 'Условные знаки правок' });
+    expect(within(legend).getByText('Добавлена вручную')).toBeInTheDocument();
+    expect(within(legend).getByText('Вне разрешённой области')).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    expect(within(toolbar).getByRole('button', { name: 'Добавить кустарник' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  test('Esc снимает инструмент и с фокусом на переключателе слоя, но не в поле поиска', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    const toolbar = await startEditing();
+    const tool = within(toolbar).getByRole('button', { name: 'Добавить дерево' });
+
+    await userEvent.click(tool);
+    screen.getByRole('combobox', { name: 'Найти посадку' }).focus();
+    await userEvent.keyboard('{Escape}');
+    expect(tool).toHaveAttribute('aria-pressed', 'true');
+
+    screen.getByRole('switch', { name: /^Деревья/ }).focus();
+    await userEvent.keyboard('{Escape}');
+    expect(tool).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('Delete удаляет выбранную, Ctrl+Z возвращает, Ctrl+Y повторяет', async () => {
+    renderProject(READY_ID);
+    await selectFirstTree();
+    const toolbar = await startEditing();
+
+    await userEvent.keyboard('{Delete}');
+    expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
+    expect(within(toolbar).getByText('Правок: 1')).toBeInTheDocument();
+
+    await userEvent.keyboard('{Control>}z{/Control}');
+    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
+
+    await userEvent.keyboard('{Control>}y{/Control}');
+    expect(within(toolbar).getByText('Правок: 1')).toBeInTheDocument();
+  });
+
+  test('серия стрелок — одна запись истории', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+    const toolbar = await startEditing();
+
+    // Стрелки двигают посадку, а не камеру: клавиатура карты выключена.
+    expect(fakeMap.keyboard.disable).toHaveBeenCalled();
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}{Shift>}{ArrowRight}{/Shift}');
+    expect(within(panel).getByText('Перемещено на 1,2 м')).toBeInTheDocument();
+
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'Отменить (Ctrl+Z)' }));
+    expect(within(panel).queryByText(/^Перемещено/)).not.toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: 'Отменить (Ctrl+Z)' })).toBeDisabled();
+  });
+
+  test('смена породы в карточке', async () => {
+    renderProject(READY_ID);
+    await selectFirstTree();
+    await startEditing();
+
+    const panel = await screen.findByRole('region', { name: FIRST_TREE_TITLE });
+    await userEvent.click(within(panel).getByRole('combobox', { name: 'Порода' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Липа мелколистная' }));
+
+    expect(await screen.findByRole('region', { name: 'Липа мелколистная' })).toBeInTheDocument();
+    expect(screen.getByText('Правок: 1')).toBeInTheDocument();
+  });
+
+  test('«Сбросить к расстановке сервиса» — с подтверждением', async () => {
+    renderProject(READY_ID);
+    await selectFirstTree();
+    const toolbar = await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    await userEvent.click(
+      within(toolbar).getByRole('button', { name: 'Сбросить к расстановке сервиса' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Сбросить к расстановке сервиса?' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Сбросить' }));
+
+    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
+  });
+
+  test('«Сохранить» отправляет итоговую расстановку; «Готово» без сохранения спрашивает', async () => {
+    const bodies: unknown[] = [];
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT' && request.url.endsWith('/plantings')) {
+        void request
+          .clone()
+          .json()
+          .then((body: unknown) => bodies.push(body));
+      }
+    });
+    renderProject(READY_ID);
+    await selectFirstTree();
+    const toolbar = await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Правки не сохранены' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Остаться' }));
+
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => {
+      expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    });
+    expect(bodies).toHaveLength(1);
+    // 38 посадок сервиса без удалённой.
+    expect(bodies[0]).toMatchObject({ type: 'FeatureCollection' });
+    expect(bodies[0]).toHaveProperty('features.length', 37);
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    expect(screen.queryByRole('group', { name: 'Правка расстановки' })).not.toBeInTheDocument();
+  });
+
+  test('уход со страницы с несохранёнными правками спрашивает подтверждение', async () => {
+    renderProject(READY_ID);
+    await selectFirstTree();
+    await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    await userEvent.click(screen.getByRole('link', { name: 'Проекты' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Уйти со страницы?' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Остаться' }));
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Сквер на Покровке' }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('link', { name: 'Проекты' }));
+    await userEvent.click(
+      within(await screen.findByRole('dialog', { name: 'Уйти со страницы?' })).getByRole('button', {
+        name: 'Уйти без сохранения',
+      }),
+    );
+    expect(await screen.findByRole('heading', { name: 'Список' })).toBeInTheDocument();
+  });
+
+  test('ведомость: статус, источник, «Только изменённые» и строка правок', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    await startEditing();
+    await dragTree(FIRST_TREE, [{ east: 0, north: -2 }]);
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
+
+    expect(await screen.findByText('Правок: 1 (перемещено 1)')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Статус' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Источник' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('switch', { name: 'Только изменённые' }));
+    const rows = within(screen.getByRole('table')).getAllByRole('row');
+    // Заголовок и одна перемещённая посадка.
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toHaveTextContent('Нарушает норму');
+    expect(rows[1]).toHaveTextContent('перемещена');
+  });
+
+  test('сохранение: перемещённая уходит с origin manual, как требует контракт', async () => {
+    const bodies: unknown[] = [];
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT' && request.url.endsWith('/plantings')) {
+        void request
+          .clone()
+          .json()
+          .then((body: unknown) => bodies.push(body));
+      }
+    });
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    const toolbar = await startEditing();
+    await dragTree(FIRST_TREE, [{ east: 0, north: -2 }]);
+
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => {
+      expect(bodies).toHaveLength(1);
+    });
+    expect(bodies[0]).toHaveProperty('features.0.properties', {
+      id: FIRST_TREE,
+      plant_type: 'tree',
+      species_id: 'sorbus_aucuparia',
+      origin: 'manual',
+    });
+    expect(bodies[0]).toHaveProperty('features.1.properties.origin', 'auto');
+  });
+
+  test('ошибка сохранения — сообщение, «Сохранить» снова доступна', async () => {
+    server.use(
+      http.put('/api/projects/:projectId/plantings', () => new HttpResponse(null, { status: 500 })),
+    );
+    renderProject(READY_ID);
+    await selectFirstTree();
+    const toolbar = await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => {
+      expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toBeEnabled();
+    });
+    expect(await screen.findByText(/сервер/i)).toBeInTheDocument();
+    expect(within(toolbar).getByText('Правок: 1')).toBeInTheDocument();
+  });
+
+  test('правки с сервера: итоговая расстановка из сохранённого списка', async () => {
+    server.use(
+      http.get('/api/projects/:projectId/plantings', () =>
+        HttpResponse.json({
+          type: 'FeatureCollection',
+          metadata: { crs: 'EPSG:4326', saved_at: '2026-09-27T10:00:00Z' },
+          // Сохранена одна посадка: первое дерево, перемещённое; остальные 37 удалены.
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [37.6452, 55.7593] },
+              properties: {
+                id: FIRST_TREE,
+                plant_type: 'tree',
+                species_id: 'sorbus_aucuparia',
+                origin: 'manual',
+                status: 'forbidden',
+                checks: [],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    renderProject(READY_ID);
+
+    const toolbar = await startEditing();
+
+    expect(within(toolbar).getByText('Правок: 38')).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+  });
+
+  test('ошибка загрузки правок — править нельзя, «Повторить» загружает снова', async () => {
+    server.use(
+      http.get(
+        '/api/projects/:projectId/plantings',
+        () => new HttpResponse(null, { status: 500 }),
+        {
+          once: true,
+        },
+      ),
+    );
+    renderProject(READY_ID);
+
+    expect(await screen.findByText(/^Не удалось загрузить правки расстановки/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Править расстановку' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    expect(await screen.findByRole('button', { name: 'Править расстановку' })).toBeInTheDocument();
+  });
+
+  test('Enter на карте ставит посадку инструмента в центр видимой области', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    const toolbar = await startEditing();
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'Добавить дерево' }));
+
+    act(() => {
+      fakeMap.canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    // Центр подменной карты — в 300 м к северу, вне участка.
+    const panel = await screen.findByRole('region', { name: 'Липа мелколистная' });
+    expect(within(panel).getByText('Вне разрешённой области')).toBeInTheDocument();
+  });
+
+  test('в «Ведомости» клавиши правки невидимый план не меняют', async () => {
+    renderProject(READY_ID);
+    await selectFirstTree();
+    await startEditing();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
+    await userEvent.keyboard('{Delete}{ArrowDown}{Control>}z{/Control}');
+
+    expect(
+      editActions.filter(
+        (action) =>
+          plantingEditsActions.removed.match(action) ||
+          plantingEditsActions.moved.match(action) ||
+          plantingEditsActions.undone.match(action),
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('вне режима правки у посадки сервиса статуса нет', async () => {
+    renderProject(READY_ID);
+
+    const panel = await selectFirstTree();
+
+    expect(within(panel).queryByText('Соответствует нормам')).not.toBeInTheDocument();
+  });
+
+  test('без правок в ведомости нет колонок статуса и источника', async () => {
+    await renderRegister();
+
+    expect(screen.queryByRole('columnheader', { name: 'Статус' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Только изменённые' })).not.toBeInTheDocument();
+  });
+});
+
+describe('черновик правок в браузере', () => {
+  test('без plantingEdits правки пишутся в черновик и восстанавливаются', async () => {
+    serverMock.plantingEdits = false;
+    const { unmount } = renderProject(READY_ID);
+    await selectFirstTree();
+    const toolbar = await startEditing();
+    expect(within(toolbar).getByText('Черновик в этом браузере')).toBeInTheDocument();
+    expect(within(toolbar).queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument();
+
+    await userEvent.keyboard('{Delete}');
+    unmount();
+
+    // Новый store — как после перезагрузки страницы: правки приходят из черновика.
+    renderProject(READY_ID);
+    await startEditing();
+    expect(await screen.findByText('Правок: 1')).toBeInTheDocument();
+  });
+
+  test('черновик прошлой обработки: «Оставить как есть» — только просмотр', async () => {
+    serverMock.plantingEdits = false;
+    // eslint-disable-next-line no-restricted-properties -- черновик прошлой обработки
+    window.localStorage.setItem(
+      `greenleaders:planting-edits:${READY_ID}`,
+      JSON.stringify({
+        finishedAt: '2000-01-01T00:00:00Z',
+        diff: { moved: {}, added: {}, removed: { [FIRST_TREE]: true }, species: {} },
+      }),
+    );
+    renderProject(READY_ID);
+
+    expect(await screen.findByText(/^Правки относятся к прошлой обработке/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Править расстановку' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Оставить как есть' }));
+    expect(
+      await screen.findByText('Правки прошлой обработки — только просмотр: править их нельзя.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Править расстановку' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Удалить правки' }));
+    expect(await screen.findByRole('button', { name: 'Править расстановку' })).toBeInTheDocument();
   });
 });

@@ -14,6 +14,7 @@ import {
   ProjectStatusBadge,
 } from '@/entities/project';
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
+import { EditModeButton } from '@/features/edit-plantings';
 import { describeAppError } from '@/shared/api';
 import { FOCUS_PROJECTS_HEADING, paths, projectUploadPath } from '@/shared/config';
 import { formatCount, formatDuration, formatMeters } from '@/shared/lib/format';
@@ -61,6 +62,8 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
           {project.description !== null && <Text c="dimmed">{project.description}</Text>}
         </Stack>
         <Group gap="sm" wrap="nowrap">
+          {/* Кнопка правки есть, только когда правки загружены и не устарели. */}
+          {state.kind === 'ready' && <EditModeButton projectId={project.id} />}
           {state.kind === 'ready' && <DownloadDxfButton project={project} />}
           <ProjectMenu project={project} polling={polling} />
         </Group>

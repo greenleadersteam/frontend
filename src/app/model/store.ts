@@ -1,14 +1,19 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
 
+import { plantingEditsSlice } from '@/features/edit-plantings';
 import { baseApi } from '@/shared/api';
 
 export const store = configureStore({
-  reducer: { [baseApi.reducerPath]: baseApi.reducer },
+  reducer: {
+    [baseApi.reducerPath]: baseApi.reducer,
+    [plantingEditsSlice.name]: plantingEditsSlice.reducer,
+  },
   // Кэш RTK Query — JSON с сервера, сериализуемый по построению. Dev-проверки обходили бы его
   // целиком на каждом действии: на готовом проекте с тысячами посадок это около секунды.
-  // Сейчас в store только кэш API. Исключение payload действует на все действия: когда появится
-  // клиентский срез, его нужно сузить до действий API через ignoredActions.
+  // Payload не проверяется ни у каких действий: у действий API он и есть этот кэш, а по типу
+  // их не отделить. Правки посадок — малые объекты из кода; их состояние проверяется, потому
+  // что ignoredPaths покрывает только кэш API.
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {

@@ -1,6 +1,6 @@
-import { ActionIcon, Button, Group, Stack, Text, Title } from '@mantine/core';
+import { ActionIcon, Button, Group, Select, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconX } from '@tabler/icons-react';
 import { type JSX, type Ref, useId } from 'react';
 
 import {
@@ -9,6 +9,7 @@ import {
   PLANT_TYPE_LABELS,
   type PlantingCheck,
   type PlantingFeatureCollection,
+  type PlantingStatus,
   type PreparedObstacle,
   type Species,
   type ZonesFeatureCollection,
@@ -29,13 +30,39 @@ const ROOT_SYSTEM_LABELS = {
   mixed: 'корни смешанные',
 } as const;
 
+const STATUS_VIEW = {
+  allowed: { text: 'Соответствует нормам', icon: IconCircleCheck, tone: 'accent' },
+  forbidden: { text: 'Нарушает норму', icon: IconCircleX, tone: 'error' },
+  rejected: { text: 'Вне разрешённой области', icon: IconAlertTriangle, tone: 'error' },
+} as const satisfies Record<
+  PlantingStatus,
+  { text: string; icon: typeof IconX; tone: 'accent' | 'error' }
+>;
+
+// Правка посадки для карточки: статус, на сколько перемещена, сколько крон задевает.
+export type PlantingEditView = {
+  status: PlantingStatus;
+  // Метры от исходной точки; null — не перемещалась.
+  movedBy: number | null;
+  overlaps: number;
+};
+
 type PlantingPanelProps = {
   // Панель получает фокус, когда открыта из другой панели или из ведомости.
   ref: Ref<HTMLDivElement>;
   planting: PlantingFeatureCollection['features'][number]['properties'];
   entry: ExplanationEntry | undefined;
+  // Координаты ствола в чертеже; null — неизвестны (правленая посадка на геопривязанном плане).
+  drawing: { x: number; y: number } | null;
   // Порода из /species (возможность species); null — породы нет или возможности нет.
   species: Species | null;
+  edit: PlantingEditView | null;
+  // Режим правки: смена породы и «Вернуть на место».
+  editing: boolean;
+  // Породы этого типа посадки для смены; пусто — справочника нет.
+  speciesOptions: Species[];
+  onSpeciesChange: (speciesId: string | null) => void;
+  onRestore: () => void;
   // WGS84 — только у проекта с геопривязкой.
   coordinates: { lat: number; lon: number } | null;
   checks: PlantingCheck[];
@@ -57,7 +84,13 @@ export function PlantingPanel({
   ref,
   planting,
   entry,
+  drawing,
   species,
+  edit,
+  editing,
+  speciesOptions,
+  onSpeciesChange,
+  onRestore,
   coordinates,
   checks,
   uncovered,
@@ -73,10 +106,10 @@ export function PlantingPanel({
     ...(coordinates === null
       ? []
       : [`Ш ${formatCoordinate(coordinates.lat)}, Д ${formatCoordinate(coordinates.lon)}`]),
-    ...(entry === undefined
+    ...(drawing === null
       ? []
       : [
-          `В координатах чертежа: X ${formatDrawingMeters(entry.x)}, Y ${formatDrawingMeters(entry.y)}`,
+          `В координатах чертежа: X ${formatDrawingMeters(drawing.x)}, Y ${formatDrawingMeters(drawing.y)}`,
         ]),
   ];
 
@@ -132,6 +165,49 @@ export function PlantingPanel({
             : `${PLANT_TYPE_LABELS[planting.plant_type]}, ${planting.id}`}
         </Text>
       </Stack>
+
+      {edit !== null && (
+        <Stack gap="xs" align="flex-start">
+          <Group gap="xs" wrap="nowrap">
+            <Icon
+              icon={STATUS_VIEW[edit.status].icon}
+              tone={STATUS_VIEW[edit.status].tone}
+              label={STATUS_VIEW[edit.status].text}
+            />
+            <Text fw={600}>{STATUS_VIEW[edit.status].text}</Text>
+          </Group>
+          {edit.movedBy !== null && (
+            <Group gap="xs">
+              <Text size="sm" className={classes.numbers}>
+                {`Перемещено на ${formatMeters(edit.movedBy, 1)}`}
+              </Text>
+              {editing && (
+                <Button variant="subtle" size="compact-sm" onClick={onRestore}>
+                  Вернуть на место
+                </Button>
+              )}
+            </Group>
+          )}
+          {edit.overlaps > 0 && (
+            <Text size="sm" className={classes.caution}>
+              Кроны пересекаются с соседними посадками
+            </Text>
+          )}
+        </Stack>
+      )}
+
+      {editing && speciesOptions.length > 0 && (
+        <Select
+          label="Порода"
+          placeholder="Порода не выбрана"
+          data={speciesOptions.map(({ id, name_ru: name }) => ({ value: id, label: name }))}
+          value={planting.species_id ?? null}
+          onChange={onSpeciesChange}
+          searchable
+          clearable
+          nothingFoundMessage="Порода не найдена"
+        />
+      )}
 
       {species !== null && (
         <SpeciesReason species={species} reason={planting.species_reason_ru ?? null} />

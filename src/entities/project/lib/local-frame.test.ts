@@ -57,3 +57,19 @@ describe('WGS84', () => {
     expect(lat).toBeCloseTo(55.7581, 10);
   });
 });
+
+test('обратные преобразования: карта → локальные метры → данные возвращают ту же точку', () => {
+  for (const geographic of [true, false]) {
+    const extent = geographic
+      ? { minX: 37.6, minY: 55.7, maxX: 37.62, maxY: 55.71 }
+      : { minX: 1000, minY: 2000, maxX: 1060, maxY: 2020 };
+    const frame = createLocalFrame(extent, geographic);
+    const data = geographic ? [37.6123, 55.7045] : [1012.5, 2007.25];
+
+    const local = frame.toLocal(data);
+    const back = frame.toData(frame.fromMap(frame.toMap(local)));
+
+    expect(back[0]).toBeCloseTo(data[0] ?? NaN, 9);
+    expect(back[1]).toBeCloseTo(data[1] ?? NaN, 9);
+  }
+});

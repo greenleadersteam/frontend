@@ -8,10 +8,14 @@ import type { ResultData } from './result-layers';
 
 // Для карты MapLibre: у проекта с геопривязкой данные уже в WGS84, у проекта без неё метры
 // чертежа переводятся в условные lon/lat у точки (0, 0) — та же карта, без подложки.
-export function toMapData({ planting, zones }: ResultData, frame: LocalFrame): ResultData {
-  if (frame.geographic) return { planting, zones };
+// Посадки — любого расширения PlantingFeatureCollection: у расстановки с правками свойства
+// правок доходят до карты.
+export function toMapData<Data extends ResultData>(data: Data, frame: LocalFrame): Data {
+  if (frame.geographic) return data;
+  const { planting, zones } = data;
   const move = (position: Position) => frame.toMap(frame.toLocal(position));
   return {
+    ...data,
     planting: {
       ...planting,
       features: planting.features.map((feature) => ({

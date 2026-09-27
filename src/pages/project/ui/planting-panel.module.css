@@ -78,3 +78,8 @@
 .warning {
   color: var(--app-error);
 }
+
+/* Предупреждение, а не нарушение: пересечение крон нормой не запрещено (design.md, ochre). */
+.caution {
+  color: var(--mantine-color-ochre-8);
+}

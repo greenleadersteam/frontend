@@ -1,0 +1,12 @@
+/* Панель правки — белая капсула поверх карты сверху по центру, тень md (design.md, «Карта»). */
+.toolbar {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  border-radius: calc(var(--mantine-radius-xl) * 2);
+  background: var(--app-surface);
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

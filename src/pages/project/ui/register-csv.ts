@@ -1,15 +1,30 @@
-import {
-  type ExplanationEntry,
-  PLANT_TYPE_LABELS,
-  type PlantingFeatureCollection,
-} from '@/entities/project';
+import { type ExplanationEntry, PLANT_TYPE_LABELS, type PlantingStatus } from '@/entities/project';
+import type { FinalPlanting } from '@/features/edit-plantings';
 import { formatCoordinate, formatDrawingCoordinate } from '@/shared/lib/format';
+
+export type PlantingSource = 'service' | 'moved' | 'added';
+
+export const STATUS_LABELS = {
+  allowed: 'Соответствует нормам',
+  forbidden: 'Нарушает норму',
+  rejected: 'Вне разрешённой области',
+} satisfies Record<PlantingStatus, string>;
+
+export const SOURCE_LABELS = {
+  service: 'сервис',
+  moved: 'перемещена',
+  added: 'добавлена',
+} satisfies Record<PlantingSource, string>;
 
 export type RegisterRow = {
   number: number;
   id: string;
   plantType: 'tree' | 'shrub';
   ruleName: string | null;
+  status: PlantingStatus;
+  source: PlantingSource;
+  // Перемещена, добавлена или сменена порода: фильтр «Только изменённые».
+  changed: boolean;
   // WGS84 — только у проекта с геопривязкой.
   lat: number | null;
   lon: number | null;
@@ -18,24 +33,38 @@ export type RegisterRow = {
   y: number | null;
 };
 
-// Строки ведомости в порядке /planting; название правила и координаты чертежа — из /explanation.
+// Строки ведомости по итоговой расстановке: в порядке /planting, добавленные — в конце.
+// Название правила и координаты чертежа — из /explanation; у перемещённых и добавленных
+// координаты чертежа — свои, если план в метрах чертежа, и неизвестны при геопривязке.
 export function registerRows(
-  planting: PlantingFeatureCollection,
+  planting: FinalPlanting,
   explanation: ReadonlyMap<string, ExplanationEntry>,
   geographic: boolean,
+  statuses: ReadonlyMap<string, PlantingStatus>,
 ): RegisterRow[] {
   return planting.features.map(({ geometry, properties }, index) => {
     const entry = explanation.get(properties.id);
+    const source: PlantingSource =
+      properties.origin === 'manual'
+        ? 'added'
+        : properties.moved_from === null
+          ? 'service'
+          : 'moved';
     const [lon = null, lat = null] = geographic ? geometry.coordinates : [];
+    const [x = null, y = null] =
+      source === 'service' ? [entry?.x, entry?.y] : geographic ? [] : geometry.coordinates;
     return {
       number: index + 1,
       id: properties.id,
       plantType: properties.plant_type,
       ruleName: entry?.rule_name_ru ?? null,
+      status: statuses.get(properties.id) ?? 'allowed',
+      source,
+      changed: source !== 'service' || properties.species_changed,
       lat,
       lon,
-      x: entry?.x ?? null,
-      y: entry?.y ?? null,
+      x,
+      y,
     };
   });
 }
@@ -55,8 +84,9 @@ const numberCell = (value: number | null, format: (value: number) => string) =>
   value === null ? '' : format(value);
 
 // Ведомость для русского Excel: UTF-8 с BOM (иначе кириллица без мастера импорта не читается),
-// разделитель «;», десятичная запятая, строки через CRLF (RFC 4180).
-export function registerCsv(rows: RegisterRow[]): string {
+// разделитель «;», десятичная запятая, строки через CRLF (RFC 4180). Статус и источник —
+// только когда есть правки, как в таблице.
+export function registerCsv(rows: RegisterRow[], edited: boolean): string {
   const withGeo = rows.some(({ lat }) => lat !== null);
   const withDrawing = rows.some(({ x }) => x !== null);
   const header = [
@@ -64,6 +94,7 @@ export function registerCsv(rows: RegisterRow[]): string {
     'Идентификатор',
     'Тип',
     'Правило посадки',
+    ...(edited ? ['Статус', 'Источник'] : []),
     ...(withGeo ? ['Широта', 'Долгота'] : []),
     ...(withDrawing ? ['X чертежа, м', 'Y чертежа, м'] : []),
   ];
@@ -73,6 +104,7 @@ export function registerCsv(rows: RegisterRow[]): string {
       textCell(row.id),
       textCell(PLANT_TYPE_LABELS[row.plantType]),
       textCell(row.ruleName ?? ''),
+      ...(edited ? [textCell(STATUS_LABELS[row.status]), textCell(SOURCE_LABELS[row.source])] : []),
       ...(withGeo
         ? [numberCell(row.lat, formatCoordinate), numberCell(row.lon, formatCoordinate)]
         : []),

@@ -31,6 +31,7 @@ import {
   pixelsPerMeterAtZoom,
   type Position,
 } from './plan-projection';
+import type { PlantingStatus } from './planting-status';
 
 export const RESULT_SOURCE = {
   site: 'result-site',
@@ -41,8 +42,14 @@ export const RESULT_SOURCE = {
   hedges: 'result-hedges',
   rejected: 'result-rejected',
   rejectedPoints: 'result-rejected-points',
+  // Правки: кольца статуса, линия перемещения выбранной, перетаскиваемая посадка.
+  status: 'result-status',
+  moved: 'result-moved',
+  edit: 'result-edit',
   dimensions: 'result-dimensions',
 } as const;
+
+export const MANUAL_IMAGE = 'manual-diamond';
 
 export const HATCH_IMAGE = 'prohibited-hatch';
 
@@ -68,6 +75,13 @@ export const RESULT_LAYER = {
   treeShadows: 'tree-shadows',
   trees: 'trees',
   treeHighlights: 'tree-highlights',
+  statusForbidden: 'planting-status-forbidden',
+  statusRejected: 'planting-status-rejected',
+  manualMark: 'planting-manual',
+  movedLine: 'planting-moved',
+  editCrown: 'planting-edit-crown',
+  editForbidden: 'planting-edit-forbidden',
+  editRejected: 'planting-edit-rejected',
   dimensionMargin: 'dimension-margin',
   dimensionSetback: 'dimension-setback',
   dimensionSetbackTicks: 'dimension-setback-ticks',
@@ -272,6 +286,70 @@ export function hedgeRows(planting: PlantingFeatureCollection): Planting[][] {
   return rows.filter((row) => row.length > 1);
 }
 
+// Статус правленой посадки для карты: allowed не рисуется.
+
+// Кольцо статуса — чуть шире кроны: не сливается с кольцами выбора.
+const STATUS_RING_GAP_M = { tree: 0.35, shrub: 0.2 } as const;
+
+// Кольца статусов правленых посадок: сплошное — нарушает норму, пунктир — вне разрешённой области.
+export function statusRings(
+  planting: PlantingFeatureCollection,
+  statuses: ReadonlyMap<string, PlantingStatus>,
+  latitude: number,
+): GeoJSON.FeatureCollection<GeoJSON.LineString, { id: string; status: PlantingStatus }> {
+  const metersToLon = 1 / (METERS_PER_DEGREE * Math.cos((latitude * Math.PI) / 180));
+  return {
+    type: 'FeatureCollection',
+    features: planting.features.flatMap(({ geometry, properties }) => {
+      const status = statuses.get(properties.id);
+      if (status === undefined || status === 'allowed') return [];
+      const radius =
+        CROWN_RADIUS_M[properties.plant_type] + STATUS_RING_GAP_M[properties.plant_type];
+      return [
+        {
+          type: 'Feature' as const,
+          id: properties.id,
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: ringAround(geometry.coordinates, radius, metersToLon),
+          },
+          properties: { id: properties.id, status },
+        },
+      ];
+    }),
+  };
+}
+
+// Перетаскиваемая посадка: крона и кольцо статуса в отдельном источнике — источник посадок
+// во время жеста не пересобирается.
+export function editedPlantingFeatures(
+  point: readonly number[],
+  plantType: 'tree' | 'shrub',
+  status: PlantingStatus,
+  latitude: number,
+): GeoJSON.FeatureCollection {
+  const metersToLon = 1 / (METERS_PER_DEGREE * Math.cos((latitude * Math.PI) / 180));
+  const radius = CROWN_RADIUS_M[plantType];
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [...point] },
+        properties: { plant_type: plantType, crown_radius_m: radius },
+      },
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: ringAround(point, radius + STATUS_RING_GAP_M[plantType], metersToLon),
+        },
+        properties: { status },
+      },
+    ],
+  };
+}
+
 export const resultCounts = ({ planting, zones }: ResultData) => {
   const prohibited = prohibitedZones(zones);
   const zonesFor = (plantType: PlantType) =>
@@ -329,6 +407,8 @@ export function resultSources(
   // Объекты подосновы и отклонённые места в координатах карты; null — сервер их не отдаёт.
   obstacles: ObstaclesFeatureCollection | null,
   rejected: RejectedSitesFeatureCollection | null,
+  // Статусы правленых посадок: неправленые — allowed по ответу сервиса.
+  statuses: ReadonlyMap<string, PlantingStatus>,
   latitude: number,
 ): Record<(typeof RESULT_SOURCE)[keyof typeof RESULT_SOURCE], GeoJSONSourceSpecification> {
   const plantingFeatures = planting.features.map((feature) => ({
@@ -350,7 +430,7 @@ export function resultSources(
           type: 'Point' as const,
           coordinates: [lon - offset * metersToLon, lat + offset / METERS_PER_DEGREE],
         },
-        properties: { crown_radius_m: 0.45 * properties.crown_radius_m },
+        properties: { id: properties.id, crown_radius_m: 0.45 * properties.crown_radius_m },
       };
     });
 
@@ -373,6 +453,7 @@ export function resultSources(
     [RESULT_SOURCE.highlights]: {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: highlights },
+      promoteId: 'id',
     },
     [RESULT_SOURCE.zones]: {
       type: 'geojson',
@@ -471,6 +552,13 @@ export function resultSources(
       },
       promoteId: 'rejected_index',
     },
+    [RESULT_SOURCE.status]: {
+      type: 'geojson',
+      data: statusRings(planting, statuses, latitude),
+      promoteId: 'id',
+    },
+    [RESULT_SOURCE.moved]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    [RESULT_SOURCE.edit]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     [RESULT_SOURCE.dimensions]: {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] },
@@ -539,6 +627,33 @@ function selectionRing(
       'circle-stroke-width': width,
       'circle-stroke-color': color,
       'circle-stroke-opacity': selectedOpacity,
+    },
+  };
+}
+
+// Посадка, которую тянут, скрыта: вместо неё рисуется источник «правка».
+const shownWhileIdle: ExpressionSpecification = [
+  'case',
+  ['boolean', ['feature-state', 'dragging'], false],
+  0,
+  1,
+];
+
+function statusRing(
+  id: string,
+  source: string,
+  status: 'forbidden' | 'rejected',
+): LayerSpecification {
+  return {
+    id,
+    type: 'line',
+    source,
+    filter: ['==', ['get', 'status'], status],
+    paint: {
+      'line-color': colors.statusRing,
+      'line-width': 2,
+      'line-opacity': shownWhileIdle,
+      ...(status === 'rejected' && { 'line-dasharray': [2, 1.5] }),
     },
   };
 }
@@ -718,7 +833,11 @@ export function resultLayers(latitude: number): LayerSpecification[] {
       type: 'circle',
       source: RESULT_SOURCE.planting,
       filter: byType('shrub'),
-      paint: { 'circle-radius': radius, 'circle-color': colors.shrub },
+      paint: {
+        'circle-radius': radius,
+        'circle-color': colors.shrub,
+        'circle-opacity': shownWhileIdle,
+      },
     },
     {
       id: RESULT_LAYER.treeShadows,
@@ -728,7 +847,7 @@ export function resultLayers(latitude: number): LayerSpecification[] {
       paint: {
         'circle-radius': radius,
         'circle-color': colors.treeShadow,
-        'circle-opacity': 0.18,
+        'circle-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 0.18],
         'circle-blur': 0.6,
         'circle-translate': [1, 2],
       },
@@ -738,7 +857,11 @@ export function resultLayers(latitude: number): LayerSpecification[] {
       type: 'circle',
       source: RESULT_SOURCE.planting,
       filter: byType('tree'),
-      paint: { 'circle-radius': radius, 'circle-color': colors.tree },
+      paint: {
+        'circle-radius': radius,
+        'circle-color': colors.tree,
+        'circle-opacity': shownWhileIdle,
+      },
     },
     {
       id: RESULT_LAYER.treeHighlights,
@@ -748,8 +871,45 @@ export function resultLayers(latitude: number): LayerSpecification[] {
       paint: {
         'circle-radius': crownRadiusExpression({ latitude, minPx: 0 }),
         'circle-color': colors.treeHighlight,
+        'circle-opacity': shownWhileIdle,
       },
     },
+    // Статус правленой посадки: сплошное кольцо clay.6 — нарушает норму, пунктир — вне
+    // разрешённой области (design.md, «Карта»).
+    statusRing(RESULT_LAYER.statusForbidden, RESULT_SOURCE.status, 'forbidden'),
+    statusRing(RESULT_LAYER.statusRejected, RESULT_SOURCE.status, 'rejected'),
+    // Добавленная вручную — белый ромб в центре кроны.
+    {
+      id: RESULT_LAYER.manualMark,
+      type: 'symbol',
+      source: RESULT_SOURCE.planting,
+      filter: ['==', ['get', 'origin'], 'manual'],
+      layout: {
+        'icon-image': MANUAL_IMAGE,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: { 'icon-opacity': shownWhileIdle },
+    },
+    // Откуда перемещена выбранная посадка — тонкий пунктир stone.6.
+    {
+      id: RESULT_LAYER.movedLine,
+      type: 'line',
+      source: RESULT_SOURCE.moved,
+      paint: { 'line-color': colors.movedLine, 'line-width': 1, 'line-dasharray': [3, 3] },
+    },
+    {
+      id: RESULT_LAYER.editCrown,
+      type: 'circle',
+      source: RESULT_SOURCE.edit,
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': radius,
+        'circle-color': ['match', ['get', 'plant_type'], 'tree', colors.tree, colors.shrub],
+      },
+    },
+    statusRing(RESULT_LAYER.editForbidden, RESULT_SOURCE.edit, 'forbidden'),
+    statusRing(RESULT_LAYER.editRejected, RESULT_SOURCE.edit, 'rejected'),
     {
       id: RESULT_LAYER.utilityLabels,
       type: 'symbol',
@@ -896,6 +1056,33 @@ export function hatchPattern(pixelRatio: number): {
       if ((x + y) % size >= lineWidth) continue;
       const offset = (y * size + x) * 4;
       data.set([red ?? 0, green ?? 0, blue ?? 0, 255], offset);
+    }
+  }
+  return { width: size, height: size, data };
+}
+
+const DIAMOND_PX = 9;
+
+// Ромб «добавлено вручную»: белый с обводкой stone.9, чтобы читался и на кроне, и на газоне.
+export function manualDiamond(pixelRatio: number): {
+  width: number;
+  height: number;
+  data: Uint8Array;
+} {
+  const size = Math.round(DIAMOND_PX * pixelRatio);
+  const half = size / 2;
+  const outline = Math.max(1, Math.round(pixelRatio));
+  const channels = (hex: string) =>
+    [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16));
+  const fill = channels(colors.manualMark);
+  const edge = channels(colors.manualMarkOutline);
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const distance = Math.abs(x + 0.5 - half) + Math.abs(y + 0.5 - half);
+      if (distance > half) continue;
+      const [red = 0, green = 0, blue = 0] = distance > half - outline ? edge : fill;
+      data.set([red, green, blue, 255], (y * size + x) * 4);
     }
   }
   return { width: size, height: size, data };

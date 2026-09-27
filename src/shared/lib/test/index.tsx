@@ -1,6 +1,6 @@
 import { MantineProvider, mergeThemeOverrides, Popover } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { configureStore } from '@reduxjs/toolkit';
+import { configureStore, type Reducer } from '@reduxjs/toolkit';
 import {
   render,
   renderHook,
@@ -32,22 +32,26 @@ export { enterViewport } from './intersection-observer';
 export { buildZip } from './zip-fixture';
 export { resetMockDb, server } from '@/shared/api/mocks/node';
 
-const createTestStore = () =>
+// shared не знает о слайсах верхних слоёв: тест, которому они нужны, передаёт их сам.
+type Reducers = Record<string, Reducer>;
+
+const createTestStore = (reducers: Reducers) =>
   configureStore({
-    reducer: { [baseApi.reducerPath]: baseApi.reducer },
+    reducer: { [baseApi.reducerPath]: baseApi.reducer, ...reducers },
     middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(baseApi.middleware),
   });
 
 export function renderWithProviders(
   routes: RouteObject[],
   initialEntry: InitialEntry,
+  reducers: Reducers = {},
 ): RenderResult {
   const router = createMemoryRouter(routes, { initialEntries: [initialEntry] });
 
   return render(
     <MantineProvider theme={testTheme}>
       <Notifications />
-      <Provider store={createTestStore()}>
+      <Provider store={createTestStore(reducers)}>
         <RouterProvider router={router} />
       </Provider>
     </MantineProvider>,
@@ -57,8 +61,11 @@ export function renderWithProviders(
 export const renderWithTheme = (ui: ReactElement): RenderResult =>
   render(<MantineProvider theme={testTheme}>{ui}</MantineProvider>);
 
-export function renderHookWithStore<Result>(hook: () => Result): RenderHookResult<Result, unknown> {
-  const store = createTestStore();
+export function renderHookWithStore<Result>(
+  hook: () => Result,
+  reducers: Reducers = {},
+): RenderHookResult<Result, unknown> {
+  const store = createTestStore(reducers);
   return renderHook(hook, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <Provider store={store}>{children}</Provider>

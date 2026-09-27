@@ -6,19 +6,27 @@ import {
   SegmentedControl,
   Select,
   Stack,
+  Switch,
   Table,
   Text,
   TextInput,
   Title,
   UnstyledButton,
 } from '@mantine/core';
-import { IconArrowDown, IconArrowUp, IconSelector } from '@tabler/icons-react';
+import {
+  IconAlertTriangle,
+  IconArrowDown,
+  IconArrowUp,
+  IconCircleCheck,
+  IconCircleX,
+  IconSelector,
+} from '@tabler/icons-react';
 import { type JSX, useState } from 'react';
 
 import {
   type ExplanationEntry,
   PLANT_TYPE_LABELS,
-  type PlantingFeatureCollection,
+  type PlantingStatus,
   type PreparedZones,
   prohibitedArea,
   type Project,
@@ -26,6 +34,7 @@ import {
   type RejectedSitesFeatureCollection,
   RESULT_COUNT_FORMS,
 } from '@/entities/project';
+import type { EditCounts, FinalPlanting } from '@/features/edit-plantings';
 import {
   formatCoordinate,
   formatCount,
@@ -37,13 +46,22 @@ import { saveFile } from '@/shared/lib/save-file';
 import { Icon } from '@/shared/ui';
 
 import classes from './planting-register.module.css';
-import { registerCsv, type RegisterRow, registerRows } from './register-csv';
+import {
+  registerCsv,
+  type RegisterRow,
+  registerRows,
+  SOURCE_LABELS,
+  STATUS_LABELS,
+} from './register-csv';
 import { RejectedTable } from './rejected-table';
 import type { CenterRequest } from './result-map';
 
 type PlantingRegisterProps = {
   project: Project;
-  planting: PlantingFeatureCollection;
+  // Итоговая расстановка: расстановка сервиса с правками.
+  planting: FinalPlanting;
+  statuses: ReadonlyMap<string, PlantingStatus>;
+  counts: EditCounts;
   explanation: ReadonlyMap<string, ExplanationEntry>;
   prepared: PreparedZones;
   geographic: boolean;
@@ -82,9 +100,28 @@ const compareBy: Record<SortColumn, (a: RegisterRow, b: RegisterRow) => number> 
 
 const ZONES_FOR = { tree: 'Для деревьев', shrub: 'Для кустарников' } as const;
 
+const STATUS_ICONS = {
+  allowed: { icon: IconCircleCheck, tone: 'accent' },
+  forbidden: { icon: IconCircleX, tone: 'error' },
+  rejected: { icon: IconAlertTriangle, tone: 'error' },
+} as const;
+
+// «Правок: 5 (перемещено 3, добавлено 1, удалено 1)» — разбивка только по ненулевым видам.
+function editsLine({ total, moved, added, removed, species }: EditCounts): string {
+  const parts = [
+    ...(moved > 0 ? [`перемещено ${formatNumber(moved)}`] : []),
+    ...(added > 0 ? [`добавлено ${formatNumber(added)}`] : []),
+    ...(removed > 0 ? [`удалено ${formatNumber(removed)}`] : []),
+    ...(species > 0 ? [`сменена порода ${formatNumber(species)}`] : []),
+  ];
+  return `Правок: ${formatNumber(total)} (${parts.join(', ')})`;
+}
+
 export function PlantingRegister({
   project,
   planting,
+  statuses,
+  counts,
   explanation,
   prepared,
   geographic,
@@ -97,8 +134,11 @@ export function PlantingRegister({
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<Sort>({ column: 'number', direction: 'ascending' });
   const [page, setPage] = useState(1);
+  // Перемещённые, добавленные и со сменённой породой.
+  const [onlyChanged, setOnlyChanged] = useState(false);
+  const edited = counts.total > 0;
 
-  const rows = registerRows(planting, explanation, geographic);
+  const rows = registerRows(planting, explanation, geographic, statuses);
   const withGeo = rows.some(({ lat }) => lat !== null);
   const withDrawing = rows.some(({ x }) => x !== null);
   const ruleCounts = countBy(rows.flatMap(({ ruleName }) => (ruleName === null ? [] : [ruleName])));
@@ -110,6 +150,7 @@ export function PlantingRegister({
       (row) =>
         (typeFilter === 'all' || row.plantType === typeFilter) &&
         (rule === null || row.ruleName === rule) &&
+        (!onlyChanged || row.changed) &&
         row.id.toLocaleLowerCase('ru-RU').includes(query),
     )
     .sort((a, b) => {
@@ -127,6 +168,7 @@ export function PlantingRegister({
     setTypeFilter('all');
     setRule(null);
     setSearch('');
+    setOnlyChanged(false);
     resetPage();
   };
   const toggleSort = (column: SortColumn) => {
@@ -141,7 +183,7 @@ export function PlantingRegister({
   };
   const download = () => {
     saveFile(
-      new Blob([registerCsv(rows)], { type: 'text/csv;charset=utf-8' }),
+      new Blob([registerCsv(rows, edited)], { type: 'text/csv;charset=utf-8' }),
       projectFileName(project.name, ' — ведомость посадок.csv'),
     );
   };
@@ -206,6 +248,7 @@ export function PlantingRegister({
                   {text}
                 </li>
               ))}
+              {edited && <li className={classes.numbers}>{editsLine(counts)}</li>}
             </ul>
           </Stack>
           <Button variant="default" onClick={download}>
@@ -273,6 +316,16 @@ export function PlantingRegister({
                   }}
                   className={classes.filter}
                 />
+                {edited && (
+                  <Switch
+                    label="Только изменённые"
+                    checked={onlyChanged}
+                    onChange={(event) => {
+                      setOnlyChanged(event.currentTarget.checked);
+                      resetPage();
+                    }}
+                  />
+                )}
               </Group>
 
               {filtered.length === 0 ? (
@@ -292,6 +345,12 @@ export function PlantingRegister({
                           <Table.Th>Идентификатор</Table.Th>
                           {sortHeader('type', 'Тип')}
                           {sortHeader('rule', 'Правило посадки')}
+                          {edited && (
+                            <>
+                              <Table.Th>Статус</Table.Th>
+                              <Table.Th>Источник</Table.Th>
+                            </>
+                          )}
                           {withGeo && (
                             <>
                               <Table.Th>Широта</Table.Th>
@@ -333,6 +392,20 @@ export function PlantingRegister({
                             </Table.Td>
                             <Table.Td>{PLANT_TYPE_LABELS[row.plantType]}</Table.Td>
                             <Table.Td>{row.ruleName ?? '—'}</Table.Td>
+                            {edited && (
+                              <>
+                                <Table.Td>
+                                  <Group gap="xs" wrap="nowrap">
+                                    <Icon
+                                      icon={STATUS_ICONS[row.status].icon}
+                                      tone={STATUS_ICONS[row.status].tone}
+                                    />
+                                    {STATUS_LABELS[row.status]}
+                                  </Group>
+                                </Table.Td>
+                                <Table.Td>{SOURCE_LABELS[row.source]}</Table.Td>
+                              </>
+                            )}
                             {withGeo && (
                               <>
                                 <Table.Td className={classes.numbers}>

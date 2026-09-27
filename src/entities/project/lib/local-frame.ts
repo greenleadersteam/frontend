@@ -7,6 +7,10 @@ export type LocalFrame = {
   toLocal: (position: Position) => LocalPoint;
   // Локальные метры → координаты карты MapLibre.
   toMap: (point: LocalPoint) => [lon: number, lat: number];
+  // Обратно: координаты карты → локальные метры и локальные метры → координаты данных. Нужны
+  // правке расстановки: курсор приходит в координатах карты, правка хранится в координатах данных.
+  fromMap: (lngLat: readonly [number, number]) => LocalPoint;
+  toData: (point: LocalPoint) => [number, number];
   geographic: boolean;
 };
 
@@ -34,6 +38,11 @@ const drawingToMap = ([x, y]: LocalPoint): [number, number] => [
   toDegrees(2 * Math.atan(Math.exp(y / MERCATOR_RADIUS_M)) - Math.PI / 2),
 ];
 
+const mapToDrawing = ([lon, lat]: readonly [number, number]): LocalPoint => [
+  toRadians(lon) * MERCATOR_RADIUS_M,
+  Math.log(Math.tan(Math.PI / 4 + toRadians(lat) / 2)) * MERCATOR_RADIUS_M,
+];
+
 // Система координат плана: WGS84 проецируется в метры от центра участка; метры чертежа
 // сдвигаются в центр и показываются на карте у точки (0, 0).
 export function createLocalFrame(extent: Extent, geographic: boolean): LocalFrame {
@@ -45,6 +54,8 @@ export function createLocalFrame(extent: Extent, geographic: boolean): LocalFram
       geographic,
       toLocal: ([x = 0, y = 0]) => [x - centerX, y - centerY],
       toMap: drawingToMap,
+      fromMap: mapToDrawing,
+      toData: ([x, y]) => [x + centerX, y + centerY],
     };
   }
   const scale = metersPerDegree(centerY);
@@ -52,5 +63,7 @@ export function createLocalFrame(extent: Extent, geographic: boolean): LocalFram
     geographic,
     toLocal: ([lon = 0, lat = 0]) => [(lon - centerX) * scale.lon, (lat - centerY) * scale.lat],
     toMap: ([x, y]) => [centerX + x / scale.lon, centerY + y / scale.lat],
+    fromMap: ([lon, lat]) => [(lon - centerX) * scale.lon, (lat - centerY) * scale.lat],
+    toData: ([x, y]) => [centerX + x / scale.lon, centerY + y / scale.lat],
   };
 }

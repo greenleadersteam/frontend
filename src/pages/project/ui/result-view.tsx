@@ -1,6 +1,16 @@
-import { Alert, Button, SegmentedControl, Skeleton, Stack, Text } from '@mantine/core';
+import {
+  Alert,
+  Button,
+  Group,
+  Modal,
+  SegmentedControl,
+  Skeleton,
+  Stack,
+  Text,
+} from '@mantine/core';
+import { useWindowEvent } from '@mantine/hooks';
 import { type JSX, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useBlocker, useSearchParams } from 'react-router';
 
 import {
   createLocalFrame,
@@ -9,6 +19,8 @@ import {
   type Norm,
   type ObstaclesFeatureCollection,
   PlanCanvas,
+  type PlantingStatus,
+  plantingStatus,
   prepareObstacles,
   prepareZones,
   type Project,
@@ -26,6 +38,13 @@ import {
   useGetSpeciesQuery,
   useGetZonesQuery,
 } from '@/entities/project';
+import {
+  EditsLoadAlert,
+  type FinalPlanting,
+  StaleDraftAlert,
+  useEditsLoader,
+  usePlantingEdits,
+} from '@/features/edit-plantings';
 import { describeAppError, toAppError } from '@/shared/api';
 import { BASEMAP_BOUNDS, useCapability } from '@/shared/config';
 
@@ -146,6 +165,18 @@ function LoadedResult({
   rejected,
 }: LoadedResultProps): JSX.Element {
   const notice = failureNotice(failed);
+  useEditsLoader(project, data.planting);
+  const edits = usePlantingEdits(project.id, data.planting);
+  // Уход со страницы с правками, которых нет на сервере, спрашивает подтверждение. Смена вида
+  // «План» / «Ведомость» меняет только параметры адреса и уходом не считается.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      edits.unsaved && currentLocation.pathname !== nextLocation.pathname,
+  );
+  // Закрытие и перезагрузка вкладки роутер не видит: о несохранённых правках спрашивает браузер.
+  useWindowEvent('beforeunload', (event) => {
+    if (edits.unsaved) event.preventDefault();
+  });
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get(VIEW_PARAM));
   const [selection, setSelection] = useState<Selection>(null);
@@ -168,8 +199,10 @@ function LoadedResult({
   // (../backend/greenplan/export/geojson.py:18). Метка берётся из /zones: задеплоенный бэкенд
   // пока не отдаёт metadata в /planting.
   const geographic = isGeographic(data.zones.metadata.crs);
+  // Охват и система координат — по расстановке сервиса: правка не сдвигает центр плана.
   const frame = createLocalFrame(extent, geographic);
-  const mapData = toMapData(data, frame);
+  const edited = { planting: edits.final, zones: data.zones };
+  const mapData = toMapData(edited, frame);
   const prepared = prepareZones(data.zones, frame);
   const objects =
     obstacles === null
@@ -179,6 +212,9 @@ function LoadedResult({
           prepared: prepareObstacles(obstacles, norms, data.zones, frame),
         };
   const entries = new Map(explanation.map((entry) => [entry.id, entry]));
+  const statuses = plantingStatuses(edits.final, edits.serverStatuses, (point, plantType) =>
+    plantingStatus(frame.toLocal(point), plantType, prepared, objects?.prepared ?? null),
+  );
   const mapExtent = resultExtent(mapData) ?? extent;
   const [west, south, east, north] = BASEMAP_BOUNDS;
   const withinBasemap =
@@ -216,6 +252,8 @@ function LoadedResult({
         aria-label="Вид результата"
         className={classes.switch}
       />
+      <EditsLoadAlert projectId={project.id} />
+      <StaleDraftAlert projectId={project.id} />
       {/* План в ведомости скрыт, а не размонтирован: камера и выбор сохраняются. */}
       <div hidden={view !== 'plan'} className={classes.plan}>
         {notice !== null && (
@@ -229,13 +267,20 @@ function LoadedResult({
               <Text size="sm">Карта недоступна в этом браузере. Показан план посадок.</Text>
             </Alert>
             <div className={classes.area} data-plan>
-              <PlanCanvas planting={data.planting} zones={data.zones} label={resultLabel(data)} />
+              <PlanCanvas
+                planting={edited.planting}
+                zones={edited.zones}
+                label={resultLabel(edited)}
+              />
             </div>
           </Stack>
         ) : (
           planShown && (
             <ResultMap
-              data={data}
+              projectId={project.id}
+              source={data.planting}
+              data={edited}
+              statuses={statuses}
               mapData={mapData}
               bounds={[mapExtent.minX, mapExtent.minY, mapExtent.maxX, mapExtent.maxY]}
               frame={frame}
@@ -260,7 +305,9 @@ function LoadedResult({
         <div hidden={view !== 'register'}>
           <PlantingRegister
             project={project}
-            planting={data.planting}
+            planting={edits.final}
+            statuses={statuses}
+            counts={edits.counts}
             explanation={entries}
             prepared={prepared}
             geographic={geographic}
@@ -270,8 +317,66 @@ function LoadedResult({
           />
         </div>
       )}
+      <Modal
+        opened={blocker.state === 'blocked'}
+        onClose={() => {
+          blocker.reset?.();
+        }}
+        title="Уйти со страницы?"
+      >
+        <Stack gap="lg">
+          <Text>
+            Правки расстановки не сохранены на сервере. Они останутся в этой вкладке, но пропадут
+            при её закрытии или перезагрузке.
+          </Text>
+          <Group justify="flex-end" gap="sm">
+            <Button
+              variant="default"
+              onClick={() => {
+                blocker.reset?.();
+              }}
+            >
+              Остаться
+            </Button>
+            <Button
+              color="clay"
+              onClick={() => {
+                blocker.proceed?.();
+              }}
+            >
+              Уйти без сохранения
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
+}
+
+// Статусы для карты и ведомости. После сохранения первичны статусы сервера; у правленых
+// посадок — свой расчёт, и в dev его расхождение с сервером видно в консоли, как в Б2.
+// У неправленых без ответа сервера статуса нет: это allowed расстановки сервиса.
+function plantingStatuses(
+  final: FinalPlanting,
+  server: ReadonlyMap<string, PlantingStatus> | null,
+  statusOf: (point: readonly number[], plantType: 'tree' | 'shrub') => PlantingStatus,
+): Map<string, PlantingStatus> {
+  const statuses = new Map<string, PlantingStatus>();
+  for (const { geometry, properties } of final.features) {
+    const changed = properties.origin === 'manual' || properties.moved_from !== null;
+    const own = changed ? statusOf(geometry.coordinates, properties.plant_type) : null;
+    const saved = server?.get(properties.id);
+    if (saved !== undefined) {
+      if (import.meta.env.DEV && own !== null && own !== saved) {
+        // eslint-disable-next-line no-console -- сигнал разработчику о расхождении реализаций, только в dev
+        console.warn(`Статус ${properties.id}: сервер ${saved}, клиент ${own}`);
+      }
+      statuses.set(properties.id, saved);
+    } else if (own !== null) {
+      statuses.set(properties.id, own);
+    }
+  }
+  return statuses;
 }
 
 // Что из объявленного сервером не загрузилось и что это значит для плана.

@@ -17,14 +17,18 @@ type LegendSymbolProps =
         | 'buildings'
         | 'edges'
         | 'rejected'
-        | 'basemap';
+        | 'basemap'
+        | 'manual'
+        | 'statusForbidden'
+        | 'statusRejected';
     }
   // Знак одной сети: её цвет и рисунок линии.
   | { kind: 'utility'; utility: UtilitySubtype };
 
 // Условный знак — уменьшенная копия того, как слой нарисован на карте (design.md, «Карта»):
 // крона с бликом, круг кустарника, заливка со штриховкой, газон и «можно» поверх него, пунктир
-// границы, линии сетей, здание, кромка, фрагмент подложки с дорогой.
+// границы, линии сетей, здание, кромка, фрагмент подложки с дорогой, ромб добавленной вручную
+// и кольца статусов правленых посадок.
 export function LegendSymbol(props: LegendSymbolProps): JSX.Element {
   const { kind } = props;
   return (
@@ -80,6 +84,24 @@ export function LegendSymbol(props: LegendSymbolProps): JSX.Element {
         <>
           <circle cx="8" cy="8" r="6" className={classes.rejectedRing} />
           <path d="M5.5 5.5l5 5M5.5 10.5l5-5" className={classes.rejectedCross} />
+        </>
+      )}
+      {kind === 'manual' && (
+        <>
+          <circle cx="8" cy="8" r="6.5" className={classes.tree} />
+          <path d="M8 4.5 11.5 8 8 11.5 4.5 8Z" className={classes.manual} />
+        </>
+      )}
+      {(kind === 'statusForbidden' || kind === 'statusRejected') && (
+        <>
+          <circle cx="8" cy="8" r="4.5" className={classes.tree} />
+          <circle
+            cx="8"
+            cy="8"
+            r="6.5"
+            className={classes.statusRing}
+            data-dash={kind === 'statusRejected' ? 'dashed' : 'solid'}
+          />
         </>
       )}
       {kind === 'basemap' && (

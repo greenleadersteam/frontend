@@ -6,6 +6,7 @@ export {
   useRunProjectMutation,
 } from './api/project-api';
 export type {
+  CheckedPlantingsFeatureCollection,
   ExplanationEntry,
   Norm,
   ObstaclesFeatureCollection,
@@ -19,9 +20,11 @@ export {
   useGetNormsQuery,
   useGetObstaclesQuery,
   useGetPlantingQuery,
+  useGetPlantingsQuery,
   useGetRejectedQuery,
   useGetSpeciesQuery,
   useGetZonesQuery,
+  usePutPlantingsMutation,
 } from './api/project-result-api';
 export {
   GEOREFERENCE_CONFIDENCE_LABELS,
@@ -54,12 +57,17 @@ export {
   TOLERANCE_M,
   zoneArea,
 } from './lib/planting-checks';
+export type { PlantingStatus } from './lib/planting-status';
+export { overlappingCrowns, plantingStatus } from './lib/planting-status';
 export type { ResultData, ResultLayerGroup } from './lib/result-layers';
 export {
   dimensionLabelsMinZoom,
+  editedPlantingFeatures,
   HATCH_IMAGE,
   hatchPattern,
   HEDGE_RULE,
+  MANUAL_IMAGE,
+  manualDiamond,
   OBSTACLE_LAYERS,
   obstacleGroup,
   plantTypeFilters,
