@@ -1,6 +1,6 @@
 import type { LocalPoint } from '@/shared/lib/geometry';
 
-// Радиусы кроны на слое результата — как у бэкенда: ../backend/greenplan/io/dxf_sink.py:19-20.
+// Радиусы кроны на слое результата — как у бэкенда: ../backend/greenplan/io/dxf_sink.py:20-21.
 const CROWN_RADIUS_M = { tree: 1.5, shrub: 0.35 } as const;
 
 type DxfPlanting = { point: LocalPoint; plantType: keyof typeof CROWN_RADIUS_M };

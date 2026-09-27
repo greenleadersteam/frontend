@@ -4,7 +4,7 @@ import { createLocalFrame } from '@/entities/project';
 export type SiteArea = { west: number; south: number; east: number; north: number };
 
 // bbox_user бэкенда — (minx, miny, maxx, maxy) в WGS84 lon/lat: долгота первой
-// (../backend/greenplan/api/schemas.py:13-18, ../backend/greenplan/cli.py:57-64).
+// (../backend/greenplan/api/schemas.py:13-18, ../backend/greenplan/cli.py:70-78).
 export const toBboxUser = ({
   west,
   south,

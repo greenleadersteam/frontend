@@ -70,7 +70,7 @@ export function createPlanProjection({
 }
 
 // В /planting размера кроны нет, у правил посадки тоже: радиус берётся по типу посадки,
-// как у окружностей в DXF (../backend/greenplan/io/dxf_sink.py:19-20).
+// как у окружностей в DXF (../backend/greenplan/io/dxf_sink.py:20-21).
 export const CROWN_RADIUS_M = { tree: 1.5, shrub: 0.35 } as const;
 
 // Мельче посадку на мелком масштабе не видно. Одно правило для превью и для карты.

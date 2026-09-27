@@ -38,7 +38,8 @@ export interface paths {
          * Загрузить архив и запустить обработку
          * @description Тело — сырые байты ZIP-архива, не multipart. Допустимо из статусов `draft` и `failed`.
          *     Лимит размера — `GREENPLAN_API_MAX_UPLOAD_MB` в МиБ: по умолчанию в коде 300 МиБ
-         *     (314 572 800 байт), в docker-compose задано 100 МиБ (104 857 600 байт). Клиент по ТЗ
+         *     (314 572 800 байт); в docker-compose бэкенда до 7223e2e было 100 МиБ (104 857 600 байт),
+         *     теперь compose лежит в общем репозитории ci, значение не сверено. Клиент по ТЗ
          *     ограничивает архив 100 МиБ независимо от сервера.
          */
         post: operations["upload_project"];
@@ -836,8 +837,8 @@ export interface components {
             /**
              * @description Метка системы координат геометрии. Без геопривязки —
              *     «local drawing coordinates, no geo-reference available», с геопривязкой —
-             *     «EPSG:4326 (WGS84 lon/lat)» (значение из теста бэкенда: сама константа
-             *     `WGS84_CRS_LABEL` лежит в модуле `greenplan.georeference`, который не закоммичен).
+             *     «EPSG:4326 (WGS84 lon/lat)» (`WGS84_CRS_LABEL`,
+             *     ../backend/greenplan/georeference/apply.py:34).
              */
             crs: string;
         };
@@ -1077,7 +1078,7 @@ export interface operations {
             };
             /**
              * @description Архив больше лимита сервера: размер тела больше `GREENPLAN_API_MAX_UPLOAD_MB` · 2²⁰ байт
-             *     (300 МиБ по умолчанию, 100 МиБ в docker-compose). Бэкенд обрывает приём посреди потока,
+             *     (300 МиБ по умолчанию; значение в docker-compose репозитория ci не сверено). Бэкенд обрывает приём посреди потока,
              *     поэтому клиент может получить обрыв соединения вместо ответа 413.
              */
             413: {

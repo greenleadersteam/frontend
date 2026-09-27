@@ -45,7 +45,8 @@ export function placementOfProject(project: MockProject): Placement | null {
   return project.bbox === null ? null : DEFAULT_PLACEMENT;
 }
 
-// Как GREENPLAN_API_MAX_CONCURRENT_JOBS в ../backend/docker-compose.yml:14.
+// Как GREENPLAN_API_MAX_CONCURRENT_JOBS в d11793e:docker-compose.yml:14 (с 7223e2e compose —
+// в репозитории ci, значение не сверено).
 const MAX_ACTIVE_RUNS = 2;
 
 // Весь прогон — около 20 с. Проценты — как у бэкенда: ../backend/greenplan/api/jobs.py:54-63.
