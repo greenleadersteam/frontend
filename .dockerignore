@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+.vite
+coverage
+test-results
+playwright-report
+blob-report
+.data
+.git
+.github
+.env
+.env.*
+!.env.example

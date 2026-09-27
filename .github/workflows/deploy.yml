@@ -1,0 +1,55 @@
+name: CI / Deploy frontend
+
+# The `test` job runs on every push and PR. `deploy` only runs for pushes to
+# main, and only if `test` passed -- it builds on the VM itself
+# (../ci/docker-compose.yml's `build: ../frontend`), not in CI, so no
+# container registry is needed. This mirrors the backend repo's deploy.yml,
+# just with a test gate in front of it and `frontend` in place of `backend`.
+# See ../ci/DEPLOY.md for the full VM/secrets setup.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {} # lets you trigger a redeploy manually from the Actions tab
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "$DEPLOY_USER@$DEPLOY_HOST" '
+            set -e
+            cd /opt/greenplan/frontend
+            git fetch origin main
+            git reset --hard origin/main
+            cd /opt/greenplan/ci
+            docker compose up -d --build frontend
+            docker image prune -f
+          '
