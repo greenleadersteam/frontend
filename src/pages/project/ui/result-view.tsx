@@ -12,42 +12,17 @@ import { useWindowEvent } from '@mantine/hooks';
 import { type JSX, useState } from 'react';
 import { useBlocker, useSearchParams } from 'react-router';
 
-import {
-  createLocalFrame,
-  type ExplanationEntry,
-  isGeographic,
-  type Norm,
-  type ObstaclesFeatureCollection,
-  PlanCanvas,
-  type PlantingStatus,
-  plantingStatus,
-  prepareObstacles,
-  prepareZones,
-  type Project,
-  type RejectedSitesFeatureCollection,
-  type ResultData,
-  resultExtent,
-  type Species,
-  toMapData,
-  toMapObstacles,
-  useGetExplanationQuery,
-  useGetNormsQuery,
-  useGetObstaclesQuery,
-  useGetPlantingQuery,
-  useGetRejectedQuery,
-  useGetSpeciesQuery,
-  useGetZonesQuery,
-} from '@/entities/project';
+import { PlanCanvas, type Project, resultExtent, toMapData } from '@/entities/project';
 import {
   EditsLoadAlert,
-  type FinalPlanting,
   StaleDraftAlert,
   useEditsLoader,
   usePlantingEdits,
 } from '@/features/edit-plantings';
-import { describeAppError, toAppError } from '@/shared/api';
-import { BASEMAP_BOUNDS, useCapability } from '@/shared/config';
+import { describeAppError } from '@/shared/api';
+import { BASEMAP_BOUNDS } from '@/shared/config';
 
+import { editedResult, type LoadedResult, useResultData } from '../model/result';
 import { PlantingRegister } from './planting-register';
 import { resultLabel } from './result-label';
 import { type CenterRequest, ResultMap, type Selection } from './result-map';
@@ -67,103 +42,41 @@ const VIEWS = [
 const parseView = (value: string | null): View => (value === 'register' ? 'register' : 'plan');
 
 export function ResultView({ project }: ResultViewProps): JSX.Element {
-  // Объекты подосновы и справочник норм — из контракта-предложения: без объявленной
-  // возможности запросы не уходят, а проверки считаются по зонам запрета.
-  const withObstacles = useCapability('obstacles');
-  const withNorms = useCapability('norms');
-  const withSpecies = useCapability('species');
-  const withRejected = useCapability('rejected');
-  const planting = useGetPlantingQuery(project.id);
-  const zones = useGetZonesQuery(project.id);
-  const explanation = useGetExplanationQuery(project.id);
-  const obstacles = useGetObstaclesQuery(project.id, { skip: !withObstacles });
-  const norms = useGetNormsQuery(undefined, { skip: !withObstacles || !withNorms });
-  const species = useGetSpeciesQuery(undefined, { skip: !withSpecies });
-  const rejected = useGetRejectedQuery(project.id, { skip: !withRejected });
-  const queries = [planting, zones, explanation];
-
-  // Сбой /obstacles или /norms план не закрывает: без объектов проверки считаются по зонам
-  // запрета, без справочника нормы берутся из зон. Так же без пород и отклонённых мест план
-  // остаётся прежним.
-  const error = planting.error ?? zones.error ?? explanation.error;
-  if (error !== undefined) {
-    return (
-      <Stack gap="md" align="flex-start" justify="center" className={classes.area}>
-        <Text role="alert">{describeAppError(toAppError(error))}</Text>
-        <Button
-          variant="default"
-          loading={queries.some(({ isFetching }) => isFetching)}
-          onClick={() => {
-            for (const query of queries) if (query.isError) void query.refetch();
-          }}
-        >
-          Повторить
-        </Button>
-      </Stack>
-    );
+  const state = useResultData(project);
+  switch (state.kind) {
+    case 'error':
+      return (
+        <Stack gap="md" align="flex-start" justify="center" className={classes.area}>
+          <Text role="alert">{describeAppError(state.error)}</Text>
+          <Button variant="default" loading={state.retrying} onClick={state.retry}>
+            Повторить
+          </Button>
+        </Stack>
+      );
+    case 'loading':
+      return (
+        <Skeleton
+          className={classes.area}
+          radius="xl"
+          role="status"
+          aria-busy="true"
+          aria-label="Загрузка плана посадок"
+        />
+      );
+    case 'ready':
+      return <ResultScreen project={project} result={state.result} />;
+    default: {
+      const unexpected: never = state;
+      return unexpected;
+    }
   }
-  if (
-    planting.data === undefined ||
-    zones.data === undefined ||
-    explanation.data === undefined ||
-    obstacles.isLoading ||
-    norms.isLoading ||
-    species.isLoading ||
-    rejected.isLoading
-  ) {
-    return (
-      <Skeleton
-        className={classes.area}
-        radius="xl"
-        role="status"
-        aria-busy="true"
-        aria-label="Загрузка плана посадок"
-      />
-    );
-  }
-  return (
-    <LoadedResult
-      project={project}
-      data={{ planting: planting.data, zones: zones.data }}
-      explanation={explanation.data}
-      obstacles={obstacles.data ?? null}
-      norms={norms.data ?? null}
-      // После повторного запроса с ошибкой RTK Query оставляет прежние данные: план строится
-      // по ним, и пояснение о сбое было бы неправдой.
-      failed={{
-        obstacles: obstacles.isError && obstacles.data === undefined,
-        rejected: rejected.isError && rejected.data === undefined,
-        species: species.isError && species.data === undefined,
-      }}
-      species={species.data ?? []}
-      rejected={rejected.data ?? null}
-    />
-  );
 }
 
-type LoadedResultProps = {
-  project: Project;
-  data: ResultData;
-  explanation: ExplanationEntry[];
-  obstacles: ObstaclesFeatureCollection | null;
-  norms: Norm[] | null;
-  // Сервер объявил возможность, но запрос не удался: план строится без этих данных.
-  failed: { obstacles: boolean; rejected: boolean; species: boolean };
-  species: Species[];
-  // Отклонённые места (возможность rejected); null — сервер их не отдаёт.
-  rejected: RejectedSitesFeatureCollection | null;
-};
+type ResultScreenProps = { project: Project; result: LoadedResult };
 
-function LoadedResult({
-  project,
-  data,
-  explanation,
-  obstacles,
-  norms,
-  failed,
-  species,
-  rejected,
-}: LoadedResultProps): JSX.Element {
+function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
+  const { data, failed, species, rejected } = result;
+  const speciesById = new Map(species.map((item) => [item.id, item]));
   const notice = failureNotice(failed);
   useEditsLoader(project, data.planting);
   const edits = usePlantingEdits(project.id, data.planting);
@@ -191,30 +104,21 @@ function LoadedResult({
   const [registerShown, setRegisterShown] = useState(view === 'register');
   if (view === 'register' && !registerShown) setRegisterShown(true);
 
-  const extent = resultExtent(data);
-  if (extent === null) {
+  const computed = editedResult(result, edits);
+  if (computed === null) {
     return <Text className={classes.area}>В результате обработки нет посадок и зон запрета.</Text>;
   }
-  // Без геопривязки бэкенд отдаёт координаты чертежа с меткой CRS
-  // (../backend/greenplan/export/geojson.py:18). Метка берётся из /zones: задеплоенный бэкенд
-  // пока не отдаёт metadata в /planting.
-  const geographic = isGeographic(data.zones.metadata.crs);
-  // Охват и система координат — по расстановке сервиса: правка не сдвигает центр плана.
-  const frame = createLocalFrame(extent, geographic);
-  const edited = { planting: edits.final, zones: data.zones };
+  const {
+    extent,
+    geographic,
+    frame,
+    edited,
+    prepared,
+    obstacles: objects,
+    entries,
+    statuses,
+  } = computed;
   const mapData = toMapData(edited, frame);
-  const prepared = prepareZones(data.zones, frame);
-  const objects =
-    obstacles === null
-      ? null
-      : {
-          map: toMapObstacles(obstacles, frame),
-          prepared: prepareObstacles(obstacles, norms, data.zones, frame),
-        };
-  const entries = new Map(explanation.map((entry) => [entry.id, entry]));
-  const statuses = plantingStatuses(edits.final, edits.serverStatuses, (point, plantType) =>
-    plantingStatus(frame.toLocal(point), plantType, prepared, objects?.prepared ?? null),
-  );
   const mapExtent = resultExtent(mapData) ?? extent;
   const [west, south, east, north] = BASEMAP_BOUNDS;
   const withinBasemap =
@@ -287,7 +191,7 @@ function LoadedResult({
               prepared={prepared}
               obstacles={objects}
               explanation={entries}
-              species={new Map(species.map((item) => [item.id, item]))}
+              species={speciesById}
               rejected={rejected}
               basemap={withinBasemap}
               selection={selection}
@@ -312,6 +216,7 @@ function LoadedResult({
             prepared={prepared}
             geographic={geographic}
             rejected={rejected}
+            species={speciesById}
             // Запасной план выбор не показывает: переход к нему ничего бы не дал.
             onOpen={mapUnavailable ? null : openOnPlan}
           />
@@ -353,34 +258,8 @@ function LoadedResult({
   );
 }
 
-// Статусы для карты и ведомости. После сохранения первичны статусы сервера; у правленых
-// посадок — свой расчёт, и в dev его расхождение с сервером видно в консоли, как в Б2.
-// У неправленых без ответа сервера статуса нет: это allowed расстановки сервиса.
-function plantingStatuses(
-  final: FinalPlanting,
-  server: ReadonlyMap<string, PlantingStatus> | null,
-  statusOf: (point: readonly number[], plantType: 'tree' | 'shrub') => PlantingStatus,
-): Map<string, PlantingStatus> {
-  const statuses = new Map<string, PlantingStatus>();
-  for (const { geometry, properties } of final.features) {
-    const changed = properties.origin === 'manual' || properties.moved_from !== null;
-    const own = changed ? statusOf(geometry.coordinates, properties.plant_type) : null;
-    const saved = server?.get(properties.id);
-    if (saved !== undefined) {
-      if (import.meta.env.DEV && own !== null && own !== saved) {
-        // eslint-disable-next-line no-console -- сигнал разработчику о расхождении реализаций, только в dev
-        console.warn(`Статус ${properties.id}: сервер ${saved}, клиент ${own}`);
-      }
-      statuses.set(properties.id, saved);
-    } else if (own !== null) {
-      statuses.set(properties.id, own);
-    }
-  }
-  return statuses;
-}
-
 // Что из объявленного сервером не загрузилось и что это значит для плана.
-function failureNotice(failed: LoadedResultProps['failed']): string | null {
+function failureNotice(failed: LoadedResult['failed']): string | null {
   const others = [
     ...(failed.rejected ? ['отклонённые места'] : []),
     ...(failed.species ? ['породы посадок'] : []),

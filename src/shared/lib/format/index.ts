@@ -2,6 +2,7 @@ export {
   formatCoordinate,
   formatCount,
   formatDate,
+  formatDateTime,
   formatDrawingCoordinate,
   formatDrawingMeters,
   formatDuration,

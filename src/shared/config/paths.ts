@@ -2,10 +2,13 @@ export const paths = {
   projects: '/',
   projectNew: '/projects/new',
   project: '/projects/:projectId',
+  projectReport: '/projects/:projectId/report',
 } as const;
 
 export const projectPath = (projectId: string): string =>
   `/projects/${encodeURIComponent(projectId)}`;
+
+export const projectReportPath = (projectId: string): string => `${projectPath(projectId)}/report`;
 
 // Мастер загрузки для существующего проекта: шаг «Файлы» или выбор главного чертежа.
 export const projectUploadPath = (projectId: string): string =>

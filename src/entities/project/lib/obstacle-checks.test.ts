@@ -47,6 +47,7 @@ const norm = (
   obstacle_subtype: subtype,
   plant_type: plantType,
   distance_m: distance,
+  basis: clause === null ? 'service_default' : 'regulation',
   citation: `743-ПП — ${subtype}`,
   act: 'ПП Москвы от 10.09.2002 № 743-ПП, прил. 1',
   clause,

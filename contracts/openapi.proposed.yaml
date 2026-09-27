@@ -822,6 +822,7 @@ components:
           obstacle_subtype,
           plant_type,
           distance_m,
+          basis,
           citation,
           act,
           clause,
@@ -843,6 +844,8 @@ components:
         distance_m:
           type: number
           description: Отступ для этого типа посадки, м (`tree_m` или `shrub_m` из `default.yaml`).
+        basis:
+          $ref: '#/components/schemas/NormBasis'
         citation:
           type: string
           description: Строка как в `/zones`, например «743-ПП — газопровод».
@@ -859,10 +862,22 @@ components:
             прочерк): фронтенд показывает норму без пункта.
         text:
           type: string
-          description: Текст нормы для этого типа посадки по-русски.
+          description: |
+            Текст нормы для этого типа посадки по-русски. При `basis: service_default` — почему
+            значение не из акта, например «Для кустарника у газопровода норма в ПП № 743-ПП,
+            табл. 3.6.1, не установлена».
         source_url:
           type: [string, 'null']
           description: Адрес первоисточника (docs.cntd.ru, base.garant.ru); `null`, если не найден.
+
+    NormBasis:
+      type: string
+      enum: [regulation, service_default]
+      description: |
+        Основание отступа: `regulation` — значение из нормативного акта (`act` и `clause`);
+        `service_default` — консервативное значение сервиса, в акте нормы для этого объекта и типа
+        посадки нет (прочерк в таблице или строки нет вовсе). Такой отступ не показывается как
+        требование акта.
 
     Species:
       type: object

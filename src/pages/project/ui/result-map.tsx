@@ -23,16 +23,13 @@ import {
   manualDiamond,
   OBSTACLE_LAYERS,
   obstacleGroup,
-  type ObstaclesFeatureCollection,
   overlappingCrowns,
   pixelsPerMeterAtZoom,
-  type PlantingCheck,
   type PlantingFeatureCollection,
   type PlantingStatus,
   plantingStatus,
   type PlantType,
   plantTypeFilters,
-  type PreparedObstacles,
   type PreparedZones,
   type RejectedSitesFeatureCollection,
   RESULT_LAYER,
@@ -56,6 +53,7 @@ import {
 import { useAppDispatch } from '@/shared/lib/store';
 import { Icon } from '@/shared/ui';
 
+import { type MapObstacles, plantingChecks } from '../model/result';
 import { LawnPanel } from './lawn-panel';
 import { type EditMark, LayersPanel, type LayerVisibility } from './layers-panel';
 import { ObstaclePanel } from './obstacle-panel';
@@ -91,7 +89,6 @@ export type Selection =
 export type EditedResult = Omit<ResultData, 'planting'> & { planting: FinalPlanting };
 
 // Объекты подосновы: в координатах карты для слоёв и подготовленные для проверок.
-export type MapObstacles = { map: ObstaclesFeatureCollection; prepared: PreparedObstacles };
 
 // Просьба подвести камеру к посадке (из ведомости). nonce различает повторы для той же посадки.
 export type CenterRequest = {
@@ -130,23 +127,7 @@ type ResultMapProps = {
   onUnavailable: () => void;
 };
 
-// Проверки считаются по данным бэкенда, не по координатам карты: у плана без геопривязки
-// координаты карты условные. Есть объекты подосновы — расстояние до них прямое, иначе — через
-// зоны запрета.
-function plantingChecks(
-  feature: PlantingFeatureCollection['features'][number] | undefined,
-  entry: ExplanationEntry | undefined,
-  frame: LocalFrame,
-  prepared: PreparedZones,
-  obstacles: MapObstacles | null,
-): PlantingCheck[] {
-  if (feature === undefined) return [];
-  const point = frame.toLocal(feature.geometry.coordinates);
-  const { plant_type: plantType } = feature.properties;
-  return obstacles === null
-    ? checksForPlanting(point, plantType, prepared)
-    : checksAgainstObstacles(point, plantType, entry?.checks, obstacles.prepared);
-}
+const NO_CHECKS: ReturnType<typeof plantingChecks> = [];
 
 export function ResultMap({
   projectId,
@@ -248,13 +229,9 @@ export function ResultMap({
         );
   const checks =
     rejectedChecks ??
-    plantingChecks(
-      selectedPlanting,
-      selectedChanged ? undefined : selectedEntry,
-      frame,
-      prepared,
-      obstacles,
-    );
+    (selectedPlanting === undefined
+      ? NO_CHECKS
+      : plantingChecks(selectedPlanting, selectedEntry, { frame, prepared, obstacles }));
   // Тип посадки выбранной точки — для отступа подписей размеров от кроны.
   const selectedPlantType =
     selectedPlanting?.properties.plant_type ?? selectedRejected?.properties.plant_type ?? null;

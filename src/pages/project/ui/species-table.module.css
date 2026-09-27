@@ -1,0 +1,17 @@
+.numbers {
+  font-variant-numeric: tabular-nums;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* В печати шапка повторяется на каждой странице, строка не рвётся между страницами. */
+.head {
+  display: table-header-group;
+}
+
+.row {
+  break-inside: avoid;
+}

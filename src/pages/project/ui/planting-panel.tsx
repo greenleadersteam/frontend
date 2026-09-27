@@ -5,6 +5,7 @@ import { type JSX, type Ref, useId } from 'react';
 
 import {
   type ExplanationEntry,
+  NOTE_1_CROWN_LIMIT_M,
   obstacleLabel,
   PLANT_TYPE_LABELS,
   type PlantingCheck,
@@ -225,6 +226,12 @@ export function PlantingPanel({
           <ul className={classes.checks} aria-labelledby={checksId}>
             {checks.map((check, index) => (
               <CheckItem
+                plantType={planting.plant_type}
+                // Примечание 1 к табл. 3.6.1 говорит о деревьях.
+                crownOverNote={
+                  planting.plant_type === 'tree' &&
+                  (species?.crown_diameter_m ?? 0) > NOTE_1_CROWN_LIMIT_M
+                }
                 // У зоны — её номер, у объекта — подтип: в списке по проверке на подтип.
                 key={
                   check.kind === 'object'

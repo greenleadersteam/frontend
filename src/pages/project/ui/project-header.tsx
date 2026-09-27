@@ -16,10 +16,17 @@ import {
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
 import { EditModeButton } from '@/features/edit-plantings';
 import { describeAppError } from '@/shared/api';
-import { FOCUS_PROJECTS_HEADING, paths, projectUploadPath } from '@/shared/config';
+import {
+  FOCUS_PROJECTS_HEADING,
+  paths,
+  projectReportPath,
+  projectUploadPath,
+  useCapability,
+} from '@/shared/config';
 import { formatCount, formatDuration, formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
+import { DownloadDxf } from './download-dxf';
 import classes from './project-header.module.css';
 
 type ProjectHeaderProps = {
@@ -64,7 +71,7 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
         <Group gap="sm" wrap="nowrap">
           {/* Кнопка правки есть, только когда правки загружены и не устарели. */}
           {state.kind === 'ready' && <EditModeButton projectId={project.id} />}
-          {state.kind === 'ready' && <DownloadDxfButton project={project} />}
+          {state.kind === 'ready' && <DownloadDxf project={project} />}
           <ProjectMenu project={project} polling={polling} />
         </Group>
       </Group>
@@ -147,27 +154,6 @@ function GeoreferenceButton({ georeference }: GeoreferenceButtonProps): JSX.Elem
   );
 }
 
-type DownloadDxfButtonProps = { project: Project };
-
-function DownloadDxfButton({ project }: DownloadDxfButtonProps): JSX.Element {
-  const [loading, setLoading] = useState(false);
-
-  const download = async () => {
-    setLoading(true);
-    const error = await downloadProjectDxf(project);
-    setLoading(false);
-    if (error !== null) {
-      notifications.show({ color: 'clay', message: describeAppError(error) });
-    }
-  };
-
-  return (
-    <Button loading={loading} onClick={() => void download()}>
-      Скачать DXF
-    </Button>
-  );
-}
-
 type ProjectMenuProps = ProjectHeaderProps;
 
 function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
@@ -176,6 +162,19 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
   const navigate = useNavigate();
   const archive = archiveAction(project.state);
   const deletion = deleteAvailability(project, polling);
+  const withEditedDxf = useCapability('editedDxf');
+  const ready = project.state.kind === 'ready';
+
+  // Пока файл скачивается, пункт недоступен: второй щелчок скачал бы его ещё раз.
+  const [downloading, setDownloading] = useState(false);
+  const downloadOriginal = async () => {
+    setDownloading(true);
+    const error = await downloadProjectDxf(project, 'original');
+    setDownloading(false);
+    if (error !== null) {
+      notifications.show({ color: 'clay', message: describeAppError(error) });
+    }
+  };
 
   return (
     <>
@@ -190,6 +189,17 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
           {archive === 'upload' && (
             <Menu.Item component={Link} to={projectUploadPath(project.id)}>
               Загрузить архив
+            </Menu.Item>
+          )}
+          {ready && (
+            <Menu.Item component={Link} to={projectReportPath(project.id)}>
+              Отчёт для согласования
+            </Menu.Item>
+          )}
+          {/* С editedDxf «Скачать DXF» отдаёт результат с правками, исходный — отсюда. */}
+          {ready && withEditedDxf && (
+            <Menu.Item disabled={downloading} onClick={() => void downloadOriginal()}>
+              Скачать исходный результат
             </Menu.Item>
           )}
           <Menu.Item

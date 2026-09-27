@@ -37,6 +37,17 @@ export function formatDate(iso: string, now: Date = new Date()): string {
     : dayMonthYear.format(date);
 }
 
+const dateTime = new Intl.DateTimeFormat(LOCALE, {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+// Дата с годом и временем — для документов, которые читают позже: «27 сентября 2026 г. в 16:05».
+export const formatDateTime = (iso: string): string => dateTime.format(new Date(iso));
+
 const MEBIBYTE = 2 ** 20;
 const KIBIBYTE = 2 ** 10;
 const oneDecimal = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });

@@ -61,8 +61,9 @@ export function diffFromServer(
   return diff;
 }
 
-// Загрузка правок при открытии проекта и черновик в браузере. Вызывается в одном месте —
-// на экране результата: остальные компоненты правки только читают.
+// Загрузка правок при открытии проекта и черновик в браузере. Вызывается там, откуда проект
+// открывают: на экране результата и в отчёте. Запись правок в store одна: второй вызов её
+// не перезагружает, остальные компоненты правки только читают.
 export function useEditsLoader(project: Project, source: PlantingFeatureCollection): void {
   const dispatch = useAppDispatch();
   const withServer = useCapability('plantingEdits');

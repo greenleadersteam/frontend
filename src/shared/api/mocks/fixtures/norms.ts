@@ -4,7 +4,7 @@ type Schemas = components['schemas'];
 type Norm = Schemas['Norm'];
 type PlantType = Schemas['PlantType'];
 
-type PerPlantType = { distance: number; clause: string | null; text: string };
+type PerPlantType = Pick<Norm, 'basis' | 'clause' | 'text'> & { distance: number };
 
 type NormRow = Pick<
   Norm,
@@ -15,7 +15,7 @@ type NormRow = Pick<
 // (../backend/greenplan/norms/default.yaml): от них строятся зоны. Акт, пункт, текст и адрес
 // первоисточника — только из contracts/norms-verified.md: демо не выдумывает право. Пункт задан
 // для типа посадки, только если значение сервиса для него совпадает с первоисточником; иначе
-// clause — null, а текст говорит, что значение — решение сервиса.
+// clause — null, basis — service_default, а текст говорит, почему в акте нормы нет.
 const ROWS: NormRow[] = [
   {
     id: '743-pp-gas',
@@ -27,12 +27,14 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 1.5,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «газопровод, канализация»',
+      basis: 'regulation',
       text: 'Газопровод: дерево 1,5\u00A0м',
     },
     shrub: {
       distance: 1.5,
       clause: null,
-      text: 'Газопровод: для кустарника нормы нет, 1,5\u00A0м — консервативное значение сервиса',
+      basis: 'service_default',
+      text: 'Для кустарника у газопровода норма в ПП №\u00A0743-ПП, табл. 3.6.1, не установлена',
     },
   },
   {
@@ -45,11 +47,13 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 2,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «теплопровод, трубопровод, теплосеть»',
+      basis: 'regulation',
       text: 'Теплопровод, трубопровод, теплосеть: дерево 2\u00A0м',
     },
     shrub: {
       distance: 1,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «теплопровод, трубопровод, теплосеть»',
+      basis: 'regulation',
       text: 'Теплопровод, трубопровод, теплосеть: кустарник 1\u00A0м',
     },
   },
@@ -63,12 +67,14 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 2,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «водопровод, дренаж»',
+      basis: 'regulation',
       text: 'Водопровод: дерево 2\u00A0м',
     },
     shrub: {
       distance: 2,
       clause: null,
-      text: 'Водопровод: для кустарника нормы нет, 2\u00A0м — консервативное значение сервиса',
+      basis: 'service_default',
+      text: 'Для кустарника у водопровода норма в ПП №\u00A0743-ПП, табл. 3.6.1, не установлена',
     },
   },
   {
@@ -81,12 +87,14 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 2,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «водопровод, дренаж»',
+      basis: 'regulation',
       text: 'Дренаж: дерево 2\u00A0м',
     },
     shrub: {
       distance: 2,
       clause: null,
-      text: 'Дренаж: для кустарника нормы нет, 2\u00A0м — консервативное значение сервиса',
+      basis: 'service_default',
+      text: 'Для кустарника у дренажа норма в ПП №\u00A0743-ПП, табл. 3.6.1, не установлена',
     },
   },
   {
@@ -99,12 +107,14 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 1.5,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «газопровод, канализация»',
+      basis: 'regulation',
       text: 'Канализация: дерево 1,5\u00A0м; водостока в строке нет',
     },
     shrub: {
       distance: 1.5,
       clause: null,
-      text: 'Канализация: для кустарника нормы нет, 1,5\u00A0м — консервативное значение сервиса',
+      basis: 'service_default',
+      text: 'Для кустарника у канализации норма в ПП №\u00A0743-ПП, табл. 3.6.1, не установлена',
     },
   },
   {
@@ -117,11 +127,13 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 2,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «силовой кабель и кабель связи»',
+      basis: 'regulation',
       text: 'Силовой кабель и кабель связи: дерево 2\u00A0м',
     },
     shrub: {
       distance: 0.7,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «силовой кабель и кабель связи»',
+      basis: 'regulation',
       text: 'Силовой кабель и кабель связи: кустарник 0,7\u00A0м',
     },
   },
@@ -135,11 +147,13 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 2,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «силовой кабель и кабель связи»',
+      basis: 'regulation',
       text: 'Силовой кабель и кабель связи: дерево 2\u00A0м',
     },
     shrub: {
       distance: 0.7,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «силовой кабель и кабель связи»',
+      basis: 'regulation',
       text: 'Силовой кабель и кабель связи: кустарник 0,7\u00A0м',
     },
   },
@@ -153,12 +167,14 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 2,
       clause: null,
-      text: 'Неопознанная подземная сеть: 2\u00A0м — консервативное значение сервиса, в нормативных актах строки нет',
+      basis: 'service_default',
+      text: 'Для неопознанной подземной сети строки в ПП №\u00A0743-ПП, табл. 3.6.1, нет',
     },
     shrub: {
       distance: 2,
       clause: null,
-      text: 'Неопознанная подземная сеть: 2\u00A0м — консервативное значение сервиса, в нормативных актах строки нет',
+      basis: 'service_default',
+      text: 'Для неопознанной подземной сети строки в ПП №\u00A0743-ПП, табл. 3.6.1, нет',
     },
   },
   {
@@ -171,11 +187,13 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 0.7,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «край тротуара и садовой дорожки»',
+      basis: 'regulation',
       text: 'Край тротуара и садовой дорожки: дерево 0,7\u00A0м',
     },
     shrub: {
       distance: 0.5,
       clause: 'п. 3.6.3, табл. 3.6.1, строка «край тротуара и садовой дорожки»',
+      basis: 'regulation',
       text: 'Край тротуара и садовой дорожки: кустарник 0,5\u00A0м',
     },
   },
@@ -190,12 +208,14 @@ const ROWS: NormRow[] = [
     tree: {
       distance: 5,
       clause: null,
-      text: 'Расстояние между деревьями при однорядной посадке 5–6\u00A0м (ориентировочно, табл. 3.6.2 — шаг посадки, а не отступ); 5\u00A0м — нижняя граница, решение сервиса',
+      basis: 'service_default',
+      text: 'Табл. 3.6.2 ПП №\u00A0743-ПП задаёт ориентировочный шаг посадки деревьев 5–6\u00A0м, а не отступ от существующего дерева',
     },
     shrub: {
       distance: 1.5,
       clause: null,
-      text: 'Существующее дерево: для кустарника нормы нет, 1,5\u00A0м — значение сервиса',
+      basis: 'service_default',
+      text: 'Для кустарника у существующего дерева норма в ПП №\u00A0743-ПП не установлена',
     },
   },
 ];
@@ -205,14 +225,13 @@ const PLANT_TYPES: readonly PlantType[] = ['tree', 'shrub'];
 // Запись на пару «объект + тип посадки»: у дерева и кустарника свои значение и пункт.
 export const NORMS: Norm[] = ROWS.flatMap(({ id, tree, shrub, ...row }) =>
   PLANT_TYPES.map((plantType) => {
-    const { distance, clause, text } = plantType === 'tree' ? tree : shrub;
+    const { distance, ...norm } = plantType === 'tree' ? tree : shrub;
     return {
       ...row,
+      ...norm,
       id: `${id}-${plantType}`,
       plant_type: plantType,
       distance_m: distance,
-      clause,
-      text,
     };
   }),
 );

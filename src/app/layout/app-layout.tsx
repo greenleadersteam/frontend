@@ -13,7 +13,10 @@ type AppLayoutProps = {
 export function AppLayout({ width }: AppLayoutProps): JSX.Element {
   return (
     <div className={classes.root} data-width={width}>
-      <AppHeader />
+      {/* Шапка и метка режима не печатаются: печатная страница — документ (отчёт). */}
+      <div className={classes.chrome}>
+        <AppHeader />
+      </div>
       <main className={classes.main}>
         <Outlet />
       </main>

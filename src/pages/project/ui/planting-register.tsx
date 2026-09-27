@@ -33,6 +33,7 @@ import {
   projectFileName,
   type RejectedSitesFeatureCollection,
   RESULT_COUNT_FORMS,
+  type Species,
 } from '@/entities/project';
 import type { EditCounts, FinalPlanting } from '@/features/edit-plantings';
 import {
@@ -55,6 +56,8 @@ import {
 } from './register-csv';
 import { RejectedTable } from './rejected-table';
 import type { CenterRequest } from './result-map';
+import { speciesCsv, speciesRows } from './species-register';
+import { SpeciesTable } from './species-table';
 
 type PlantingRegisterProps = {
   project: Project;
@@ -65,16 +68,22 @@ type PlantingRegisterProps = {
   explanation: ReadonlyMap<string, ExplanationEntry>;
   prepared: PreparedZones;
   geographic: boolean;
-  // Отклонённые места (возможность rejected); null — сервер их не отдаёт, переключателя нет.
+  // Отклонённые места (возможность rejected); null — сервер их не отдаёт, пункта нет.
   rejected: RejectedSitesFeatureCollection | null;
+  // Справочник пород (возможность species); пусто — ведомость озеленения по правилам посадки.
+  species: ReadonlyMap<string, Species>;
   // Показать посадку или место на плане; null — плана с выбором нет (карта недоступна).
   onOpen: ((target: CenterRequest['target']) => void) | null;
 };
 
-const LISTS = [
+type List = 'plantings' | 'species' | 'rejected';
+const LISTS: { value: List; label: string }[] = [
   { value: 'plantings', label: 'Посадки' },
+  { value: 'species', label: 'По породам' },
   { value: 'rejected', label: 'Отклонённые' },
 ];
+const parseList = (value: string): List =>
+  value === 'species' || value === 'rejected' ? value : 'plantings';
 
 const PAGE_SIZE = 50;
 
@@ -107,7 +116,7 @@ const STATUS_ICONS = {
 } as const;
 
 // «Правок: 5 (перемещено 3, добавлено 1, удалено 1)» — разбивка только по ненулевым видам.
-function editsLine({ total, moved, added, removed, species }: EditCounts): string {
+export function editsLine({ total, moved, added, removed, species }: EditCounts): string {
   const parts = [
     ...(moved > 0 ? [`перемещено ${formatNumber(moved)}`] : []),
     ...(added > 0 ? [`добавлено ${formatNumber(added)}`] : []),
@@ -126,9 +135,10 @@ export function PlantingRegister({
   prepared,
   geographic,
   rejected,
+  species,
   onOpen,
 }: PlantingRegisterProps): JSX.Element {
-  const [list, setList] = useState<'plantings' | 'rejected'>('plantings');
+  const [list, setList] = useState<List>('plantings');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [rule, setRule] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -185,6 +195,13 @@ export function PlantingRegister({
     saveFile(
       new Blob([registerCsv(rows, edited)], { type: 'text/csv;charset=utf-8' }),
       projectFileName(project.name, ' — ведомость посадок.csv'),
+    );
+  };
+  const speciesList = speciesRows(planting, species, explanation);
+  const downloadSpecies = () => {
+    saveFile(
+      new Blob([speciesCsv(speciesList)], { type: 'text/csv;charset=utf-8' }),
+      projectFileName(project.name, ' — ведомость озеленения.csv'),
     );
   };
 
@@ -259,18 +276,23 @@ export function PlantingRegister({
 
       <Card>
         <Stack gap="md">
-          {rejected !== null && (
-            <SegmentedControl
-              data={LISTS}
-              value={list}
-              onChange={(value) => {
-                setList(value === 'rejected' ? 'rejected' : 'plantings');
-              }}
-              aria-label="Список ведомости"
-              className={classes.list}
-            />
-          )}
-          {list === 'rejected' && rejected !== null ? (
+          <SegmentedControl
+            data={LISTS.filter(({ value }) => value !== 'rejected' || rejected !== null)}
+            value={list}
+            onChange={(value) => {
+              setList(parseList(value));
+            }}
+            aria-label="Список ведомости"
+            className={classes.list}
+          />
+          {list === 'species' ? (
+            <Stack gap="md" align="flex-start">
+              <SpeciesTable rows={speciesList} />
+              <Button variant="default" onClick={downloadSpecies}>
+                Скачать ведомость озеленения (CSV)
+              </Button>
+            </Stack>
+          ) : list === 'rejected' && rejected !== null ? (
             <RejectedTable
               rejected={rejected}
               geographic={geographic}

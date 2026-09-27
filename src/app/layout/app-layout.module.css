@@ -19,3 +19,15 @@
   flex-direction: column;
   gap: var(--mantine-spacing-xl);
 }
+
+/* Печатный документ (отчёт) ставит data-print на корень: шапка и метка режима не печатаются.
+   Остальные страницы печатаются с меткой «Демонстрационные данные». */
+@media print {
+  :global(:root[data-print='document']) .root {
+    padding: 0;
+  }
+
+  :global(:root[data-print='document']) .chrome {
+    display: none;
+  }
+}

@@ -552,6 +552,7 @@ export interface components {
             plant_type: components["schemas"]["PlantType"];
             /** @description Отступ для этого типа посадки, м (`tree_m` или `shrub_m` из `default.yaml`). */
             distance_m: number;
+            basis: components["schemas"]["NormBasis"];
             /** @description Строка как в `/zones`, например «743-ПП — газопровод». */
             citation: string;
             /**
@@ -565,11 +566,23 @@ export interface components {
              *     прочерк): фронтенд показывает норму без пункта.
              */
             clause: string | null;
-            /** @description Текст нормы для этого типа посадки по-русски. */
+            /**
+             * @description Текст нормы для этого типа посадки по-русски. При `basis: service_default` — почему
+             *     значение не из акта, например «Для кустарника у газопровода норма в ПП № 743-ПП,
+             *     табл. 3.6.1, не установлена».
+             */
             text: string;
             /** @description Адрес первоисточника (docs.cntd.ru, base.garant.ru); `null`, если не найден. */
             source_url: string | null;
         };
+        /**
+         * @description Основание отступа: `regulation` — значение из нормативного акта (`act` и `clause`);
+         *     `service_default` — консервативное значение сервиса, в акте нормы для этого объекта и типа
+         *     посадки нет (прочерк в таблице или строки нет вовсе). Такой отступ не показывается как
+         *     требование акта.
+         * @enum {string}
+         */
+        NormBasis: "regulation" | "service_default";
         Species: {
             /** @description Постоянный идентификатор, например `tilia_cordata`. */
             id: string;

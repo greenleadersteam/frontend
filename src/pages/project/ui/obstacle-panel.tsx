@@ -3,6 +3,7 @@ import { IconX } from '@tabler/icons-react';
 import { type JSX, type Ref, useId } from 'react';
 
 import {
+  normBasis,
   obstacleLabel,
   type PlantType,
   type PreparedObstacle,
@@ -11,6 +12,7 @@ import {
 import { formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
+import { serviceDefaultText } from './check-item';
 import { normReference } from './norm-reference';
 import classes from './planting-panel.module.css';
 
@@ -39,7 +41,11 @@ export function ObstaclePanel({ ref, obstacle, norms, onClose }: ObstaclePanelPr
   // а не пропадает молча.
   const rows = NORM_ROWS.flatMap(({ plantType, label }) => {
     const setback = norms.norm(plantType, category, subtype);
-    return setback === undefined && norms.catalog ? [] : [{ plantType, label, setback }];
+    const basis =
+      setback === undefined
+        ? null
+        : normBasis(setback.norm, category, subtype, plantType, setback.required);
+    return setback === undefined && norms.catalog ? [] : [{ plantType, label, setback, basis }];
   });
 
   return (
@@ -81,7 +87,7 @@ export function ObstaclePanel({ ref, obstacle, norms, onClose }: ObstaclePanelPr
           <Text size="sm">Нормы отступа от таких объектов в сервисе нет</Text>
         ) : (
           <ul className={classes.checks} aria-labelledby={normsId}>
-            {rows.map(({ plantType, label, setback }) => (
+            {rows.map(({ plantType, label, setback, basis }) => (
               <li key={plantType}>
                 {setback === undefined ? (
                   <Text>{`${label} — норма в данных результата не указана`}</Text>
@@ -90,13 +96,22 @@ export function ObstaclePanel({ ref, obstacle, norms, onClose }: ObstaclePanelPr
                     <Text className={classes.numbers}>
                       {`${label} — не ближе ${formatMeters(setback.required)}`}
                     </Text>
-                    <Text size="sm" c="dimmed">
-                      {normReference(setback.norm, setback.citation)}
-                    </Text>
-                    {setback.norm !== null && (
+                    {basis?.basis === 'service_default' ? (
+                      // Значение сервиса — не требование акта: ссылки на акт нет.
                       <Text size="sm" c="dimmed">
-                        {setback.norm.text}
+                        {serviceDefaultText(setback.required, basis.reason)}
                       </Text>
+                    ) : (
+                      <>
+                        <Text size="sm" c="dimmed">
+                          {normReference(setback.norm, setback.citation)}
+                        </Text>
+                        {setback.norm !== null && (
+                          <Text size="sm" c="dimmed">
+                            {setback.norm.text}
+                          </Text>
+                        )}
+                      </>
                     )}
                   </Stack>
                 )}

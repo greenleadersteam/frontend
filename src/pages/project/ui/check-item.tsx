@@ -1,10 +1,18 @@
 import { Button, Group, Stack, Text } from '@mantine/core';
-import { IconAlertTriangle, IconCircleCheck, IconCircleX } from '@tabler/icons-react';
+import {
+  IconAlertTriangle,
+  IconCircleCheck,
+  IconCircleX,
+  IconInfoCircle,
+} from '@tabler/icons-react';
 import { type JSX, useState } from 'react';
 
 import {
+  checkBasis,
+  type NormBasis,
   obstacleLabel,
   type PlantingCheck,
+  type PlantType,
   type PreparedObstacle,
   TOLERANCE_M,
 } from '@/entities/project';
@@ -17,6 +25,9 @@ import { SourceLink, sourceUrl } from './source-link';
 
 type CheckItemProps = {
   check: PlantingCheck;
+  plantType: PlantType;
+  // Крона породы больше 5 м: по примечанию 1 к табл. 3.6.1 отступ следует увеличить.
+  crownOverNote: boolean;
   onFocus: () => void;
   onBlur: () => void;
   // Без него у проверки по зоне нет кнопки «Показать зону».
@@ -34,6 +45,7 @@ type CheckView = {
   // читалась бы как ошибка.
   withinTolerance: boolean;
   reference: string;
+  basis: NormBasis | null;
   // Пояснение зоны сервера (reason) — видно сразу; текст нормы из /norms — по кнопке.
   note: string;
   normText: string | null;
@@ -41,22 +53,39 @@ type CheckView = {
   show: { label: string; action: () => void } | null;
 };
 
+// Отступ, которого нет в акте, не называется нормой: «при отступе», а не «при норме».
+const requirement = (basis: NormBasis | null) =>
+  basis?.basis === 'service_default' ? 'при отступе не менее' : 'при норме не менее';
+
+// Консервативное значение сервиса — не требование закона: вместо ссылки на пункт — почему
+// нормы нет (contracts/norms-verified.md).
+export const serviceDefaultText = (distance: number, reason: string): string =>
+  `Отступ ${formatMeters(distance)} — консервативное значение сервиса. ${reason}.`;
+
 function viewOf(
   check: PlantingCheck,
+  plantType: PlantType,
   onShowZone: ((index: number) => void) | undefined,
   onShowObstacle: (obstacle: PreparedObstacle) => void,
 ): CheckView {
+  const basis = checkBasis(check, plantType);
+  const serviceDefault = basis?.basis === 'service_default' ? basis : null;
   if (check.kind === 'object') {
     const { obstacle } = check;
     return {
       obstacle: obstacleLabel(check.category, check.subtype),
       // Расстояние до геометрии объекта — с сантиметрами, как у сервера.
-      distance: `${formatMeters(check.actual, 2)} при норме не менее ${formatMeters(check.required)}`,
+      distance: `${formatMeters(check.actual, 2)} ${requirement(basis)} ${formatMeters(check.required)}`,
       violated: check.violated,
       withinTolerance: !check.violated && check.actual < check.required,
-      reference: normReference(check.norm, check.citation),
+      reference:
+        serviceDefault === null
+          ? normReference(check.norm, check.citation)
+          : serviceDefaultText(check.required, serviceDefault.reason),
+      basis,
       note: '',
-      normText: check.norm?.text ?? null,
+      // У значения сервиса текст нормы и есть причина: он уже в строке основания.
+      normText: serviceDefault === null ? (check.norm?.text ?? null) : null,
       source: sourceUrl(check.norm?.source_url ?? null),
       show:
         obstacle === null
@@ -76,13 +105,17 @@ function viewOf(
     obstacle: obstacleLabel(properties.obstacle_category, properties.obstacle_subtype),
     distance:
       check.kind === 'measured'
-        ? `${formatMeters(check.actual, 1)} при норме не менее ${formatMeters(properties.distance_m)}`
+        ? `${formatMeters(check.actual, 1)} ${requirement(basis)} ${formatMeters(properties.distance_m)}`
         : check.kind === 'boundary'
           ? `до границы зоны ${formatMeters(check.margin, 1)}`
           : null,
     violated: check.kind === 'inside',
     withinTolerance: false,
-    reference: normReference(null, citation),
+    reference:
+      serviceDefault === null
+        ? normReference(null, citation)
+        : serviceDefaultText(properties.distance_m, serviceDefault.reason),
+    basis,
     note: reason === citation ? '' : reason,
     normText: null,
     source: null,
@@ -98,15 +131,24 @@ function viewOf(
   };
 }
 
+// Значение сервиса нормой не называется и при нарушении.
+const violationLabel = (basis: NormBasis | null): string =>
+  basis?.basis === 'service_default' ? 'Отступ сервиса нарушен' : 'Норма нарушена';
+
+export const CROWN_NOTE =
+  'Крона породы больше 5\u00A0м — по примечанию 1 к табл. 3.6.1 отступ следует увеличить';
+
 // Пункт проверки: в карточке посадки и в панели отклонённого места — в одном виде.
 export function CheckItem({
   check,
+  plantType,
+  crownOverNote,
   onFocus,
   onBlur,
   onShowZone,
   onShowObstacle,
 }: CheckItemProps): JSX.Element {
-  const view = viewOf(check, onShowZone, onShowObstacle);
+  const view = viewOf(check, plantType, onShowZone, onShowObstacle);
   const [normShown, setNormShown] = useState(false);
 
   return (
@@ -121,9 +163,12 @@ export function CheckItem({
       onBlur={onBlur}
     >
       {check.kind === 'inside' ? (
-        <Icon icon={IconAlertTriangle} tone="error" label="Норма нарушена" />
+        <Icon icon={IconAlertTriangle} tone="error" label={violationLabel(view.basis)} />
       ) : view.violated ? (
-        <Icon icon={IconCircleX} tone="error" label="Норма нарушена" />
+        <Icon icon={IconCircleX} tone="error" label={violationLabel(view.basis)} />
+      ) : view.basis?.basis === 'service_default' ? (
+        // Не требование закона: «выполнено» было бы неправдой.
+        <Icon icon={IconInfoCircle} label="Значение сервиса" />
       ) : (
         <Icon icon={IconCircleCheck} tone="accent" label="Норма выполнена" />
       )}
@@ -144,6 +189,7 @@ export function CheckItem({
         <Text size="sm" c="dimmed">
           {view.reference}
         </Text>
+        {crownOverNote && view.basis?.basis === 'regulation' && <Text size="sm">{CROWN_NOTE}</Text>}
         {view.note !== '' && (
           <Text size="sm" c="dimmed">
             {view.note}

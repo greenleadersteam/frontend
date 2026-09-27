@@ -7,6 +7,7 @@ export {
   isFocusProjectsHeading,
   paths,
   projectPath,
+  projectReportPath,
   projectUploadPath,
 } from './paths';
 export { PRODUCT_NAME } from './product';

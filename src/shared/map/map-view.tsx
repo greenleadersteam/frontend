@@ -47,6 +47,9 @@ type MapViewProps = {
   onUnavailable: () => void;
   // Панели поверх карты.
   children?: ReactNode;
+  // Карта для снимка (отчёт для печати): буфер кадра сохраняется, чтобы холст можно было
+  // прочитать в изображение; без жестов и кнопок масштаба.
+  snapshot?: boolean;
 };
 
 type Basemap = 'checking' | 'available' | 'missing';
@@ -62,6 +65,7 @@ export function MapView({
   onBasemapResolved,
   onUnavailable,
   children,
+  snapshot = false,
 }: MapViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
@@ -96,6 +100,10 @@ export function MapView({
         pitchWithRotate: false,
         maxPitch: 0,
         attributionControl: false,
+        ...(snapshot && {
+          interactive: false,
+          canvasContextAttributes: { preserveDrawingBuffer: true },
+        }),
         locale: {
           'Map.Title': label,
           'ScaleControl.Meters': 'м',
@@ -177,37 +185,39 @@ export function MapView({
           </Text>
         )
       )}
-      <ActionIcon.Group orientation="vertical" className={classes.zoom}>
-        <ActionIcon
-          variant="default"
-          size="lg"
-          aria-label="Приблизить"
-          disabled={map === null}
-          onClick={() => map?.zoomIn()}
-        >
-          <Icon icon={IconPlus} />
-        </ActionIcon>
-        <ActionIcon
-          variant="default"
-          size="lg"
-          aria-label="Отдалить"
-          disabled={map === null}
-          onClick={() => map?.zoomOut()}
-        >
-          <Icon icon={IconMinus} />
-        </ActionIcon>
-        <ActionIcon
-          variant="default"
-          size="lg"
-          aria-label="Показать весь участок"
-          disabled={map === null}
-          onClick={() => {
-            if (map !== null) fit(map, true);
-          }}
-        >
-          <Icon icon={IconFocusCentered} />
-        </ActionIcon>
-      </ActionIcon.Group>
+      {!snapshot && (
+        <ActionIcon.Group orientation="vertical" className={classes.zoom}>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Приблизить"
+            disabled={map === null}
+            onClick={() => map?.zoomIn()}
+          >
+            <Icon icon={IconPlus} />
+          </ActionIcon>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Отдалить"
+            disabled={map === null}
+            onClick={() => map?.zoomOut()}
+          >
+            <Icon icon={IconMinus} />
+          </ActionIcon>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Показать весь участок"
+            disabled={map === null}
+            onClick={() => {
+              if (map !== null) fit(map, true);
+            }}
+          >
+            <Icon icon={IconFocusCentered} />
+          </ActionIcon>
+        </ActionIcon.Group>
+      )}
     </div>
   );
 }

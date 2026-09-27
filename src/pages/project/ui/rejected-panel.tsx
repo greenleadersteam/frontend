@@ -80,6 +80,8 @@ export function RejectedPanel({
         <ul className={classes.checks} aria-labelledby={checksId}>
           {checks.map((check, index) => (
             <CheckItem
+              plantType={site.plant_type}
+              crownOverNote={false}
               // По проверке на подтип: у отклонённого места проверки только по объектам.
               key={`${check.category}|${String(check.subtype)}`}
               check={check}

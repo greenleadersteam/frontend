@@ -1,3 +1,4 @@
+export type { DxfVariant } from './api/download-dxf';
 export { downloadProjectDxf } from './api/download-dxf';
 export {
   useCreateProjectMutation,
@@ -35,9 +36,12 @@ export {
   STAGE_LABELS,
 } from './config/labels';
 export { dimensionLines } from './lib/dimension-lines';
+export { DRAWING_FIT_LIMIT_M, drawingTransform } from './lib/drawing-transform';
 export { projectFileName } from './lib/file-name';
 export { createLocalFrame, type LocalFrame } from './lib/local-frame';
 export { toMapData, toMapObstacles, toMapRejected } from './lib/map-data';
+export type { NormBasis } from './lib/norm-basis';
+export { checkBasis, normBasis, NOTE_1_CROWN_LIMIT_M } from './lib/norm-basis';
 export type { PreparedObstacle, PreparedObstacles } from './lib/obstacle-checks';
 export { checksAgainstObstacles, checksFromServer, prepareObstacles } from './lib/obstacle-checks';
 export { CROWN_RADIUS_M, isGeographic, pixelsPerMeterAtZoom } from './lib/plan-projection';
@@ -57,6 +61,7 @@ export {
   TOLERANCE_M,
   zoneArea,
 } from './lib/planting-checks';
+export { plantingLayerDxf } from './lib/planting-dxf';
 export type { PlantingStatus } from './lib/planting-status';
 export { overlappingCrowns, plantingStatus } from './lib/planting-status';
 export type { ResultData, ResultLayerGroup } from './lib/result-layers';

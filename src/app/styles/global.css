@@ -25,3 +25,10 @@ body {
   background-attachment: fixed;
   color: var(--app-text);
 }
+
+/* На бумаге фон «дневной свет» не нужен: печать без фона страницы. */
+@media print {
+  body {
+    background: none;
+  }
+}

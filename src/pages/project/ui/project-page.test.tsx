@@ -13,6 +13,7 @@ import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { renderWithProviders, server } from '@/shared/lib/test';
 
 import { ProjectPage } from './project-page';
+import { ProjectReportPage } from './report-page';
 
 // Карта в jsdom не рисуется: модуль карты подменяется на границе ленивого импорта.
 // Подмена отдаёт экрану объект с теми методами MapLibre, которыми экран пользуется.
@@ -30,7 +31,13 @@ const mapMock = vi.hoisted(() => ({ unavailable: false }));
 // Моки реализуют весь контракт, и сервер в тестах объявляет все возможности. Проверки по зонам
 // запрета — поведение сервера без /obstacles: такие тесты выключают возможность obstacles.
 // Черновик правок в браузере — поведение сервера без plantingEdits.
-const serverMock = vi.hoisted(() => ({ obstacles: true, plantingEdits: true }));
+// Без editedDxf слой с правками собирается в браузере. Источник данных — для метки отчёта.
+const serverMock = vi.hoisted(() => ({
+  obstacles: true,
+  plantingEdits: true,
+  editedDxf: true,
+  dataSource: 'server',
+}));
 vi.mock('@/shared/config', async (importOriginal) => {
   const actual = await importOriginal<typeof Config>();
   return {
@@ -38,8 +45,10 @@ vi.mock('@/shared/config', async (importOriginal) => {
     useCapability: (name: Config.Capability) => {
       if (name === 'obstacles') return serverMock.obstacles;
       if (name === 'plantingEdits') return serverMock.plantingEdits;
+      if (name === 'editedDxf') return serverMock.editedDxf;
       return actual.useCapability(name);
     },
+    currentDataSource: () => serverMock.dataSource,
   };
 });
 
@@ -174,6 +183,7 @@ function ProjectsStub(): ReactNode {
 
 const routes: RouteObject[] = [
   { path: '/projects/:projectId', Component: ProjectPage },
+  { path: '/projects/:projectId/report', Component: ProjectReportPage },
   { path: '/projects/new', element: <h1>Мастер загрузки</h1> },
   { path: '/', Component: ProjectsStub },
 ];
@@ -196,6 +206,8 @@ beforeEach(() => {
   mapMock.unavailable = false;
   serverMock.obstacles = true;
   serverMock.plantingEdits = true;
+  serverMock.editedDxf = true;
+  serverMock.dataSource = 'server';
   editActions = [];
 });
 
@@ -961,10 +973,12 @@ describe('исходные объекты', () => {
     expect(norms[0]).toHaveTextContent(
       'ПП Москвы от 10.09.2002 № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1, строка «газопровод, канализация»',
     );
-    // У кустарника пункт не подтверждён: акт без пункта и объяснение значения.
+    // У кустарника нормы в акте нет: значение сервиса без ссылки на акт и почему нормы нет.
     expect(norms[1]).toHaveTextContent('Для кустарников — не ближе 1,5 м');
-    expect(norms[1]).not.toHaveTextContent('п. 3.6.3');
-    expect(norms[1]).toHaveTextContent('для кустарника нормы нет');
+    expect(norms[1]).not.toHaveTextContent('743-ПП, прил. 1');
+    expect(norms[1]).toHaveTextContent(
+      'Отступ 1,5 м — консервативное значение сервиса. Для кустарника у газопровода норма в ПП № 743-ПП, табл. 3.6.1, не установлена.',
+    );
     expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
       { source: 'result-obstacles', id: 2 },
       { selected: true },
@@ -2052,5 +2066,232 @@ describe('черновик правок в браузере', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Удалить правки' }));
     expect(await screen.findByRole('button', { name: 'Править расстановку' })).toBeInTheDocument();
+  });
+});
+
+// Скачанный файл: объектные URL в jsdom подменены, текст — из Blob.
+const captureDownloads = () => {
+  const files: { name: string; blob: Blob }[] = [];
+  const blobs: Blob[] = [];
+  URL.createObjectURL = vi.fn((blob: Blob) => {
+    blobs.push(blob);
+    return `blob:${String(blobs.length)}`;
+  });
+  URL.revokeObjectURL = vi.fn();
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    const blob = blobs.at(-1);
+    if (blob !== undefined) files.push({ name: this.download, blob });
+  });
+  return files;
+};
+
+describe('скачивание DXF с правками', () => {
+  test('без editedDxf и с правками — меню: результат сервиса или слой с правками', async () => {
+    serverMock.editedDxf = false;
+    const files = captureDownloads();
+    renderProject(READY_ID);
+    await selectFirstTree();
+    await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать DXF' }));
+    expect(
+      await screen.findByText('Вставьте слой в исходный чертёж: координаты совпадают'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Результат сервиса (DXF)' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Слой посадок с правками (DXF)' }));
+
+    await waitFor(() => {
+      expect(files).toHaveLength(1);
+    });
+    expect(files[0]?.name).toBe('Сквер на Покровке — посадки с правками.dxf');
+    const dxf = (await files[0]?.blob.text()) ?? '';
+    // 38 посадок сервиса без удалённой; первое дерево в файле не встречается.
+    expect(dxf.split('\r\n').filter((line) => line === 'CIRCLE')).toHaveLength(37);
+    expect(dxf).not.toContain(FIRST_TREE);
+    expect(dxf).toContain('GREENING_PROPOSED');
+  });
+
+  test('без правок — обычная кнопка', async () => {
+    serverMock.editedDxf = false;
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать DXF' }));
+    expect(screen.queryByRole('menuitem', { name: 'Слой посадок с правками (DXF)' })).toBeNull();
+  });
+
+  test('с editedDxf — исходный результат из меню проекта, ?variant=original', async () => {
+    const files = captureDownloads();
+    const urls: string[] = [];
+    server.events.on('request:start', ({ request }) => {
+      if (request.url.includes('/dxf')) urls.push(request.url);
+    });
+    renderProject(READY_ID);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Действия с проектом' }));
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: 'Скачать исходный результат' }),
+    );
+
+    await waitFor(() => {
+      expect(files).toHaveLength(1);
+    });
+    expect(urls.at(-1)).toMatch(/\/dxf\?variant=original$/);
+    expect(files[0]?.name).toBe('Сквер на Покровке — исходный результат.dxf');
+  });
+});
+
+describe('ведомость озеленения', () => {
+  test('«По породам»: породы, итоги по типам и CSV', async () => {
+    const files = captureDownloads();
+    await renderRegister();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'По породам' }));
+
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Рябина обыкновенная')).toBeInTheDocument();
+    expect(within(table).getByText('Sorbus aucuparia')).toBeInTheDocument();
+    expect(
+      within(table).getByRole('rowheader', { name: 'Итого деревьев' }).closest('tr'),
+    ).toHaveTextContent('19');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Скачать ведомость озеленения (CSV)' }),
+    );
+    await waitFor(() => {
+      expect(files).toHaveLength(1);
+    });
+    expect(files[0]?.name).toBe('Сквер на Покровке — ведомость озеленения.csv');
+  });
+});
+
+const renderReport = (id = READY_ID) =>
+  renderWithProviders(routes, `/projects/${id}/report`, reducers);
+
+describe('отчёт для согласования', () => {
+  test('из меню проекта — страница отчёта со всеми разделами, источник — сервер', async () => {
+    renderProject(READY_ID);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Действия с проектом' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Отчёт для согласования' }));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Сквер на Покровке' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent),
+    ).toEqual([
+      'План',
+      'Сводка',
+      'Ведомость озеленения',
+      'Применённые нормы',
+      'Проверки по посадкам',
+      'Что не проверялось',
+      'Геопривязка',
+    ]);
+    expect(screen.getByText('Сервер')).toBeInTheDocument();
+    expect(screen.queryByText('Демонстрационные данные')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Печать или сохранение в PDF' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Назад к проекту' })).toHaveAttribute(
+      'href',
+      `/projects/${READY_ID}`,
+    );
+  });
+
+  test('из демо — крупная метка «Демонстрационные данные»', async () => {
+    serverMock.dataSource = 'demo';
+    renderReport();
+
+    expect(
+      await screen.findByText(
+        'Отчёт построен на демонстрационных данных и не относится к реальному объекту.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('Демонстрационные данные')).toHaveLength(2);
+  });
+
+  test('проверки: по умолчанию — отбор, «Все посадки» — вся расстановка', async () => {
+    renderReport();
+    const section = (await screen.findByRole('heading', { name: 'Проверки по посадкам' })).closest(
+      'section',
+    );
+    if (section === null) throw new Error('нет раздела');
+    const plantingRows = () =>
+      within(section)
+        .getAllByRole('row')
+        .filter((row) => /(TREE|SHRUB)_[A-Z_]+-\d{5}/.test(row.textContent));
+
+    const byDefault = new Set(
+      plantingRows().map((row) => /(TREE|SHRUB)_[A-Z_]+-\d{5}/.exec(row.textContent)?.[0]),
+    );
+    await userEvent.click(within(section).getByRole('switch', { name: 'Все посадки' }));
+    const all = new Set(
+      plantingRows().map((row) => /(TREE|SHRUB)_[A-Z_]+-\d{5}/.exec(row.textContent)?.[0]),
+    );
+
+    expect(byDefault.size).toBeGreaterThan(0);
+    expect(byDefault.size).toBeLessThan(all.size);
+    expect(all.size).toBe(38);
+    expect(within(section).getByText(/^38 посадок — около \d+ страниц/)).toBeInTheDocument();
+  });
+
+  test('правка попадает в отчёт: сводка, отбор проверок, знаки правок под планом', async () => {
+    // Черновик в браузере: правки сохранены, и уход на отчёт не спрашивает подтверждения.
+    serverMock.plantingEdits = false;
+    const { unmount } = renderProject(READY_ID);
+    await selectFirstTree();
+    await startEditing();
+    await dragTree(FIRST_TREE, [{ east: 0, north: -2 }]);
+    await userEvent.click(await screen.findByRole('button', { name: 'Действия с проектом' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Отчёт для согласования' }));
+
+    expect(await screen.findByText('Правок: 1 (перемещено 1)')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Условные знаки плана' })).toHaveTextContent(
+      'Нарушает норму',
+    );
+    const checks = screen.getByRole('heading', { name: 'Проверки по посадкам' }).closest('section');
+    expect(checks).toHaveTextContent(FIRST_TREE);
+    expect(checks).toHaveTextContent('Нарушено');
+    unmount();
+  });
+
+  test('без obstacles — проверки по зонам: у срезанной зоны расстояние до границы, не «внутри»', async () => {
+    serverMock.obstacles = false;
+    renderReport();
+    const section = (await screen.findByRole('heading', { name: 'Проверки по посадкам' })).closest(
+      'section',
+    );
+    if (section === null) throw new Error('нет раздела');
+    await userEvent.click(within(section).getByRole('switch', { name: 'Все посадки' }));
+
+    expect(section).toHaveTextContent('до границы зоны');
+    expect(section).not.toHaveTextContent('внутри зоны запрета');
+  });
+
+  test('правки с сервера не загрузились — плашка с «Повторить», а не вечная загрузка', async () => {
+    server.use(
+      http.get(
+        '/api/projects/:projectId/plantings',
+        () => new HttpResponse(null, { status: 500 }),
+        {
+          once: true,
+        },
+      ),
+    );
+    renderReport();
+
+    expect(await screen.findByText(/^Не удалось загрузить правки расстановки/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    expect(await screen.findByRole('heading', { name: 'Геопривязка' })).toBeInTheDocument();
+  });
+
+  test('без species — ведомость по правилам с примечанием', async () => {
+    server.use(http.get('/api/species', () => new HttpResponse(null, { status: 500 })));
+    renderReport();
+
+    const heading = await screen.findByRole('heading', { name: 'Ведомость озеленения' });
+    expect(heading.closest('section')).toHaveTextContent('Порода не определена сервисом');
   });
 });
