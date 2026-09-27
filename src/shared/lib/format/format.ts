@@ -95,6 +95,11 @@ const squareMeters = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 })
 export const formatSquareMeters = (value: number): string =>
   value < 1 ? `менее 1${NBSP}м²` : `${squareMeters.format(value)}${NBSP}м²`;
 
+const percent = new Intl.NumberFormat(LOCALE, { style: 'percent', maximumFractionDigits: 0 });
+
+// Доля от 0 до 1: «28 %» — ru-RU сам ставит неразрывный пробел перед знаком процента.
+export const formatPercent = (share: number): string => percent.format(share);
+
 const coordinate = new Intl.NumberFormat(LOCALE, {
   minimumFractionDigits: 6,
   maximumFractionDigits: 6,

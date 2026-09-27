@@ -14,7 +14,10 @@ import { ProjectPage } from './project-page';
 
 // Карта в jsdom не рисуется: модуль карты подменяется на границе ленивого импорта.
 // Подмена отдаёт экрану объект с теми методами MapLibre, которыми экран пользуется.
-type Handler = (event: { point: { x: number; y: number } }) => void;
+type Handler = (event: {
+  point: { x: number; y: number };
+  lngLat: { lng: number; lat: number };
+}) => void;
 type QueryOptions = { layers: string[] };
 
 const mapMock = vi.hoisted(() => ({ unavailable: false }));
@@ -439,28 +442,43 @@ describe('панель «Слои»', () => {
 // Первое дерево мока стоит в (3; 2,2) м от угла газона: под ним бортовой камень (y = 0,
 // отступ 0,7 м), кабель (y = 4,5, отступ 2 м) и газопровод (y = 12, отступ 1,5 м).
 const FIRST_TREE = 'TREE_ROW_CURB-00001';
+// Заголовок карточки — порода (возможность species): первая посадка демо-участка — рябина.
+const FIRST_TREE_TITLE = 'Рябина обыкновенная';
+
+type Hit = { rejected?: number; lawn?: boolean; hedge?: boolean };
 
 const clickMap = (
   plantingId: string | null,
   zoneIndex: number | null = null,
   obstacleIndex: number | null = null,
+  { rejected = null, lawn = false, hedge = false }: { [K in keyof Hit]?: Hit[K] | null } = {},
 ) => {
   fakeMap.queryRenderedFeatures.mockImplementation((_point, { layers }) => {
     if (layers.includes('trees'))
       return plantingId === null ? [] : [{ properties: { id: plantingId } }];
+    if (layers.includes('shrub-hedges')) return hedge ? [{ properties: {} }] : [];
+    if (layers.includes('rejected-hit'))
+      return rejected === null ? [] : [{ properties: { rejected_index: rejected } }];
     if (layers.includes('obstacle-utilities-solid'))
       return obstacleIndex === null ? [] : [{ properties: { obstacle_index: obstacleIndex } }];
-    return zoneIndex === null ? [] : [{ properties: { zone_index: zoneIndex } }];
+    if (layers.includes('prohibited-zones'))
+      return zoneIndex === null ? [] : [{ properties: { zone_index: zoneIndex } }];
+    if (layers.includes('lawn')) return lawn ? [{ properties: {} }] : [];
+    return [];
   });
   act(() => {
-    fakeMap.handlers.get('click')?.({ point: { x: 10, y: 10 } });
+    // Точка щелчка — у восточного конца изгороди демо-участка (x ≈ 58,5 м, y ≈ −0,8 м).
+    fakeMap.handlers.get('click')?.({
+      point: { x: 10, y: 10 },
+      lngLat: { lng: 37.6452 + 58.5 / 62_780, lat: 55.7593 - 0.8 / 111_330 },
+    });
   });
 };
 
 const selectFirstTree = async () => {
   await screen.findByRole('region', { name: MAP_LABEL });
   clickMap(FIRST_TREE);
-  return screen.findByRole('region', { name: 'Дерево' });
+  return screen.findByRole('region', { name: FIRST_TREE_TITLE });
 };
 
 type DimensionData = {
@@ -480,7 +498,8 @@ describe('панель «Посадка»', () => {
     const panel = await selectFirstTree();
 
     expect(within(panel).getByText('Рядовая/аллейная посадка вдоль борта')).toBeInTheDocument();
-    expect(within(panel).getByText(FIRST_TREE)).toBeInTheDocument();
+    expect(within(panel).getByText('Sorbus aucuparia')).toBeInTheDocument();
+    expect(within(panel).getByText(`Дерево, ${FIRST_TREE}`)).toBeInTheDocument();
     expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
       { source: 'result-planting', id: FIRST_TREE },
       { selected: true },
@@ -578,7 +597,7 @@ describe('панель «Посадка»', () => {
 
     const zone = await screen.findByRole('region', { name: 'Силовой кабель' });
     expect(within(zone).getByText('Отступ для деревьев не менее 2 м')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
 
     // Кнопка исчезла вместе с панелью посадки: фокус — в панели зоны, и Esc её закрывает.
     await waitFor(() => {
@@ -608,7 +627,7 @@ describe('панель «Посадка»', () => {
     await screen.findByRole('region', { name: /^План посадок/ });
     clickMap(FIRST_TREE);
 
-    const panel = await screen.findByRole('region', { name: 'Дерево' });
+    const panel = await screen.findByRole('region', { name: FIRST_TREE_TITLE });
     expect(within(panel).getByText('В координатах чертежа: X 3,00 м, Y 2,20 м')).toBeVisible();
     expect(within(panel).queryByText(/^Ш /)).not.toBeInTheDocument();
     expect(within(panel).getByRole('list', { name: 'Проверки' })).toBeInTheDocument();
@@ -640,7 +659,7 @@ describe('панель «Посадка»', () => {
     await userEvent.keyboard('{Escape}');
 
     await waitFor(() => {
-      expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
     });
     expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
       { source: 'result-planting', id: FIRST_TREE },
@@ -658,7 +677,7 @@ describe('панель «Посадка»', () => {
     shrubs.focus();
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
     expect(fakeMap.canvas.focus).not.toHaveBeenCalled();
     expect(shrubs).toHaveFocus();
   });
@@ -671,7 +690,7 @@ describe('панель «Посадка»', () => {
     await screen.findByRole('option', { name: `Дерево ${FIRST_TREE}` });
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.getByRole('region', { name: 'Дерево' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: FIRST_TREE_TITLE })).toBeInTheDocument();
   });
 
   test('Esc вне карты выбор не снимает', async () => {
@@ -681,7 +700,7 @@ describe('панель «Посадка»', () => {
     screen.getByRole('button', { name: 'Скачать DXF' }).focus();
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.getByRole('region', { name: 'Дерево' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: FIRST_TREE_TITLE })).toBeInTheDocument();
   });
 
   test('с клавиатуры — выбор из списка «Найти посадку»', async () => {
@@ -693,8 +712,8 @@ describe('панель «Посадка»', () => {
     await screen.findByRole('option', { name: `Дерево ${FIRST_TREE}` });
     await userEvent.keyboard('{ArrowDown}{Enter}');
 
-    const panel = await screen.findByRole('region', { name: 'Дерево' });
-    expect(within(panel).getByText(FIRST_TREE)).toBeInTheDocument();
+    const panel = await screen.findByRole('region', { name: FIRST_TREE_TITLE });
+    expect(within(panel).getByText(`Дерево, ${FIRST_TREE}`)).toBeInTheDocument();
     expect(fakeMap.easeTo).toHaveBeenCalledWith({ center: await firstTreeCoordinates() });
   });
 
@@ -703,10 +722,10 @@ describe('панель «Посадка»', () => {
     await selectFirstTree();
 
     await userEvent.click(screen.getByRole('switch', { name: 'Кустарники, 19 кустарников' }));
-    expect(screen.getByRole('region', { name: 'Дерево' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: FIRST_TREE_TITLE })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('switch', { name: 'Деревья, 19 деревьев' }));
-    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
 
     // Скрытые деревья и в поиске не предлагаются.
     await userEvent.click(screen.getByPlaceholderText('Номер посадки'));
@@ -719,12 +738,12 @@ describe('панель «Посадка»', () => {
     const panel = await selectFirstTree();
 
     await userEvent.click(within(panel).getByRole('button', { name: 'Закрыть' }));
-    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
     expect(fakeMap.canvas.focus).toHaveBeenCalledTimes(1);
 
     await selectFirstTree();
     clickMap(null);
-    expect(screen.queryByRole('region', { name: 'Дерево' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: FIRST_TREE_TITLE })).not.toBeInTheDocument();
   });
 });
 
@@ -923,6 +942,47 @@ describe('исходные объекты', () => {
 });
 
 describe('проверки по объектам', () => {
+  test('карточка: порода, «Почему эта порода», параметры и источник данных о породе', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+
+    expect(within(panel).getByRole('heading', { level: 2 })).toHaveTextContent(FIRST_TREE_TITLE);
+    expect(within(panel).getByRole('heading', { name: 'Почему эта порода' })).toBeVisible();
+    expect(
+      within(panel).getByText('Крона около 5,5 м — вписывается в шаг рядовой посадки 6 м'),
+    ).toBeVisible();
+    expect(within(panel).getByText('Крона до 5,5 м, высота до 8 м')).toBeVisible();
+    const source = within(panel).getByRole('link', {
+      name: `Источник данных о породе: ${FIRST_TREE_TITLE}`,
+    });
+    expect(source).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^https:\/\/ru\.wikipedia\.org\/wiki\//),
+    );
+    expect(source).toHaveAttribute('target', '_blank');
+    expect(source).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('проверка: акт с пунктом, текст нормы по кнопке, источник; все правила рядом', async () => {
+    renderProject(READY_ID);
+    const panel = await selectFirstTree();
+    const [cable] = within(within(panel).getByRole('list', { name: 'Проверки' })).getAllByRole(
+      'listitem',
+    );
+    if (cable === undefined) throw new Error('нет проверок');
+
+    const toggle = within(cable).getByRole('button', { name: 'Текст нормы' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(cable).queryByText(/: дерево 2 м$/)).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(within(cable).getByText('Силовой кабель и кабель связи: дерево 2 м')).toBeVisible();
+    expect(
+      within(cable).getByRole('link', { name: 'Источник нормы: Силовой кабель' }),
+    ).toHaveAttribute('href', 'https://base.garant.ru/378956/53f89421bbdaf741eb2d1ecc4ddb4c33/');
+    // Проверок пять, линий на карте — три.
+    expect(within(panel).getByText('Размерные линии показаны для трёх ближайших')).toBeVisible();
+  });
+
   test('серверные проверки: факт, норма с пунктом, «Показать объект»', async () => {
     renderProject(READY_ID);
     const panel = await selectFirstTree();
@@ -959,6 +1019,91 @@ describe('проверки по объектам', () => {
       .map(({ properties }) => properties.text?.replace('\u00A0', ' '));
     // Три ближайших объекта; водопровод и дерево дальше порога — линии у них нет.
     expect(labels).toEqual(['2,3 м', 'норма 2 м', '2,2 м', 'норма 0,7 м', '9,8 м', 'норма 1,5 м']);
+  });
+});
+
+describe('отклонённые места, газон и изгородь', () => {
+  test('слой отклонённых мест по умолчанию выключен, включается строкой в «Слоях»', async () => {
+    renderProject(READY_ID);
+    const row = await screen.findByRole('switch', { name: /^Отклонённые места, \d+ отклонённ/ });
+
+    expect(row).not.toBeChecked();
+    expect(fakeMap.setLayoutProperty).toHaveBeenCalledWith('rejected-ring', 'visibility', 'none');
+    await userEvent.click(row);
+    expect(fakeMap.setLayoutProperty).toHaveBeenCalledWith(
+      'rejected-ring',
+      'visibility',
+      'visible',
+    );
+  });
+
+  test('щелчок по отклонённому месту — панель с непройденными проверками', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    clickMap(null, null, null, { rejected: 0 });
+
+    const panel = await screen.findByRole('region', {
+      name: /^Здесь сервис не стал сажать (дерево|кустарник)$/,
+    });
+    const failed = within(
+      within(panel).getByRole('list', { name: 'Непройденные проверки' }),
+    ).getAllByRole('listitem');
+    expect(failed.length).toBeGreaterThan(0);
+    for (const check of failed) {
+      expect(check).toHaveTextContent(/при норме не менее/);
+      expect(within(check).getByRole('img', { name: 'Норма нарушена' })).toBeVisible();
+    }
+    expect(fakeMap.setFeatureState).toHaveBeenCalledWith(
+      { source: 'result-rejected-points', id: 0 },
+      { selected: true },
+    );
+  });
+
+  test('щелчок по газону — площадь, посадки на нём и доля под зонами запрета', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    clickMap(null, null, null, { lawn: true });
+
+    const panel = await screen.findByRole('region', { name: 'Газон' });
+    expect(within(panel).getByText('Площадь 1 200 м²')).toBeVisible();
+    expect(within(panel).getByText(/^На газоне \d+ дерев\S* и \d+ кустарник/)).toBeVisible();
+    expect(within(panel).getByText(/^Для деревьев — \d+ % площади$/)).toBeVisible();
+    expect(within(panel).getByText(/^Для кустарников — \d+ % площади$/)).toBeVisible();
+  });
+
+  test('щелчок по полосе изгороди — ближайшая её посадка', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    clickMap(null, null, null, { hedge: true });
+
+    const rule = await screen.findByText('Живая изгородь вдоль борта');
+    const panel = rule.closest<HTMLElement>('[role="region"]');
+    if (panel === null) throw new Error('правило не в панели');
+    // Ближайшая к точке щелчка у восточного конца — последняя посадка изгороди (x = 58,5 м).
+    expect(within(panel).getByText(/, SHRUB_HEDGE_CURB-00028$/)).toBeVisible();
+  });
+
+  test('ведомость: «Отклонённые» — причина одной строкой и переход на план', async () => {
+    renderProject(READY_ID);
+    await userEvent.click(await screen.findByRole('radio', { name: 'Ведомость' }));
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Отклонённые' }));
+
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(rows.length).toBeGreaterThanOrEqual(5);
+    expect(rows[0]).toHaveTextContent(/^1Дерево.+: [\d,]+ м при норме не менее [\d,]+ м/);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Показать на плане: отклонённое место 1' }),
+    );
+    expect(
+      await screen.findByRole('region', {
+        name: /^Здесь сервис не стал сажать (дерево|кустарник)$/,
+      }),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: /^Отклонённые места/ })).toBeChecked();
   });
 });
 
@@ -1206,8 +1351,8 @@ describe('ведомость', () => {
 
     expect(screen.getByRole('radio', { name: 'План' })).toBeChecked();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    const panel = await screen.findByRole('region', { name: 'Дерево' });
-    expect(within(panel).getByText(FIRST_TREE)).toBeInTheDocument();
+    const panel = await screen.findByRole('region', { name: FIRST_TREE_TITLE });
+    expect(within(panel).getByText(`Дерево, ${FIRST_TREE}`)).toBeInTheDocument();
     // Масштаб не мельче того, где видны подписи размеров (в Москве — 18-й).
     const [lon, lat] = (await firstTreeCoordinates()) ?? [];
     const options = fakeMap.easeTo.mock.lastCall?.[0];

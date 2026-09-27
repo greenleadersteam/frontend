@@ -8,6 +8,7 @@ export {
   formatFileSize,
   formatMeters,
   formatNumber,
+  formatPercent,
   formatSquareMeters,
   formatTransferred,
 } from './format';

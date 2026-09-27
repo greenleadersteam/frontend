@@ -39,6 +39,8 @@ type LayersPanelProps = {
   allowedArea: number | null;
   // Объекты подосновы; null — сервер их не отдаёт, группы «Исходные объекты» нет.
   obstacles: ObstaclesFeatureCollection | null;
+  // Число отклонённых мест; null — сервер их не отдаёт, строки нет.
+  rejectedCount: number | null;
   // Площадь газона, м²; null — газона в данных нет, строки нет.
   lawnArea: number | null;
   // Граница участка найдена бэкендом и есть в /zones.
@@ -63,6 +65,12 @@ const PLANT_ROWS: { group: CountedGroup; label: string }[] = [
   { group: 'shrubs', label: 'Кустарники' },
 ];
 
+const REJECTED_FORMS = {
+  one: 'отклонённое место',
+  few: 'отклонённых места',
+  many: 'отклонённых мест',
+};
+
 const PLANT_TYPES = [
   { value: 'tree', label: 'Деревья' },
   { value: 'shrub', label: 'Кустарники' },
@@ -80,6 +88,7 @@ export function LayersPanel({
   onPlantTypeChange,
   allowedArea,
   obstacles,
+  rejectedCount,
   lawnArea,
   showSiteBoundary,
   visibility,
@@ -159,6 +168,16 @@ export function LayersPanel({
         value={formatNumber(counts.zones)}
         spoken={formatCount(counts.zones, RESULT_COUNT_FORMS.zones)}
       />
+      {rejectedCount !== null && (
+        <LayerSwitch
+          kind="rejected"
+          label="Отклонённые места"
+          checked={visibility.rejected}
+          onToggle={toggle('rejected')}
+          value={formatNumber(rejectedCount)}
+          spoken={formatCount(rejectedCount, REJECTED_FORMS)}
+        />
+      )}
       {lawnArea !== null && (
         <LayerSwitch
           kind="lawn"

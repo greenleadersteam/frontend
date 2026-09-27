@@ -189,6 +189,44 @@ export function prepareObstacles(
 
 type ObjectCheck = Extract<PlantingCheck, { kind: 'object' }>;
 
+// Самое напряжённое — сверху: у нарушенной нормы запас отрицательный.
+const byMargin = (checks: ObjectCheck[]): ObjectCheck[] =>
+  checks.sort((a, b) => a.actual - a.required - (b.actual - b.required));
+
+// Проверка из серверного списка: числа и норма — сервера, точка на объекте — своя, если есть.
+function fromServer(
+  server: ServerCheck,
+  planting: LocalPoint,
+  norm: Norm | null,
+  ours: { obstacle: PreparedObstacle; point: LocalPoint } | undefined,
+): ObjectCheck {
+  return {
+    kind: 'object',
+    category: server.category,
+    subtype: server.subtype,
+    actual: server.actual_m,
+    required: server.required_m,
+    citation: server.citation,
+    norm,
+    violated: server.actual_m < server.required_m,
+    obstacle: ours?.obstacle ?? null,
+    planting,
+    point: ours?.point ?? null,
+  };
+}
+
+// Проверки из серверного списка: у отклонённого места — непройденные. С /obstacles к ним
+// находится точка на объекте для размерной линии; без него — только числа сервера.
+export function checksFromServer(
+  planting: LocalPoint,
+  plantType: PlantType,
+  serverChecks: ServerCheck[],
+  prepared: PreparedObstacles | null,
+): ObjectCheck[] {
+  if (prepared !== null) return checksAgainstObstacles(planting, plantType, serverChecks, prepared);
+  return byMargin(serverChecks.map((server) => fromServer(server, planting, null, undefined)));
+}
+
 // Проверки посадки по геометрии объектов: для каждого подтипа с нормой — ближайший объект
 // в пределах порога. Если сервер прислал checks (/explanation, возможность explanationChecks),
 // они первичны: список и числа — его, свой расчёт даёт точку на объекте для размерной линии
@@ -246,22 +284,14 @@ export function checksAgainstObstacles(
               `Расстояние до ${normKey(server.category, server.subtype)}: сервер ${String(server.actual_m)} м, клиент ${ours.distance.toFixed(3)} м`,
             );
           }
-          return {
-            kind: 'object',
-            category: server.category,
-            subtype: server.subtype,
-            actual: server.actual_m,
-            required: server.required_m,
-            citation: server.citation,
-            norm:
-              (server.norm_id === undefined ? undefined : prepared.normById(server.norm_id)) ??
+          return fromServer(
+            server,
+            planting,
+            (server.norm_id === undefined ? undefined : prepared.normById(server.norm_id)) ??
               ours?.setback.norm ??
               null,
-            violated: server.actual_m < server.required_m,
-            obstacle: ours?.obstacle ?? null,
-            planting,
-            point: ours?.point ?? null,
-          };
+            ours,
+          );
         });
-  return checks.sort((a, b) => a.actual - a.required - (b.actual - b.required));
+  return byMargin(checks);
 }

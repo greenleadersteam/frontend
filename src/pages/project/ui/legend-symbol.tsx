@@ -16,6 +16,7 @@ type LegendSymbolProps =
         | 'utilities'
         | 'buildings'
         | 'edges'
+        | 'rejected'
         | 'basemap';
     }
   // Знак одной сети: её цвет и рисунок линии.
@@ -75,6 +76,12 @@ export function LegendSymbol(props: LegendSymbolProps): JSX.Element {
         <rect x="2" y="3" width="12" height="10" className={classes.building} />
       )}
       {kind === 'edges' && <path d="M1 8h14" className={classes.edge} />}
+      {kind === 'rejected' && (
+        <>
+          <circle cx="8" cy="8" r="6" className={classes.rejectedRing} />
+          <path d="M5.5 5.5l5 5M5.5 10.5l5-5" className={classes.rejectedCross} />
+        </>
+      )}
       {kind === 'basemap' && (
         <>
           <rect x="1" y="1" width="14" height="14" rx="2" className={classes.earth} />

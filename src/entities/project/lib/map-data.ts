@@ -1,4 +1,7 @@
-import type { ObstaclesFeatureCollection } from '../api/project-result-api';
+import type {
+  ObstaclesFeatureCollection,
+  RejectedSitesFeatureCollection,
+} from '../api/project-result-api';
 import type { LocalFrame } from './local-frame';
 import type { Position } from './plan-projection';
 import type { ResultData } from './result-layers';
@@ -72,6 +75,24 @@ export function toMapObstacles(
     features: obstacles.features.map((feature) => ({
       ...feature,
       geometry: moveGeometry(feature.geometry, move),
+    })),
+  };
+}
+
+// Отклонённые места — в координаты карты, как посадки.
+export function toMapRejected(
+  rejected: RejectedSitesFeatureCollection,
+  frame: LocalFrame,
+): RejectedSitesFeatureCollection {
+  if (frame.geographic) return rejected;
+  return {
+    ...rejected,
+    features: rejected.features.map((feature) => ({
+      ...feature,
+      geometry: {
+        ...feature.geometry,
+        coordinates: frame.toMap(frame.toLocal(feature.geometry.coordinates)),
+      },
     })),
   };
 }

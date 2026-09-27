@@ -18,6 +18,7 @@ import {
 import type {
   ObstaclesFeatureCollection,
   PlantingFeatureCollection,
+  RejectedSitesFeatureCollection,
   ZonesFeatureCollection,
 } from '../api/project-result-api';
 import { obstacleLabel } from '../config/labels';
@@ -37,6 +38,9 @@ export const RESULT_SOURCE = {
   highlights: 'result-tree-highlights',
   zones: 'result-prohibited-zones',
   obstacles: 'result-obstacles',
+  hedges: 'result-hedges',
+  rejected: 'result-rejected',
+  rejectedPoints: 'result-rejected-points',
   dimensions: 'result-dimensions',
 } as const;
 
@@ -56,6 +60,10 @@ export const RESULT_LAYER = {
   utilitiesDashed: 'obstacle-utilities-dashed',
   utilitiesDashDot: 'obstacle-utilities-dash-dot',
   siteBoundary: 'site-boundary',
+  rejectedRing: 'rejected-ring',
+  rejectedCross: 'rejected-cross',
+  rejectedHit: 'rejected-hit',
+  hedges: 'shrub-hedges',
   shrubs: 'shrubs',
   treeShadows: 'tree-shadows',
   trees: 'trees',
@@ -78,7 +86,8 @@ export type ResultLayerGroup =
   | 'siteBoundary'
   | 'utilities'
   | 'buildings'
-  | 'edges';
+  | 'edges'
+  | 'rejected';
 
 const UTILITY_LAYERS = [
   RESULT_LAYER.utilitiesSolid,
@@ -88,7 +97,7 @@ const UTILITY_LAYERS = [
 
 export const RESULT_LAYER_GROUPS: Record<ResultLayerGroup, readonly string[]> = {
   trees: [RESULT_LAYER.treeShadows, RESULT_LAYER.trees, RESULT_LAYER.treeHighlights],
-  shrubs: [RESULT_LAYER.shrubs],
+  shrubs: [RESULT_LAYER.hedges, RESULT_LAYER.shrubs],
   zones: [RESULT_LAYER.zones, RESULT_LAYER.zonesHatch, RESULT_LAYER.zonesOutline],
   allowed: [RESULT_LAYER.allowed],
   lawn: [RESULT_LAYER.lawn],
@@ -96,6 +105,7 @@ export const RESULT_LAYER_GROUPS: Record<ResultLayerGroup, readonly string[]> = 
   utilities: [...UTILITY_LAYERS, RESULT_LAYER.utilityLabels],
   buildings: [RESULT_LAYER.buildings, RESULT_LAYER.buildingsOutline],
   edges: [RESULT_LAYER.edges],
+  rejected: [RESULT_LAYER.rejectedRing, RESULT_LAYER.rejectedCross, RESULT_LAYER.rejectedHit],
 };
 
 export const SELECTABLE_LAYERS = [RESULT_LAYER.trees, RESULT_LAYER.shrubs];
@@ -164,6 +174,104 @@ export const resultExtent = ({ planting, zones }: ResultData): Extent | null =>
     ...planting.features.map(({ geometry }) => geometry.coordinates),
   ]);
 
+// Живая изгородь — правило ряда кустарников вдоль борта (../backend/greenplan/layout/default.yaml:25-28).
+// Групповых посадок-полигонов в контракте нет: изгородь рисуется полосой по её точкам.
+export const HEDGE_RULE = 'SHRUB_HEDGE_CURB';
+
+type Planting = PlantingFeatureCollection['features'][number];
+
+// Ряды изгороди — цепочки ближайших соседей: от конца ряда к ближайшей непосещённой точке.
+// Так ряд идёт вдоль борта любой формы. Ряд рвётся, если соседняя точка дальше полутора
+// типичных шагов (медиана расстояний до ближайшего соседа): изгороди по разные стороны борта
+// стоят дальше друг от друга, чем точки внутри ряда. Долгота сжата косинусом широты, чтобы
+// градусы карты по осям весили одинаково.
+export function hedgeRows(planting: PlantingFeatureCollection): Planting[][] {
+  const points = planting.features.filter(({ properties }) => properties.rule_id === HEDGE_RULE);
+  if (points.length < 2) return [];
+  const [, latitude = 0] = points[0]?.geometry.coordinates ?? [];
+  const scale = Math.cos((latitude * Math.PI) / 180);
+  const xy = points.map(({ geometry }) => {
+    const [x = 0, y = 0] = geometry.coordinates;
+    return [x * scale, y] as const;
+  });
+  const gap = (a: number, b: number) => {
+    const [ax = 0, ay = 0] = xy[a] ?? [];
+    const [bx = 0, by = 0] = xy[b] ?? [];
+    return Math.hypot(ax - bx, ay - by);
+  };
+  // Сетка точек: соседей ищем в своей и восьми соседних ячейках, а не среди всех точек —
+  // вдоль бортов крупного участка точек изгороди тысячи.
+  const gridOf = (cell: number) => {
+    const cells = new Map<string, number[]>();
+    const keyOf = (x: number, y: number) =>
+      `${String(Math.floor(x / cell))}:${String(Math.floor(y / cell))}`;
+    xy.forEach(([x, y], index) => {
+      const key = keyOf(x, y);
+      const bucket = cells.get(key);
+      if (bucket === undefined) cells.set(key, [index]);
+      else bucket.push(index);
+    });
+    return (index: number) => {
+      const [x = 0, y = 0] = xy[index] ?? [];
+      const found: number[] = [];
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          found.push(...(cells.get(keyOf(x + dx * cell, y + dy * cell)) ?? []));
+        }
+      }
+      return found.filter((other) => other !== index);
+    };
+  };
+  // Сетка строится один раз на размер ячейки.
+  const grids = new Map<number, ReturnType<typeof gridOf>>();
+  const gridAt = (cell: number) => {
+    const known = grids.get(cell);
+    if (known !== undefined) return known;
+    const built = gridOf(cell);
+    grids.set(cell, built);
+    return built;
+  };
+  // Типичный шаг — по ближайшему соседу; ячейка для его поиска растёт, пока сосед не найден.
+  const nearestGap = xy.map((_, index) => {
+    for (let cell = 1e-5; ; cell *= 4) {
+      const around = gridAt(cell)(index);
+      if (around.length > 0 || cell > 1) {
+        return Math.min(Infinity, ...around.map((other) => gap(index, other)));
+      }
+    }
+  });
+  const typical = [...nearestGap].sort((a, b) => a - b)[Math.floor(nearestGap.length / 2)] ?? 0;
+  const threshold = 1.5 * typical;
+  const near = gridOf(threshold);
+  const adjacent = xy.map((_, index) =>
+    near(index)
+      .filter((other) => gap(index, other) <= threshold)
+      .sort((a, b) => gap(index, a) - gap(index, b)),
+  );
+
+  const unvisited = new Set(xy.keys());
+  const neighbours = (a: number) => (adjacent[a] ?? []).filter((b) => unvisited.has(b));
+  const rows: Planting[][] = [];
+  while (unvisited.size > 0) {
+    // Начало ряда — точка с одним соседом (конец ряда), иначе любая.
+    const start =
+      [...unvisited].find((candidate) => neighbours(candidate).length === 1) ??
+      [...unvisited][0] ??
+      0;
+    unvisited.delete(start);
+    const row = [start];
+    for (let current = start; ;) {
+      const [next] = neighbours(current);
+      if (next === undefined) break;
+      unvisited.delete(next);
+      row.push(next);
+      current = next;
+    }
+    rows.push(row.flatMap((index) => points[index] ?? []));
+  }
+  return rows.filter((row) => row.length > 1);
+}
+
 export const resultCounts = ({ planting, zones }: ResultData) => {
   const prohibited = prohibitedZones(zones);
   const zonesFor = (plantType: PlantType) =>
@@ -185,12 +293,42 @@ const METERS_PER_DEGREE = 111_320;
 // газона и не спорит со штриховкой зон запрета.
 const ALLOWED_OPACITY = 0.55;
 
+// Круг радиусом в метрах вокруг точки карты — ломаной: у круговых слоёв MapLibre нет пунктира.
+const RING_STEPS = 32;
+
+function ringAround([lon = 0, lat = 0]: readonly number[], radiusM: number, metersToLon: number) {
+  return Array.from({ length: RING_STEPS + 1 }, (_, step) => {
+    const angle = (step / RING_STEPS) * 2 * Math.PI;
+    return [
+      lon + radiusM * Math.cos(angle) * metersToLon,
+      lat + (radiusM * Math.sin(angle)) / METERS_PER_DEGREE,
+    ];
+  });
+}
+
+// Косой крест внутри круга: отклонённое место отличается от посадки формой, а не только цветом.
+function crossAt([lon = 0, lat = 0]: readonly number[], halfM: number, metersToLon: number) {
+  const dx = halfM * metersToLon;
+  const dy = halfM / METERS_PER_DEGREE;
+  return [
+    [
+      [lon - dx, lat - dy],
+      [lon + dx, lat + dy],
+    ],
+    [
+      [lon - dx, lat + dy],
+      [lon + dx, lat - dy],
+    ],
+  ];
+}
+
 // Блик — кружок 0,45 радиуса, смещённый на 0,3 радиуса к северо-западу, как в превью
 // (draw-plan.ts). Смещение задаётся в метрах на местности, поэтому верно на любом масштабе.
 export function resultSources(
   { planting, zones }: ResultData,
-  // Объекты подосновы в координатах карты; null — сервер их не отдаёт.
+  // Объекты подосновы и отклонённые места в координатах карты; null — сервер их не отдаёт.
   obstacles: ObstaclesFeatureCollection | null,
+  rejected: RejectedSitesFeatureCollection | null,
   latitude: number,
 ): Record<(typeof RESULT_SOURCE)[keyof typeof RESULT_SOURCE], GeoJSONSourceSpecification> {
   const plantingFeatures = planting.features.map((feature) => ({
@@ -275,6 +413,64 @@ export function resultSources(
       },
       promoteId: 'obstacle_index',
     },
+    [RESULT_SOURCE.hedges]: {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: hedgeRows(planting).map((row) => ({
+          type: 'Feature' as const,
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: row.map(({ geometry }) => geometry.coordinates),
+          },
+          // Ширина полосы — диаметр кроны кустарника.
+          properties: { width_m: 2 * CROWN_RADIUS_M.shrub },
+        })),
+      },
+    },
+    [RESULT_SOURCE.rejected]: {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: (rejected?.features ?? []).flatMap(({ geometry, properties }, index) => {
+          const radius = CROWN_RADIUS_M[properties.plant_type];
+          return [
+            {
+              type: 'Feature' as const,
+              geometry: {
+                type: 'LineString' as const,
+                coordinates: ringAround(geometry.coordinates, radius, metersToLon),
+              },
+              properties: { rejected_index: index, part: 'ring' },
+            },
+            {
+              type: 'Feature' as const,
+              geometry: {
+                type: 'MultiLineString' as const,
+                coordinates: crossAt(geometry.coordinates, 0.35 * radius, metersToLon),
+              },
+              properties: { rejected_index: index, part: 'cross' },
+            },
+          ];
+        }),
+      },
+    },
+    [RESULT_SOURCE.rejectedPoints]: {
+      type: 'geojson',
+      // Невидимый круг радиусом кроны — цель для щелчка и выделения места.
+      data: {
+        type: 'FeatureCollection',
+        features: (rejected?.features ?? []).map(({ geometry, properties }, index) => ({
+          type: 'Feature' as const,
+          geometry,
+          properties: {
+            rejected_index: index,
+            crown_radius_m: CROWN_RADIUS_M[properties.plant_type],
+          },
+        })),
+      },
+      promoteId: 'rejected_index',
+    },
     [RESULT_SOURCE.dimensions]: {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] },
@@ -287,7 +483,13 @@ const ZOOM_STOPS = Array.from(
   (_, index) => MAP_MIN_ZOOM + index,
 );
 
-type RadiusOptions = { latitude: number; offsetPx?: number; minPx?: number };
+type RadiusOptions = {
+  latitude: number;
+  offsetPx?: number;
+  minPx?: number;
+  // Свойство с размером в метрах: радиус кроны или ширина полосы изгороди.
+  property?: string;
+};
 
 // Радиус кроны в метрах на местности → пиксели: на каждом целом zoom значение считается
 // по pixelsPerMeterAtZoom, между ними interpolate с основанием 2 даёт то же удвоение.
@@ -296,14 +498,11 @@ export function crownRadiusExpression({
   latitude,
   offsetPx = 0,
   minPx = MIN_CROWN_RADIUS_PX,
+  property = 'crown_radius_m',
 }: RadiusOptions): ExpressionSpecification {
   const stops = ZOOM_STOPS.flatMap((zoom): [number, ExpressionSpecification] => [
     zoom,
-    [
-      '+',
-      offsetPx,
-      ['max', minPx, ['*', ['get', 'crown_radius_m'], pixelsPerMeterAtZoom(zoom, latitude)]],
-    ],
+    ['+', offsetPx, ['max', minPx, ['*', ['get', property], pixelsPerMeterAtZoom(zoom, latitude)]]],
   ]);
   return ['interpolate', ['exponential', 2], ['zoom'], ...stops];
 }
@@ -467,6 +666,51 @@ export function resultLayers(latitude: number): LayerSpecification[] {
         'line-color': colors.siteBoundary,
         'line-width': 1.5,
         'line-dasharray': [8, 3],
+      },
+    },
+    // Отклонённые места — пунктирный круг кроны с косым крестом (design.md, «Карта»).
+    {
+      id: RESULT_LAYER.rejectedRing,
+      type: 'line',
+      source: RESULT_SOURCE.rejected,
+      filter: ['==', ['get', 'part'], 'ring'],
+      layout: { visibility: 'none' },
+      paint: {
+        'line-color': colors.rejected,
+        'line-width': 1.5,
+        'line-dasharray': [2, 1.5],
+      },
+    },
+    {
+      id: RESULT_LAYER.rejectedCross,
+      type: 'line',
+      source: RESULT_SOURCE.rejected,
+      filter: ['==', ['get', 'part'], 'cross'],
+      layout: { visibility: 'none' },
+      paint: { 'line-color': colors.rejected, 'line-width': 1.5 },
+    },
+    // Выбранное место — заливка кроны clay.6: круг-цель без выбора прозрачен.
+    {
+      id: RESULT_LAYER.rejectedHit,
+      type: 'circle',
+      source: RESULT_SOURCE.rejectedPoints,
+      layout: { visibility: 'none' },
+      paint: {
+        'circle-radius': radius,
+        'circle-color': colors.rejected,
+        'circle-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 0.2, 0],
+      },
+    },
+    // Живая изгородь — полоса шириной в крону под кругами кустарников.
+    {
+      id: RESULT_LAYER.hedges,
+      type: 'line',
+      source: RESULT_SOURCE.hedges,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colors.shrub,
+        'line-opacity': 0.6,
+        'line-width': crownRadiusExpression({ latitude, property: 'width_m' }),
       },
     },
     {

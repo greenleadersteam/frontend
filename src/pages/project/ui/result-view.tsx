@@ -12,14 +12,18 @@ import {
   prepareObstacles,
   prepareZones,
   type Project,
+  type RejectedSitesFeatureCollection,
   type ResultData,
   resultExtent,
+  type Species,
   toMapData,
   toMapObstacles,
   useGetExplanationQuery,
   useGetNormsQuery,
   useGetObstaclesQuery,
   useGetPlantingQuery,
+  useGetRejectedQuery,
+  useGetSpeciesQuery,
   useGetZonesQuery,
 } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
@@ -48,15 +52,20 @@ export function ResultView({ project }: ResultViewProps): JSX.Element {
   // возможности запросы не уходят, а проверки считаются по зонам запрета.
   const withObstacles = useCapability('obstacles');
   const withNorms = useCapability('norms');
+  const withSpecies = useCapability('species');
+  const withRejected = useCapability('rejected');
   const planting = useGetPlantingQuery(project.id);
   const zones = useGetZonesQuery(project.id);
   const explanation = useGetExplanationQuery(project.id);
   const obstacles = useGetObstaclesQuery(project.id, { skip: !withObstacles });
   const norms = useGetNormsQuery(undefined, { skip: !withObstacles || !withNorms });
+  const species = useGetSpeciesQuery(undefined, { skip: !withSpecies });
+  const rejected = useGetRejectedQuery(project.id, { skip: !withRejected });
   const queries = [planting, zones, explanation];
 
   // Сбой /obstacles или /norms план не закрывает: без объектов проверки считаются по зонам
-  // запрета, без справочника нормы берутся из зон.
+  // запрета, без справочника нормы берутся из зон. Так же без пород и отклонённых мест план
+  // остаётся прежним.
   const error = planting.error ?? zones.error ?? explanation.error;
   if (error !== undefined) {
     return (
@@ -79,7 +88,9 @@ export function ResultView({ project }: ResultViewProps): JSX.Element {
     zones.data === undefined ||
     explanation.data === undefined ||
     obstacles.isLoading ||
-    norms.isLoading
+    norms.isLoading ||
+    species.isLoading ||
+    rejected.isLoading
   ) {
     return (
       <Skeleton
@@ -100,7 +111,13 @@ export function ResultView({ project }: ResultViewProps): JSX.Element {
       norms={norms.data ?? null}
       // После повторного запроса с ошибкой RTK Query оставляет прежние данные: план строится
       // по ним, и пояснение о сбое было бы неправдой.
-      obstaclesFailed={obstacles.isError && obstacles.data === undefined}
+      failed={{
+        obstacles: obstacles.isError && obstacles.data === undefined,
+        rejected: rejected.isError && rejected.data === undefined,
+        species: species.isError && species.data === undefined,
+      }}
+      species={species.data ?? []}
+      rejected={rejected.data ?? null}
     />
   );
 }
@@ -111,8 +128,11 @@ type LoadedResultProps = {
   explanation: ExplanationEntry[];
   obstacles: ObstaclesFeatureCollection | null;
   norms: Norm[] | null;
-  // Сервер объявил /obstacles, но запрос не удался.
-  obstaclesFailed: boolean;
+  // Сервер объявил возможность, но запрос не удался: план строится без этих данных.
+  failed: { obstacles: boolean; rejected: boolean; species: boolean };
+  species: Species[];
+  // Отклонённые места (возможность rejected); null — сервер их не отдаёт.
+  rejected: RejectedSitesFeatureCollection | null;
 };
 
 function LoadedResult({
@@ -121,8 +141,11 @@ function LoadedResult({
   explanation,
   obstacles,
   norms,
-  obstaclesFailed,
+  failed,
+  species,
+  rejected,
 }: LoadedResultProps): JSX.Element {
+  const notice = failureNotice(failed);
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get(VIEW_PARAM));
   const [selection, setSelection] = useState<Selection>(null);
@@ -176,9 +199,9 @@ function LoadedResult({
     );
   };
 
-  const openOnPlan = (id: string) => {
-    setSelection({ kind: 'planting', id });
-    setCenterRequest((previous) => ({ id, nonce: (previous?.nonce ?? 0) + 1 }));
+  const openOnPlan = (target: CenterRequest['target']) => {
+    setSelection(target);
+    setCenterRequest((previous) => ({ target, nonce: (previous?.nonce ?? 0) + 1 }));
     changeView('plan');
   };
 
@@ -195,10 +218,9 @@ function LoadedResult({
       />
       {/* План в ведомости скрыт, а не размонтирован: камера и выбор сохраняются. */}
       <div hidden={view !== 'plan'} className={classes.plan}>
-        {obstaclesFailed && (
+        {notice !== null && (
           <Text size="sm" c="dimmed" className={classes.notice}>
-            Объекты подосновы не загрузились: проверки посчитаны по зонам запрета. Обновите
-            страницу, чтобы загрузить объекты снова.
+            {notice}
           </Text>
         )}
         {mapUnavailable ? (
@@ -220,6 +242,8 @@ function LoadedResult({
               prepared={prepared}
               obstacles={objects}
               explanation={entries}
+              species={new Map(species.map((item) => [item.id, item]))}
+              rejected={rejected}
               basemap={withinBasemap}
               selection={selection}
               onSelect={setSelection}
@@ -240,6 +264,7 @@ function LoadedResult({
             explanation={entries}
             prepared={prepared}
             geographic={geographic}
+            rejected={rejected}
             // Запасной план выбор не показывает: переход к нему ничего бы не дал.
             onOpen={mapUnavailable ? null : openOnPlan}
           />
@@ -247,4 +272,20 @@ function LoadedResult({
       )}
     </Stack>
   );
+}
+
+// Что из объявленного сервером не загрузилось и что это значит для плана.
+function failureNotice(failed: LoadedResultProps['failed']): string | null {
+  const others = [
+    ...(failed.rejected ? ['отклонённые места'] : []),
+    ...(failed.species ? ['породы посадок'] : []),
+  ];
+  if (!failed.obstacles && others.length === 0) return null;
+  return [
+    ...(failed.obstacles
+      ? ['Объекты подосновы не загрузились: проверки посчитаны по зонам запрета.']
+      : []),
+    ...(others.length > 0 ? [`Не загрузились ${others.join(' и ')}.`] : []),
+    'Обновите страницу, чтобы загрузить их снова.',
+  ].join(' ');
 }

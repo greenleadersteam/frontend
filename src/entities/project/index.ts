@@ -10,6 +10,8 @@ export type {
   Norm,
   ObstaclesFeatureCollection,
   PlantingFeatureCollection,
+  RejectedSitesFeatureCollection,
+  Species,
   ZonesFeatureCollection,
 } from './api/project-result-api';
 export {
@@ -17,6 +19,8 @@ export {
   useGetNormsQuery,
   useGetObstaclesQuery,
   useGetPlantingQuery,
+  useGetRejectedQuery,
+  useGetSpeciesQuery,
   useGetZonesQuery,
 } from './api/project-result-api';
 export {
@@ -30,15 +34,21 @@ export {
 export { dimensionLines } from './lib/dimension-lines';
 export { projectFileName } from './lib/file-name';
 export { createLocalFrame, type LocalFrame } from './lib/local-frame';
-export { toMapData, toMapObstacles } from './lib/map-data';
+export { toMapData, toMapObstacles, toMapRejected } from './lib/map-data';
 export type { PreparedObstacle, PreparedObstacles } from './lib/obstacle-checks';
-export { checksAgainstObstacles, prepareObstacles } from './lib/obstacle-checks';
+export { checksAgainstObstacles, checksFromServer, prepareObstacles } from './lib/obstacle-checks';
 export { CROWN_RADIUS_M, isGeographic, pixelsPerMeterAtZoom } from './lib/plan-projection';
-export type { PlantingCheck, PreparedZones, ProhibitedZone } from './lib/planting-checks';
+export type {
+  LawnSummary,
+  PlantingCheck,
+  PreparedZones,
+  ProhibitedZone,
+} from './lib/planting-checks';
 export {
   allowedArea,
   checksForPlanting,
   lawnArea,
+  lawnSummary,
   prepareZones,
   prohibitedArea,
   TOLERANCE_M,
@@ -49,6 +59,7 @@ export {
   dimensionLabelsMinZoom,
   HATCH_IMAGE,
   hatchPattern,
+  HEDGE_RULE,
   OBSTACLE_LAYERS,
   obstacleGroup,
   plantTypeFilters,

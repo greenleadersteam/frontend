@@ -10,6 +10,7 @@ import {
   formatFileSize,
   formatMeters,
   formatNumber,
+  formatPercent,
   formatSquareMeters,
   formatTransferred,
 } from './format';
@@ -132,4 +133,9 @@ test('координата чертежа — два знака, без разр
   expect(formatDrawingCoordinate(-1499.264)).toBe('-1499,26');
   expect(formatDrawingCoordinate(-0.004)).toBe('0,00');
   expect(formatDrawingMeters(-1499.264)).toBe(`-1499,26${NBSP}м`);
+});
+
+test('доля — процентом без дробной части, с неразрывным пробелом', () => {
+  expect(formatPercent(0.284)).toBe('28\u00A0%');
+  expect(formatPercent(0)).toBe('0\u00A0%');
 });

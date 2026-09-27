@@ -28,6 +28,8 @@ export const resultLayerColors = {
   selectionOuter: WHITE,
   selectionInner: stone[9],
   zoneOutline: clay[6],
+  // Отклонённое место — пунктирный круг с крестом.
+  rejected: clay[6],
   // Газон — где вообще зелень; «можно» — где разрешено сажать выбранный тип посадки. Граница
   // участка — линия чертежа, не ошибки.
   lawn: sage[1],

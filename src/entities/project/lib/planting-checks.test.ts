@@ -5,6 +5,7 @@ import { createLocalFrame } from './local-frame';
 import {
   checksForPlanting,
   lawnArea,
+  lawnSummary,
   type PlantingCheck,
   prepareZones,
   prohibitedArea,
@@ -216,4 +217,57 @@ test('площадь газона — по lawn_raw; газона нет — nul
 
   expect(lawnArea(prepareZones(zones([lawn, baseArea(rect(0, 0, 5, 5))]), frame))).toBeCloseTo(120);
   expect(lawnArea(prepareZones(zones([baseArea(rect(0, 0, 5, 5))]), frame))).toBeNull();
+});
+
+test('газон: площадь, посадки на нём и доля под запретом — от газона в границах участка', () => {
+  const rect = (x1: number, y1: number, x2: number, y2: number) => ({
+    type: 'Polygon' as const,
+    coordinates: [
+      [
+        [x1, y1],
+        [x2, y1],
+        [x2, y2],
+        [x1, y2],
+        [x1, y1],
+      ],
+    ],
+  });
+  // Газон 100 × 100 м, в границах участка — левая половина, деревьям разрешена её половина.
+  const zones: ZonesFeatureCollection = {
+    type: 'FeatureCollection',
+    metadata: { crs: 'local', used_site_boundary: true, uncovered_categories: [] },
+    features: [
+      { type: 'Feature', geometry: rect(0, 0, 100, 100), properties: { zone_type: 'lawn_raw' } },
+      { type: 'Feature', geometry: rect(0, 0, 50, 100), properties: { zone_type: 'base_area' } },
+      {
+        type: 'Feature',
+        geometry: rect(0, 0, 25, 100),
+        properties: { zone_type: 'allowed', plant_type: 'tree' },
+      },
+      {
+        type: 'Feature',
+        geometry: rect(0, 0, 50, 100),
+        properties: { zone_type: 'allowed', plant_type: 'shrub' },
+      },
+    ],
+  };
+  const frame = createLocalFrame({ minX: 0, minY: 0, maxX: 0, maxY: 0 }, false);
+
+  const summary = lawnSummary(
+    prepareZones(zones, frame),
+    [
+      { point: [10, 10], plantType: 'tree' },
+      { point: [60, 10], plantType: 'shrub' },
+      { point: [150, 10], plantType: 'shrub' },
+    ],
+    true,
+  );
+
+  expect(summary).toEqual({
+    area: 10_000,
+    siteArea: 5000,
+    trees: 1,
+    shrubs: 1,
+    prohibitedShare: { tree: 0.5, shrub: 0 },
+  });
 });

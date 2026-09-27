@@ -251,3 +251,40 @@ export const allowedArea = ({ allowed }: PreparedZones, plantType: PlantType): n
 // Площадь газона, м²; null — газона в данных нет.
 export const lawnArea = ({ lawn }: PreparedZones): number | null =>
   lawn === null ? null : area(lawn);
+
+export type LawnSummary = {
+  area: number;
+  // Газон в границах участка (base_area): только там бэкенд строит зоны и сажает
+  // (../backend/greenplan/zoning/engine.py:104-115). null — граница не найдена, и base_area
+  // совпадает со всем газоном (engine.py:110).
+  siteArea: number | null;
+  // Посадки, чей ствол на газоне.
+  trees: number;
+  shrubs: number;
+  // Доля газона в границах участка под зонами запрета для типа посадки, от 0 до 1.
+  prohibitedShare: Record<PlantType, number>;
+};
+
+// Сводка по газону — по данным, которые уже есть на фронте: газон, допустимая область
+// и разрешённая область из /zones, точки /planting. null — газона в данных нет.
+export function lawnSummary(
+  prepared: PreparedZones,
+  planting: readonly { point: LocalPoint; plantType: PlantType }[],
+  usedSiteBoundary: boolean,
+): LawnSummary | null {
+  const { lawn, baseArea } = prepared;
+  if (lawn === null) return null;
+  const total = area(lawn);
+  const siteArea = usedSiteBoundary && baseArea !== null ? area(baseArea) : null;
+  const base = siteArea ?? total;
+  const onLawn = planting.filter(({ point }) => isInside(point, lawn));
+  const share = (plantType: PlantType) =>
+    base === 0 ? 0 : prohibitedArea(prepared, plantType) / base;
+  return {
+    area: total,
+    siteArea,
+    trees: onLawn.filter(({ plantType }) => plantType === 'tree').length,
+    shrubs: onLawn.filter(({ plantType }) => plantType === 'shrub').length,
+    prohibitedShare: { tree: share('tree'), shrub: share('shrub') },
+  };
+}

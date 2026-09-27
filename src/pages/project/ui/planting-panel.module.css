@@ -8,6 +8,22 @@
   }
 }
 
+/* Шапка с названием остаётся на месте, когда длинная панель прокручивается. */
+.header {
+  position: sticky;
+  top: calc(var(--mantine-spacing-md) * -1);
+  z-index: var(--mantine-z-index-app);
+  margin-top: calc(var(--mantine-spacing-md) * -1);
+  padding-top: var(--mantine-spacing-md);
+  padding-bottom: var(--mantine-spacing-xs);
+  background: var(--app-surface);
+}
+
+/* «Текст нормы» и «Источник» — в строку, выровнены по тексту пункта. */
+.actions {
+  margin-inline-start: calc(var(--mantine-spacing-xs) * -1);
+}
+
 .title {
   font-size: var(--mantine-font-size-md);
   font-weight: 600;

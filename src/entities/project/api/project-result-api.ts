@@ -9,6 +9,9 @@ export type PlantingFeatureCollection = Schemas['PlantingFeatureCollection'];
 // Возможности obstacles и norms (contracts/openapi.proposed.yaml): без них запросы не уходят.
 export type ObstaclesFeatureCollection = Schemas['ObstaclesFeatureCollection'];
 export type Norm = Schemas['Norm'];
+// Возможности species и rejected.
+export type Species = Schemas['Species'];
+export type RejectedSitesFeatureCollection = Schemas['RejectedSitesFeatureCollection'];
 
 const resultTag = (id: string) => [{ type: 'ProjectResult', id }] as const;
 const resultUrl = (id: string, resource: string) =>
@@ -34,8 +37,13 @@ export const projectResultApi = baseApi.injectEndpoints({
       query: (id) => resultUrl(id, 'obstacles'),
       providesTags: (_result, _error, id) => resultTag(id),
     }),
-    // Справочник норм общий для всех проектов.
+    getRejected: build.query<RejectedSitesFeatureCollection, string>({
+      query: (id) => resultUrl(id, 'rejected'),
+      providesTags: (_result, _error, id) => resultTag(id),
+    }),
+    // Справочники норм и пород общие для всех проектов.
     getNorms: build.query<Norm[], undefined>({ query: () => '/norms' }),
+    getSpecies: build.query<Species[], undefined>({ query: () => '/species' }),
   }),
 });
 
@@ -44,5 +52,7 @@ export const {
   useGetNormsQuery,
   useGetObstaclesQuery,
   useGetPlantingQuery,
+  useGetRejectedQuery,
+  useGetSpeciesQuery,
   useGetZonesQuery,
 } = projectResultApi;

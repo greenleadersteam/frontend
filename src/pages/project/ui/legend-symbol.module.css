@@ -121,3 +121,16 @@
   stroke: var(--mantine-color-stone-6);
   stroke-width: 1;
 }
+
+/* Отклонённое место: пунктирный круг clay.6 с косым крестом, как на карте. */
+.rejectedRing {
+  fill: none;
+  stroke: var(--mantine-color-clay-6);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2.25;
+}
+
+.rejectedCross {
+  stroke: var(--mantine-color-clay-6);
+  stroke-width: 1.5;
+}

@@ -1,6 +1,6 @@
 import { ActionIcon, Button, Group, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconCircleCheck, IconX } from '@tabler/icons-react';
+import { IconX } from '@tabler/icons-react';
 import { type JSX, type Ref, useId } from 'react';
 
 import {
@@ -10,20 +10,32 @@ import {
   type PlantingCheck,
   type PlantingFeatureCollection,
   type PreparedObstacle,
-  TOLERANCE_M,
+  type Species,
   type ZonesFeatureCollection,
 } from '@/entities/project';
 import { formatCoordinate, formatDrawingMeters, formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
-import { normReference } from './norm-reference';
+import { CheckItem } from './check-item';
 import classes from './planting-panel.module.css';
+import { SourceLink, sourceUrl } from './source-link';
+
+// Размерных линий на карте не больше трёх (dimensionLines): на плане больше не читается.
+const DRAWN_CHECKS = 3;
+
+const ROOT_SYSTEM_LABELS = {
+  shallow: 'корни поверхностные',
+  deep: 'корни стержневые',
+  mixed: 'корни смешанные',
+} as const;
 
 type PlantingPanelProps = {
   // Панель получает фокус, когда открыта из другой панели или из ведомости.
   ref: Ref<HTMLDivElement>;
   planting: PlantingFeatureCollection['features'][number]['properties'];
   entry: ExplanationEntry | undefined;
+  // Порода из /species (возможность species); null — породы нет или возможности нет.
+  species: Species | null;
   // WGS84 — только у проекта с геопривязкой.
   coordinates: { lat: number; lon: number } | null;
   checks: PlantingCheck[];
@@ -45,6 +57,7 @@ export function PlantingPanel({
   ref,
   planting,
   entry,
+  species,
   coordinates,
   checks,
   uncovered,
@@ -89,32 +102,39 @@ export function PlantingPanel({
       aria-labelledby={titleId}
       role="region"
     >
-      <Group justify="space-between" wrap="nowrap" gap="sm" align="flex-start">
+      <Group
+        justify="space-between"
+        wrap="nowrap"
+        gap="sm"
+        align="flex-start"
+        className={classes.header}
+      >
         <Stack gap={0}>
           <Title order={2} id={titleId} className={classes.title}>
-            {PLANT_TYPE_LABELS[planting.plant_type]}
+            {species?.name_ru ?? PLANT_TYPE_LABELS[planting.plant_type]}
           </Title>
-          {entry?.rule_name_ru != null && <Text>{entry.rule_name_ru}</Text>}
-          <Text size="sm" c="dimmed" className={classes.numbers}>
-            {planting.id}
-          </Text>
+          {species !== null && (
+            <Text size="sm" c="dimmed" fs="italic">
+              {species.name_lat}
+            </Text>
+          )}
         </Stack>
         <ActionIcon variant="subtle" aria-label="Закрыть" onClick={onClose}>
           <Icon icon={IconX} />
         </ActionIcon>
       </Group>
 
-      {coordinateLines.length > 0 && (
-        <Stack gap={0} align="flex-start">
-          {coordinateLines.map((line) => (
-            <Text key={line} size="sm" className={classes.numbers}>
-              {line}
-            </Text>
-          ))}
-          <Button variant="subtle" size="compact-sm" onClick={() => void copy()}>
-            Скопировать
-          </Button>
-        </Stack>
+      <Stack gap={0}>
+        {entry?.rule_name_ru != null && <Text>{entry.rule_name_ru}</Text>}
+        <Text size="sm" c="dimmed" className={classes.numbers}>
+          {species === null
+            ? planting.id
+            : `${PLANT_TYPE_LABELS[planting.plant_type]}, ${planting.id}`}
+        </Text>
+      </Stack>
+
+      {species !== null && (
+        <SpeciesReason species={species} reason={planting.species_reason_ru ?? null} />
       )}
 
       <Stack gap="xs">
@@ -148,6 +168,11 @@ export function PlantingPanel({
             ))}
           </ul>
         )}
+        {checks.length > DRAWN_CHECKS && (
+          <Text size="sm" c="dimmed">
+            Размерные линии показаны для трёх ближайших
+          </Text>
+        )}
       </Stack>
 
       {uncovered.length > 0 && (
@@ -168,141 +193,49 @@ export function PlantingPanel({
           Граница участка в чертеже не найдена: посадки размещены по всему газону
         </Text>
       )}
+
+      {coordinateLines.length > 0 && (
+        <Stack gap={0} align="flex-start">
+          {coordinateLines.map((line) => (
+            <Text key={line} size="sm" className={classes.numbers}>
+              {line}
+            </Text>
+          ))}
+          <Button variant="subtle" size="compact-sm" onClick={() => void copy()}>
+            Скопировать
+          </Button>
+        </Stack>
+      )}
     </Stack>
   );
 }
 
-type CheckItemProps = {
-  check: PlantingCheck;
-  onFocus: () => void;
-  onBlur: () => void;
-  onShowZone: (index: number) => void;
-  onShowObstacle: (obstacle: PreparedObstacle) => void;
-};
+type SpeciesReasonProps = { species: Species; reason: string | null };
 
-// Пункт проверки: объект, фактическое расстояние и норма, откуда норма, путь к зоне или объекту.
-type CheckView = {
-  obstacle: string;
-  // null — посадка внутри зоны запрета, расстояния нет.
-  distance: string | null;
-  violated: boolean;
-  // Меньше нормы, но в пределах точности расчёта: без пояснения галочка рядом с таким числом
-  // читалась бы как ошибка.
-  withinTolerance: boolean;
-  reference: string;
-  note: string;
-  show: { label: string; action: () => void } | null;
-};
-
-function viewOf(
-  check: PlantingCheck,
-  onShowZone: (index: number) => void,
-  onShowObstacle: (obstacle: PreparedObstacle) => void,
-): CheckView {
-  if (check.kind === 'object') {
-    const { obstacle } = check;
-    return {
-      obstacle: obstacleLabel(check.category, check.subtype),
-      // Расстояние до геометрии объекта — с сантиметрами, как у сервера.
-      distance: `${formatMeters(check.actual, 2)} при норме не менее ${formatMeters(check.required)}`,
-      violated: check.violated,
-      withinTolerance: !check.violated && check.actual < check.required,
-      reference: normReference(check.norm, check.citation),
-      note: check.norm?.text ?? '',
-      show:
-        obstacle === null
-          ? null
-          : {
-              label: 'Показать объект',
-              action: () => {
-                onShowObstacle(obstacle);
-              },
-            },
-    };
-  }
-  const { properties, index } = check.zone;
-  const citation = properties.citation.trim();
-  const reason = properties.reason.trim();
-  return {
-    obstacle: obstacleLabel(properties.obstacle_category, properties.obstacle_subtype),
-    distance:
-      check.kind === 'measured'
-        ? `${formatMeters(check.actual, 1)} при норме не менее ${formatMeters(properties.distance_m)}`
-        : check.kind === 'boundary'
-          ? `до границы зоны ${formatMeters(check.margin, 1)}`
-          : null,
-    violated: check.kind === 'inside',
-    withinTolerance: false,
-    reference: normReference(null, citation),
-    note: reason === citation ? '' : reason,
-    show: {
-      label: 'Показать зону',
-      action: () => {
-        onShowZone(index);
-      },
-    },
-  };
-}
-
-function CheckItem({
-  check,
-  onFocus,
-  onBlur,
-  onShowZone,
-  onShowObstacle,
-}: CheckItemProps): JSX.Element {
-  const view = viewOf(check, onShowZone, onShowObstacle);
+// Почему выбрана порода и что о ней известно — только то, что даёт источник: без кроны или
+// корней в справочнике их нет и в строке.
+function SpeciesReason({ species, reason }: SpeciesReasonProps): JSX.Element {
+  const params = [
+    ...(species.crown_diameter_m === null
+      ? []
+      : [`крона до ${formatMeters(species.crown_diameter_m)}`]),
+    `высота до ${formatMeters(species.height_m)}`,
+    ...(species.root_system === null ? [] : [ROOT_SYSTEM_LABELS[species.root_system]]),
+  ].join(', ');
+  const source = sourceUrl(species.source);
 
   return (
-    <li
-      className={classes.check}
-      // Фокус с клавиатуры выделяет размерную линию ограничения на карте, как наведение мышью.
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- действия нет, только выделение на карте
-      tabIndex={0}
-      onMouseEnter={onFocus}
-      onMouseLeave={onBlur}
-      onFocus={onFocus}
-      onBlur={onBlur}
-    >
-      {view.violated ? (
-        <Icon icon={IconAlertTriangle} tone="error" label="Норма нарушена" />
-      ) : (
-        <Icon icon={IconCircleCheck} tone="accent" label="Норма выполнена" />
+    <Stack gap="xs" align="flex-start">
+      <Title order={3} className={classes.section}>
+        Почему эта порода
+      </Title>
+      {reason !== null && <Text size="sm">{reason}</Text>}
+      <Text size="sm" c="dimmed">
+        {params.charAt(0).toUpperCase() + params.slice(1)}
+      </Text>
+      {source !== null && (
+        <SourceLink href={source} label={`Источник данных о породе: ${species.name_ru}`} />
       )}
-      <Stack gap="xs">
-        <Text fw={600}>{view.obstacle}</Text>
-        {view.distance === null ? (
-          <Text size="sm" className={classes.warning}>
-            Посадка внутри зоны запрета — сообщите разработчикам
-          </Text>
-        ) : (
-          <Text size="sm" className={view.violated ? classes.warning : classes.numbers}>
-            {view.distance}
-          </Text>
-        )}
-        {view.withinTolerance && (
-          <Text size="sm">{`В пределах точности расчёта: ${formatMeters(TOLERANCE_M, 2)}`}</Text>
-        )}
-        <Text size="sm" c="dimmed">
-          {view.reference}
-        </Text>
-        {view.note !== '' && (
-          <Text size="sm" c="dimmed">
-            {view.note}
-          </Text>
-        )}
-        {view.show !== null && (
-          <Button
-            variant="subtle"
-            size="compact-sm"
-            className={classes.showZone}
-            onClick={view.show.action}
-            aria-label={`${view.show.label}: ${view.obstacle}`}
-          >
-            {view.show.label}
-          </Button>
-        )}
-      </Stack>
-    </li>
+    </Stack>
   );
 }

@@ -23,6 +23,7 @@ import {
   prohibitedArea,
   type Project,
   projectFileName,
+  type RejectedSitesFeatureCollection,
   RESULT_COUNT_FORMS,
 } from '@/entities/project';
 import {
@@ -37,6 +38,8 @@ import { Icon } from '@/shared/ui';
 
 import classes from './planting-register.module.css';
 import { registerCsv, type RegisterRow, registerRows } from './register-csv';
+import { RejectedTable } from './rejected-table';
+import type { CenterRequest } from './result-map';
 
 type PlantingRegisterProps = {
   project: Project;
@@ -44,9 +47,16 @@ type PlantingRegisterProps = {
   explanation: ReadonlyMap<string, ExplanationEntry>;
   prepared: PreparedZones;
   geographic: boolean;
-  // Показать посадку на плане; null — плана с выбором нет (карта недоступна).
-  onOpen: ((id: string) => void) | null;
+  // Отклонённые места (возможность rejected); null — сервер их не отдаёт, переключателя нет.
+  rejected: RejectedSitesFeatureCollection | null;
+  // Показать посадку или место на плане; null — плана с выбором нет (карта недоступна).
+  onOpen: ((target: CenterRequest['target']) => void) | null;
 };
+
+const LISTS = [
+  { value: 'plantings', label: 'Посадки' },
+  { value: 'rejected', label: 'Отклонённые' },
+];
 
 const PAGE_SIZE = 50;
 
@@ -78,8 +88,10 @@ export function PlantingRegister({
   explanation,
   prepared,
   geographic,
+  rejected,
   onOpen,
 }: PlantingRegisterProps): JSX.Element {
+  const [list, setList] = useState<'plantings' | 'rejected'>('plantings');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [rule, setRule] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -204,137 +216,167 @@ export function PlantingRegister({
 
       <Card>
         <Stack gap="md">
-          <Group gap="md" align="flex-end">
+          {rejected !== null && (
             <SegmentedControl
-              data={TYPE_FILTERS}
-              value={typeFilter}
+              data={LISTS}
+              value={list}
               onChange={(value) => {
-                setTypeFilter(parseTypeFilter(value));
-                resetPage();
+                setList(value === 'rejected' ? 'rejected' : 'plantings');
               }}
-              aria-label="Тип посадки"
+              aria-label="Список ведомости"
+              className={classes.list}
             />
-            <Select
-              label="Правило посадки"
-              placeholder="Все правила"
-              data={[...ruleCounts.keys()]}
-              value={rule}
-              onChange={(value) => {
-                setRule(value);
-                resetPage();
-              }}
-              clearable
-              className={classes.filter}
+          )}
+          {list === 'rejected' && rejected !== null ? (
+            <RejectedTable
+              rejected={rejected}
+              geographic={geographic}
+              onOpen={
+                onOpen === null
+                  ? null
+                  : (index) => {
+                      onOpen({ kind: 'rejected', index });
+                    }
+              }
             />
-            <TextInput
-              label="Идентификатор"
-              placeholder="Часть идентификатора"
-              value={search}
-              onChange={(event) => {
-                setSearch(event.currentTarget.value);
-                resetPage();
-              }}
-              className={classes.filter}
-            />
-          </Group>
-
-          {filtered.length === 0 ? (
-            <Stack gap="xs" align="flex-start">
-              <Text>Нет посадок по выбранным условиям</Text>
-              <Button variant="subtle" onClick={resetFilters}>
-                Сбросить фильтры
-              </Button>
-            </Stack>
           ) : (
             <>
-              <Table.ScrollContainer minWidth={0}>
-                <Table highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      {sortHeader('number', '№')}
-                      <Table.Th>Идентификатор</Table.Th>
-                      {sortHeader('type', 'Тип')}
-                      {sortHeader('rule', 'Правило посадки')}
-                      {withGeo && (
-                        <>
-                          <Table.Th>Широта</Table.Th>
-                          <Table.Th>Долгота</Table.Th>
-                        </>
-                      )}
-                      {withDrawing && (
-                        <>
-                          <Table.Th>X чертежа, м</Table.Th>
-                          <Table.Th>Y чертежа, м</Table.Th>
-                        </>
-                      )}
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {shown.map((row) => (
-                      <Table.Tr key={row.id} className={onOpen === null ? undefined : classes.row}>
-                        <Table.Td className={classes.numbers}>{row.number}</Table.Td>
-                        <Table.Td>
-                          {/* Кнопка растянута на всю строку: щелчок по строке и Enter на ней
+              <Group gap="md" align="flex-end">
+                <SegmentedControl
+                  data={TYPE_FILTERS}
+                  value={typeFilter}
+                  onChange={(value) => {
+                    setTypeFilter(parseTypeFilter(value));
+                    resetPage();
+                  }}
+                  aria-label="Тип посадки"
+                />
+                <Select
+                  label="Правило посадки"
+                  placeholder="Все правила"
+                  data={[...ruleCounts.keys()]}
+                  value={rule}
+                  onChange={(value) => {
+                    setRule(value);
+                    resetPage();
+                  }}
+                  clearable
+                  className={classes.filter}
+                />
+                <TextInput
+                  label="Идентификатор"
+                  placeholder="Часть идентификатора"
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.currentTarget.value);
+                    resetPage();
+                  }}
+                  className={classes.filter}
+                />
+              </Group>
+
+              {filtered.length === 0 ? (
+                <Stack gap="xs" align="flex-start">
+                  <Text>Нет посадок по выбранным условиям</Text>
+                  <Button variant="subtle" onClick={resetFilters}>
+                    Сбросить фильтры
+                  </Button>
+                </Stack>
+              ) : (
+                <>
+                  <Table.ScrollContainer minWidth={0}>
+                    <Table highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          {sortHeader('number', '№')}
+                          <Table.Th>Идентификатор</Table.Th>
+                          {sortHeader('type', 'Тип')}
+                          {sortHeader('rule', 'Правило посадки')}
+                          {withGeo && (
+                            <>
+                              <Table.Th>Широта</Table.Th>
+                              <Table.Th>Долгота</Table.Th>
+                            </>
+                          )}
+                          {withDrawing && (
+                            <>
+                              <Table.Th>X чертежа, м</Table.Th>
+                              <Table.Th>Y чертежа, м</Table.Th>
+                            </>
+                          )}
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {shown.map((row) => (
+                          <Table.Tr
+                            key={row.id}
+                            className={onOpen === null ? undefined : classes.row}
+                          >
+                            <Table.Td className={classes.numbers}>{row.number}</Table.Td>
+                            <Table.Td>
+                              {/* Кнопка растянута на всю строку: щелчок по строке и Enter на ней
                               показывают посадку на плане. Строка — не ссылка: вид плана
                               меняет состояние экрана, а не адрес. */}
-                          {onOpen === null ? (
-                            row.id
-                          ) : (
-                            <UnstyledButton
-                              className={classes.open}
-                              aria-label={`Показать на плане: ${row.id}`}
-                              onClick={() => {
-                                onOpen(row.id);
-                              }}
-                            >
-                              {row.id}
-                            </UnstyledButton>
-                          )}
-                        </Table.Td>
-                        <Table.Td>{PLANT_TYPE_LABELS[row.plantType]}</Table.Td>
-                        <Table.Td>{row.ruleName ?? '—'}</Table.Td>
-                        {withGeo && (
-                          <>
-                            <Table.Td className={classes.numbers}>
-                              {row.lat === null ? '—' : formatCoordinate(row.lat)}
+                              {onOpen === null ? (
+                                row.id
+                              ) : (
+                                <UnstyledButton
+                                  className={classes.open}
+                                  aria-label={`Показать на плане: ${row.id}`}
+                                  onClick={() => {
+                                    onOpen({ kind: 'planting', id: row.id });
+                                  }}
+                                >
+                                  {row.id}
+                                </UnstyledButton>
+                              )}
                             </Table.Td>
-                            <Table.Td className={classes.numbers}>
-                              {row.lon === null ? '—' : formatCoordinate(row.lon)}
-                            </Table.Td>
-                          </>
-                        )}
-                        {withDrawing && (
-                          <>
-                            <Table.Td className={classes.numbers}>
-                              {row.x === null ? '—' : formatDrawingCoordinate(row.x)}
-                            </Table.Td>
-                            <Table.Td className={classes.numbers}>
-                              {row.y === null ? '—' : formatDrawingCoordinate(row.y)}
-                            </Table.Td>
-                          </>
-                        )}
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
-              <Group justify="space-between">
-                <Text size="sm" c="dimmed" className={classes.numbers}>
-                  {`Показано ${formatNumber((currentPage - 1) * PAGE_SIZE + 1)}–${formatNumber((currentPage - 1) * PAGE_SIZE + shown.length)} из ${formatNumber(filtered.length)}`}
-                </Text>
-                {pages > 1 && (
-                  <Pagination
-                    total={pages}
-                    value={currentPage}
-                    onChange={setPage}
-                    getControlProps={(control) => ({
-                      'aria-label':
-                        control === 'previous' ? 'Предыдущая страница' : 'Следующая страница',
-                    })}
-                    getItemProps={(item) => ({ 'aria-label': `Страница ${String(item)}` })}
-                  />
-                )}
-              </Group>
+                            <Table.Td>{PLANT_TYPE_LABELS[row.plantType]}</Table.Td>
+                            <Table.Td>{row.ruleName ?? '—'}</Table.Td>
+                            {withGeo && (
+                              <>
+                                <Table.Td className={classes.numbers}>
+                                  {row.lat === null ? '—' : formatCoordinate(row.lat)}
+                                </Table.Td>
+                                <Table.Td className={classes.numbers}>
+                                  {row.lon === null ? '—' : formatCoordinate(row.lon)}
+                                </Table.Td>
+                              </>
+                            )}
+                            {withDrawing && (
+                              <>
+                                <Table.Td className={classes.numbers}>
+                                  {row.x === null ? '—' : formatDrawingCoordinate(row.x)}
+                                </Table.Td>
+                                <Table.Td className={classes.numbers}>
+                                  {row.y === null ? '—' : formatDrawingCoordinate(row.y)}
+                                </Table.Td>
+                              </>
+                            )}
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                  <Group justify="space-between">
+                    <Text size="sm" c="dimmed" className={classes.numbers}>
+                      {`Показано ${formatNumber((currentPage - 1) * PAGE_SIZE + 1)}–${formatNumber((currentPage - 1) * PAGE_SIZE + shown.length)} из ${formatNumber(filtered.length)}`}
+                    </Text>
+                    {pages > 1 && (
+                      <Pagination
+                        total={pages}
+                        value={currentPage}
+                        onChange={setPage}
+                        getControlProps={(control) => ({
+                          'aria-label':
+                            control === 'previous' ? 'Предыдущая страница' : 'Следующая страница',
+                        })}
+                        getItemProps={(item) => ({ 'aria-label': `Страница ${String(item)}` })}
+                      />
+                    )}
+                  </Group>
+                </>
+              )}
             </>
           )}
         </Stack>

@@ -6,12 +6,14 @@ import { resultLayerColors } from '@/shared/theme';
 import type {
   ObstaclesFeatureCollection,
   PlantingFeatureCollection,
+  RejectedSitesFeatureCollection,
   ZonesFeatureCollection,
 } from '../api/project-result-api';
 import {
   crownRadiusExpression,
   dimensionLabelsMinZoom,
   hatchPattern,
+  hedgeRows,
   plantTypeFilters,
   RESULT_LAYER,
   RESULT_SOURCE,
@@ -215,6 +217,10 @@ describe('источники и слои результата', () => {
       RESULT_LAYER.utilitiesDashed,
       RESULT_LAYER.utilitiesDashDot,
       RESULT_LAYER.siteBoundary,
+      RESULT_LAYER.rejectedRing,
+      RESULT_LAYER.rejectedCross,
+      RESULT_LAYER.rejectedHit,
+      RESULT_LAYER.hedges,
       RESULT_LAYER.shrubs,
       RESULT_LAYER.treeShadows,
       RESULT_LAYER.trees,
@@ -230,7 +236,7 @@ describe('источники и слои результата', () => {
   });
 
   test('газон, граница участка и «можно» — свой источник, без base_area и зон запрета', () => {
-    const { data } = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.site];
+    const { data } = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.site];
 
     expect(data).toMatchObject({
       features: [
@@ -253,7 +259,7 @@ describe('источники и слои результата', () => {
   });
 
   test('посадки — с promoteId по id и радиусом кроны по типу', () => {
-    const source = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.planting];
+    const source = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.planting];
 
     expect(source.promoteId).toBe('id');
     expect(source.data).toMatchObject({
@@ -265,7 +271,7 @@ describe('источники и слои результата', () => {
   });
 
   test('блик — только у деревьев, к северо-западу от центра кроны', () => {
-    const { data } = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.highlights];
+    const { data } = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.highlights];
     if (typeof data === 'string' || data.type !== 'FeatureCollection') throw new Error('данные');
     const [highlight] = data.features;
     if (highlight?.geometry.type !== 'Point') throw new Error('ожидалась точка');
@@ -279,12 +285,12 @@ describe('источники и слои результата', () => {
   });
 
   test('на карте — только зоны запрета; охват — по ним и по посадкам', () => {
-    const { data } = resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.zones];
+    const { data } = resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.zones];
 
     expect(data).toMatchObject({
       features: [{ properties: { zone_type: 'prohibited', zone_index: 0 } }],
     });
-    expect(resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.zones].promoteId).toBe(
+    expect(resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.zones].promoteId).toBe(
       'zone_index',
     );
     expect(resultExtent({ planting, zones })).toEqual({
@@ -323,7 +329,7 @@ describe('источники и слои результата', () => {
   });
 
   test('объекты: сети, кромки и здания с номером, цветом сети и подписью; остальное не рисуется', () => {
-    const { data, promoteId } = resultSources({ planting, zones }, obstacles, LAT)[
+    const { data, promoteId } = resultSources({ planting, zones }, obstacles, null, LAT)[
       RESULT_SOURCE.obstacles
     ];
 
@@ -351,7 +357,7 @@ describe('источники и слои результата', () => {
       ],
     });
     expect(
-      resultSources({ planting, zones }, null, LAT)[RESULT_SOURCE.obstacles].data,
+      resultSources({ planting, zones }, null, null, LAT)[RESULT_SOURCE.obstacles].data,
     ).toMatchObject({ features: [] });
   });
 
@@ -406,4 +412,113 @@ test('подписи сетей — с 17-го масштаба в Москве,
     Math.log2(1 / Math.cos((55.75 * Math.PI) / 180)),
     5,
   );
+});
+
+describe('отклонённые места и живая изгородь', () => {
+  const rejected: RejectedSitesFeatureCollection = {
+    type: 'FeatureCollection',
+    metadata: { crs: 'EPSG:4326 (WGS84 lon/lat)' },
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [37.6, LAT] },
+        properties: {
+          plant_type: 'tree',
+          rule_id: 'TREE_FILL_LAWN',
+          failed_checks: [
+            {
+              category: 'underground_utilities',
+              subtype: 'gas',
+              required_m: 1.5,
+              actual_m: 0.9,
+              citation: '743-ПП — газопровод',
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  test('пунктирный круг радиусом кроны и косой крест; цель для щелчка — по номеру', () => {
+    const sources = resultSources({ planting, zones }, null, rejected, LAT);
+    const { data } = sources[RESULT_SOURCE.rejected];
+    if (typeof data === 'string' || data.type !== 'FeatureCollection') throw new Error('данные');
+    const [ring, cross] = data.features;
+    if (ring?.geometry.type !== 'LineString') throw new Error('ожидалось кольцо');
+
+    const [first] = ring.geometry.coordinates;
+    const [lon = 0, lat = 0] = first ?? [];
+    // Первая вершина — на востоке, на радиусе кроны дерева 1,5 м.
+    expect((lon - 37.6) * 111_320 * Math.cos((LAT * Math.PI) / 180)).toBeCloseTo(1.5, 3);
+    expect(lat).toBeCloseTo(LAT, 9);
+    expect(ring.geometry.coordinates.at(-1)?.[0]).toBeCloseTo(lon, 9);
+    expect(cross?.geometry.type).toBe('MultiLineString');
+    expect(sources[RESULT_SOURCE.rejectedPoints].promoteId).toBe('rejected_index');
+  });
+
+  test('слой отклонённых мест по умолчанию скрыт, линия — пунктир clay.6', () => {
+    const ringLayer = resultLayers(LAT).find(({ id }) => id === RESULT_LAYER.rejectedRing);
+
+    expect(ringLayer).toMatchObject({
+      layout: { visibility: 'none' },
+      paint: { 'line-color': resultLayerColors.rejected, 'line-dasharray': [2, 1.5] },
+    });
+  });
+
+  const hedge = (id: string, x: number, y: number) => ({
+    type: 'Feature' as const,
+    geometry: { type: 'Point' as const, coordinates: [x, y] },
+    properties: { id, plant_type: 'shrub' as const, rule_id: 'SHRUB_HEDGE_CURB' },
+  });
+  const ids = (rows: ReturnType<typeof hedgeRows>) =>
+    rows.map((row) => row.map(({ properties }) => properties.id));
+
+  test('изгородь — ряды вдоль ряда; разрыв делит ряд', () => {
+    const rows = hedgeRows({
+      ...planting,
+      features: [
+        hedge('c', 3, 0),
+        hedge('a', 1, 0),
+        hedge('b', 2, 0),
+        hedge('e', 21, 0),
+        hedge('d', 20, 0),
+        ...planting.features,
+      ],
+    });
+
+    expect(ids(rows).map((row) => [...row].sort())).toEqual([
+      ['a', 'b', 'c'],
+      ['d', 'e'],
+    ]);
+    expect(ids(rows)[0]?.[1]).toBe('b');
+  });
+
+  test('наклонный ряд, два параллельных ряда и дуга — без зигзагов между рядами', () => {
+    // Два ряда под 5° в 3 шагах друг от друга и дуга радиусом 30 шагов.
+    const angle = (5 * Math.PI) / 180;
+    const tilted = Array.from({ length: 30 }, (_, index) => [
+      hedge(`n${String(index)}`, index * Math.cos(angle), index * Math.sin(angle)),
+      hedge(
+        `s${String(index)}`,
+        index * Math.cos(angle) + 3 * Math.sin(angle),
+        index * Math.sin(angle) - 3 * Math.cos(angle),
+      ),
+    ]).flat();
+    const arc = Array.from({ length: 30 }, (_, index) =>
+      hedge(`a${String(index)}`, 100 + 30 * Math.cos(index / 30), 30 * Math.sin(index / 30)),
+    );
+
+    const rows = ids(hedgeRows({ ...planting, features: [...tilted, ...arc] }));
+
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      // В ряду только точки одного ряда, соседние по номеру.
+      const prefix = row[0]?.charAt(0) ?? '';
+      expect(row.every((id) => id.startsWith(prefix))).toBe(true);
+      const numbers = row.map((id) => Number(id.slice(1)));
+      for (let index = 1; index < numbers.length; index += 1) {
+        expect(Math.abs((numbers[index] ?? 0) - (numbers[index - 1] ?? 0))).toBe(1);
+      }
+    }
+  });
 });

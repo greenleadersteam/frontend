@@ -8,13 +8,16 @@ import {
   allowedArea,
   checksAgainstObstacles,
   checksForPlanting,
+  checksFromServer,
   CROWN_RADIUS_M,
   dimensionLabelsMinZoom,
   dimensionLines,
   type ExplanationEntry,
   HATCH_IMAGE,
   hatchPattern,
+  HEDGE_RULE,
   lawnArea,
+  lawnSummary,
   type LocalFrame,
   OBSTACLE_LAYERS,
   obstacleGroup,
@@ -26,6 +29,7 @@ import {
   plantTypeFilters,
   type PreparedObstacles,
   type PreparedZones,
+  type RejectedSitesFeatureCollection,
   RESULT_LAYER,
   RESULT_LAYER_GROUPS,
   RESULT_SOURCE,
@@ -35,12 +39,16 @@ import {
   resultLayers,
   resultSources,
   SELECTABLE_LAYERS,
+  type Species,
+  toMapRejected,
 } from '@/entities/project';
 import { Icon } from '@/shared/ui';
 
+import { LawnPanel } from './lawn-panel';
 import { LayersPanel, type LayerVisibility } from './layers-panel';
 import { ObstaclePanel } from './obstacle-panel';
 import { PlantingPanel } from './planting-panel';
+import { RejectedPanel } from './rejected-panel';
 import { resultLabel } from './result-label';
 import classes from './result-map.module.css';
 import { ZonePanel } from './zone-panel';
@@ -62,13 +70,18 @@ export type Selection =
   | { kind: 'planting'; id: string }
   | { kind: 'zone'; index: number }
   | { kind: 'obstacle'; index: number }
+  | { kind: 'rejected'; index: number }
+  | { kind: 'lawn' }
   | null;
 
 // Объекты подосновы: в координатах карты для слоёв и подготовленные для проверок.
 export type MapObstacles = { map: ObstaclesFeatureCollection; prepared: PreparedObstacles };
 
 // Просьба подвести камеру к посадке (из ведомости). nonce различает повторы для той же посадки.
-export type CenterRequest = { id: string; nonce: number };
+export type CenterRequest = {
+  target: { kind: 'planting'; id: string } | { kind: 'rejected'; index: number };
+  nonce: number;
+};
 
 type ResultMapProps = {
   // Данные бэкенда: по ним считаются проверки.
@@ -82,6 +95,10 @@ type ResultMapProps = {
   // null — сервер не отдаёт /obstacles: проверки считаются по зонам запрета.
   obstacles: MapObstacles | null;
   explanation: ReadonlyMap<string, ExplanationEntry>;
+  // Справочник пород по id (возможность species); пуст — пород нет.
+  species: ReadonlyMap<string, Species>;
+  // Отклонённые места (возможность rejected); null — сервер их не отдаёт.
+  rejected: RejectedSitesFeatureCollection | null;
   // Подложка есть только у проекта с геопривязкой в пределах карты Москвы.
   basemap: boolean;
   selection: Selection;
@@ -118,6 +135,8 @@ export function ResultMap({
   prepared,
   obstacles,
   explanation,
+  species,
+  rejected,
   basemap,
   selection,
   onSelect,
@@ -143,6 +162,9 @@ export function ResultMap({
     utilities: true,
     buildings: true,
     edges: true,
+    // Отклонённых мест на крупном участке тысячи: слой включают, когда хотят понять, почему
+    // в пустом месте ничего нет.
+    rejected: false,
     basemap: true,
   });
   // Для какого типа посадки показаны «можно» и зоны запрета.
@@ -159,6 +181,7 @@ export function ResultMap({
   const plantingRef = useRef<string | null>(null);
   const zoneRef = useRef<number | null>(null);
   const obstacleRef = useRef<number | null>(null);
+  const rejectedRef = useRef<number | null>(null);
 
   const selectedPlanting =
     selection?.kind === 'planting'
@@ -169,7 +192,24 @@ export function ResultMap({
     selection?.kind === 'obstacle' ? obstacles?.prepared.obstacles[selection.index] : undefined;
   const selectedEntry =
     selectedPlanting === undefined ? undefined : explanation.get(selectedPlanting.properties.id);
-  const checks = plantingChecks(selectedPlanting, selectedEntry, frame, prepared, obstacles);
+  const selectedRejected =
+    selection?.kind === 'rejected' ? rejected?.features[selection.index] : undefined;
+  const rejectedChecks =
+    selectedRejected === undefined
+      ? null
+      : checksFromServer(
+          frame.toLocal(selectedRejected.geometry.coordinates),
+          selectedRejected.properties.plant_type,
+          selectedRejected.properties.failed_checks,
+          obstacles?.prepared ?? null,
+        );
+  const checks =
+    rejectedChecks ?? plantingChecks(selectedPlanting, selectedEntry, frame, prepared, obstacles);
+  // Тип посадки выбранной точки — для отступа подписей размеров от кроны.
+  const selectedPlantType =
+    selectedPlanting?.properties.plant_type ?? selectedRejected?.properties.plant_type ?? null;
+  const speciesId = selectedPlanting?.properties.species_id;
+  const selectedSpecies = speciesId == null ? null : (species.get(speciesId) ?? null);
   const focusedCheck = focused?.selection === selection ? focused.index : null;
 
   // Если фокус был в панели, он исчез бы вместе с ней: возвращаем его на карту.
@@ -220,6 +260,20 @@ export function ResultMap({
     const plantingId = selection?.kind === 'planting' ? selection.id : null;
     const zoneIndex = selection?.kind === 'zone' ? selection.index : null;
     const obstacleIndex = selection?.kind === 'obstacle' ? selection.index : null;
+    const rejectedIndex = selection?.kind === 'rejected' ? selection.index : null;
+    if (rejectedRef.current !== null) {
+      map.setFeatureState(
+        { source: RESULT_SOURCE.rejectedPoints, id: rejectedRef.current },
+        { selected: false },
+      );
+    }
+    if (rejectedIndex !== null) {
+      map.setFeatureState(
+        { source: RESULT_SOURCE.rejectedPoints, id: rejectedIndex },
+        { selected: true },
+      );
+    }
+    rejectedRef.current = rejectedIndex;
     if (plantingRef.current !== null) {
       map.setFeatureState(
         { source: RESULT_SOURCE.planting, id: plantingRef.current },
@@ -261,26 +315,36 @@ export function ResultMap({
     const lines = dimensionLines(checks, frame, {
       focused: focusedCheck,
       metersPerPixel: 1 / pixelsPerMeterAtZoom(zoom, latitude),
-      // Без выбранной посадки проверок нет, и радиус не нужен.
-      crownRadiusM:
-        selectedPlanting === undefined ? 0 : CROWN_RADIUS_M[selectedPlanting.properties.plant_type],
+      // Без выбранной точки проверок нет, и радиус не нужен.
+      crownRadiusM: selectedPlantType === null ? 0 : CROWN_RADIUS_M[selectedPlantType],
     });
     void map?.getSource<GeoJSONSource>(RESULT_SOURCE.dimensions)?.setData(lines);
-  }, [map, checks, frame, focusedCheck, zoom, latitude, selectedPlanting]);
+  }, [map, checks, frame, focusedCheck, zoom, latitude, selectedPlantType]);
 
   // Переход из ведомости: камера подводится к посадке, когда план уже показан. Вид меняется
   // через URL позже, чем выбор, а ResizeObserver MapLibre сообщит новый размер ещё позже:
   // без resize() центр считался бы по скрытому контейнеру. Масштаб — не мельче того, где
   // видны подписи размерных линий. При prefers-reduced-motion MapLibre переходит без анимации.
   const centeredRef = useRef<number | null>(null);
-  const centerOn = useEffectEvent((target: MapLibreMap, id: string) => {
-    const feature = mapData.planting.features.find(({ properties }) => properties.id === id);
-    if (feature === undefined) return;
-    const [lon, lat] = feature.geometry.coordinates;
+  const centerOn = useEffectEvent((target: MapLibreMap, request: CenterRequest['target']) => {
+    // Посадку или место на выключенном слое не выбрать: выделение висело бы над пустым местом.
+    let point: readonly number[];
+    if (request.kind === 'planting') {
+      const feature = mapData.planting.features.find(
+        ({ properties }) => properties.id === request.id,
+      );
+      if (feature === undefined) return;
+      point = feature.geometry.coordinates;
+      const group = feature.properties.plant_type === 'tree' ? 'trees' : 'shrubs';
+      setVisibility((previous) => ({ ...previous, [group]: true }));
+    } else {
+      const site = rejected?.features[request.index];
+      if (site === undefined) return;
+      point = frame.toMap(frame.toLocal(site.geometry.coordinates));
+      setVisibility((previous) => ({ ...previous, rejected: true }));
+    }
+    const [lon, lat] = point;
     if (lon === undefined || lat === undefined) return;
-    // Посадку на выключенном слое не выбрать: кольца висели бы над пустым местом.
-    const group = feature.properties.plant_type === 'tree' ? 'trees' : 'shrubs';
-    setVisibility((previous) => ({ ...previous, [group]: true }));
     // Строка ведомости, с которой пришёл фокус, скрыта вместе с ведомостью.
     openedPanelRef.current?.focus();
     target.resize();
@@ -293,7 +357,7 @@ export function ResultMap({
     if (map === null || centerRequest === null || !visible) return;
     if (centeredRef.current === centerRequest.nonce) return;
     centeredRef.current = centerRequest.nonce;
-    centerOn(map, centerRequest.id);
+    centerOn(map, centerRequest.target);
   }, [map, centerRequest, visible]);
 
   useEffect(() => {
@@ -306,18 +370,40 @@ export function ResultMap({
     const pixelRatio = target.getPixelRatio();
     target.addImage(HATCH_IMAGE, hatchPattern(pixelRatio), { pixelRatio });
     for (const [id, source] of Object.entries(
-      resultSources(mapData, obstacles?.map ?? null, latitude),
+      resultSources(
+        mapData,
+        obstacles?.map ?? null,
+        rejected === null ? null : toMapRejected(rejected, frame),
+        latitude,
+      ),
     )) {
       target.addSource(id, source);
     }
     for (const layer of resultLayers(latitude)) target.addLayer(layer);
 
-    // Посадка важнее объекта, объект — зоны под ним; клик по пустому месту снимает выбор.
+    // Приоритет щелчка: посадка (и полоса изгороди) > отклонённое место > объект > зона
+    // запрета > газон; щелчок по пустому месту снимает выбор.
     target.on('click', (event) => {
       const [planting] = target.queryRenderedFeatures(event.point, { layers: SELECTABLE_LAYERS });
       const id: unknown = planting?.properties.id;
       if (typeof id === 'string') {
         onSelect({ kind: 'planting', id });
+        return;
+      }
+      // Полоса изгороди — выбор ближайшей её посадки.
+      if (target.queryRenderedFeatures(event.point, { layers: [RESULT_LAYER.hedges] }).length > 0) {
+        const hedge = nearestHedgePlanting(mapData.planting, [event.lngLat.lng, event.lngLat.lat]);
+        if (hedge !== null) {
+          onSelect({ kind: 'planting', id: hedge });
+          return;
+        }
+      }
+      const [site] = target.queryRenderedFeatures(event.point, {
+        layers: [RESULT_LAYER.rejectedHit],
+      });
+      const rejectedIndex: unknown = site?.properties.rejected_index;
+      if (typeof rejectedIndex === 'number') {
+        onSelect({ kind: 'rejected', index: rejectedIndex });
         return;
       }
       const { x, y } = event.point;
@@ -335,9 +421,22 @@ export function ResultMap({
       }
       const [zone] = target.queryRenderedFeatures(event.point, { layers: [RESULT_LAYER.zones] });
       const index: unknown = zone?.properties.zone_index;
-      onSelect(typeof index === 'number' ? { kind: 'zone', index } : null);
+      if (typeof index === 'number') {
+        onSelect({ kind: 'zone', index });
+        return;
+      }
+      const onLawn =
+        target.queryRenderedFeatures(event.point, { layers: [RESULT_LAYER.lawn] }).length > 0;
+      onSelect(onLawn ? { kind: 'lawn' } : null);
     });
-    for (const layer of [...SELECTABLE_LAYERS, ...OBSTACLE_LAYERS, RESULT_LAYER.zones]) {
+    for (const layer of [
+      ...SELECTABLE_LAYERS,
+      RESULT_LAYER.hedges,
+      RESULT_LAYER.rejectedHit,
+      ...OBSTACLE_LAYERS,
+      RESULT_LAYER.zones,
+      RESULT_LAYER.lawn,
+    ]) {
       target.on('mouseenter', layer, () => {
         target.getCanvas().style.cursor = 'pointer';
       });
@@ -361,15 +460,19 @@ export function ResultMap({
   };
 
   const selectedGroup: ResultLayerGroup | null =
-    selectedZone !== undefined
-      ? 'zones'
-      : selectedObstacle !== undefined
-        ? obstacleGroup(selectedObstacle.properties.category)
-        : selectedPlanting === undefined
-          ? null
-          : selectedPlanting.properties.plant_type === 'tree'
-            ? 'trees'
-            : 'shrubs';
+    selection?.kind === 'lawn'
+      ? 'lawn'
+      : selectedRejected !== undefined
+        ? 'rejected'
+        : selectedZone !== undefined
+          ? 'zones'
+          : selectedObstacle !== undefined
+            ? obstacleGroup(selectedObstacle.properties.category)
+            : selectedPlanting === undefined
+              ? null
+              : selectedPlanting.properties.plant_type === 'tree'
+                ? 'trees'
+                : 'shrubs';
 
   const changeVisibility = (next: LayerVisibility) => {
     setVisibility(next);
@@ -383,6 +486,17 @@ export function ResultMap({
     if (selectedZone !== undefined && selectedZone.properties.plant_type !== next) onSelect(null);
   };
 
+  const summary =
+    selection?.kind === 'lawn'
+      ? lawnSummary(
+          prepared,
+          data.planting.features.map(({ geometry, properties }) => ({
+            point: frame.toLocal(geometry.coordinates),
+            plantType: properties.plant_type,
+          })),
+          data.zones.metadata.used_site_boundary,
+        )
+      : null;
   const [lon, lat] = selectedPlanting?.geometry.coordinates ?? [];
   const panel =
     selectedPlanting !== undefined ? (
@@ -390,6 +504,7 @@ export function ResultMap({
         ref={openedPanelRef}
         planting={selectedPlanting.properties}
         entry={selectedEntry}
+        species={selectedSpecies}
         coordinates={geographic && lon !== undefined && lat !== undefined ? { lat, lon } : null}
         checks={checks}
         uncovered={data.zones.metadata.uncovered_categories}
@@ -422,6 +537,37 @@ export function ResultMap({
           closePanel(true);
         }}
       />
+    ) : selectedRejected !== undefined && rejectedChecks !== null ? (
+      <RejectedPanel
+        ref={openedPanelRef}
+        site={selectedRejected.properties}
+        ruleName={
+          [...explanation.values()].find(
+            ({ rule_id: ruleId }) => ruleId === selectedRejected.properties.rule_id,
+          )?.rule_name_ru ?? null
+        }
+        checks={rejectedChecks}
+        onFocusCheck={(index) => {
+          setFocused(index === null ? null : { selection, index });
+        }}
+        onShowObstacle={({ index, properties }) => {
+          const group = obstacleGroup(properties.category);
+          focusPanelRef.current = true;
+          if (group !== null) setVisibility((previous) => ({ ...previous, [group]: true }));
+          onSelect({ kind: 'obstacle', index });
+        }}
+        onClose={() => {
+          closePanel(true);
+        }}
+      />
+    ) : selection?.kind === 'lawn' && summary !== null ? (
+      <LawnPanel
+        ref={openedPanelRef}
+        summary={summary}
+        onClose={() => {
+          closePanel(true);
+        }}
+      />
     ) : selectedObstacle !== undefined && obstacles !== null ? (
       <ObstaclePanel
         ref={openedPanelRef}
@@ -439,6 +585,7 @@ export function ResultMap({
       onPlantTypeChange={changePlantType}
       allowedArea={allowedArea(prepared, plantType)}
       obstacles={obstacles?.map ?? null}
+      rejectedCount={rejected?.features.length ?? null}
       lawnArea={lawnArea(prepared)}
       showSiteBoundary={
         data.zones.metadata.used_site_boundary &&
@@ -508,4 +655,21 @@ export function ResultMap({
       )}
     </>
   );
+}
+
+// Ближайшая к точке щелчка посадка живой изгороди, в координатах карты: долгота сжата
+// косинусом широты, чтобы градусы по осям весили одинаково.
+function nearestHedgePlanting(
+  planting: PlantingFeatureCollection,
+  [lon, lat]: [number, number],
+): string | null {
+  const scale = Math.cos((lat * Math.PI) / 180);
+  let best: { id: string; distance: number } | null = null;
+  for (const { geometry, properties } of planting.features) {
+    if (properties.rule_id !== HEDGE_RULE) continue;
+    const [x = lon, y = lat] = geometry.coordinates;
+    const distance = Math.hypot((x - lon) * scale, y - lat);
+    if (best === null || distance < best.distance) best = { id: properties.id, distance };
+  }
+  return best?.id ?? null;
 }
