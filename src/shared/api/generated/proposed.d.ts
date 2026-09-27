@@ -161,9 +161,10 @@ export interface paths {
         /**
          * Справочник норм
          * @description Новый эндпоинт. Записи `greenplan/norms/default.yaml` с сопоставленными пунктами
-         *     нормативных актов. Сопоставление пунктов для каждой нормы — в `contracts/norms-verified.md`
-         *     фронтенда (акт, пункт, таблица, строка, значения и URL первоисточника). Где пункт
-         *     подтвердить не удалось, `clause` — `null`: фронтенд не показывает пункт, которого нет.
+         *     нормативных актов — по записи на пару «объект + тип посадки». Сопоставление пунктов — в
+         *     `contracts/norms-verified.md` фронтенда (акт, пункт, таблица, строка, значения и URL
+         *     первоисточника). Где пункт для типа посадки подтвердить не удалось, `clause` — `null`:
+         *     фронтенд показывает норму без пункта.
          *
          *     Возможность: `norms`.
          */
@@ -468,7 +469,10 @@ export interface components {
             actual_m: number;
             /** @description Как `citation` в `/zones`, например «743-ПП — газопровод». */
             citation: string;
-            /** @description Ссылка на запись `/norms` (`Norm.id`). */
+            /**
+             * @description Ссылка на запись `/norms` (`Norm.id`) для типа этой посадки: у дерева —
+             *     `…-tree`, у кустарника — `…-shrub`.
+             */
             norm_id?: string;
         };
         ObstaclesFeatureCollection: {
@@ -531,15 +535,22 @@ export interface components {
                 failed_checks: components["schemas"]["ExplanationCheck"][];
             };
         };
+        /**
+         * @description Норма для пары «объект + тип посадки»: у дерева и кустарника разные значения, пункты и
+         *     подтверждённость. Одна строка `greenplan/norms/default.yaml` (`tree_m`, `shrub_m`) даёт
+         *     две записи.
+         */
         Norm: {
-            /** @description Постоянный идентификатор нормы, например `743-pp-gas`; на него ссылается `norm_id`. */
+            /**
+             * @description Постоянный идентификатор, например `743-pp-gas-tree`; на него ссылается `norm_id`
+             *     проверки посадки того же типа.
+             */
             id: string;
             obstacle_category: string;
             obstacle_subtype: string | null;
-            /** @description Отступ для деревьев, м. */
-            tree_m: number;
-            /** @description Отступ для кустарников, м. */
-            shrub_m: number;
+            plant_type: components["schemas"]["PlantType"];
+            /** @description Отступ для этого типа посадки, м (`tree_m` или `shrub_m` из `default.yaml`). */
+            distance_m: number;
             /** @description Строка как в `/zones`, например «743-ПП — газопровод». */
             citation: string;
             /**
@@ -548,11 +559,12 @@ export interface components {
              */
             act: string | null;
             /**
-             * @description Пункт, таблица или строка таблицы. `null`, пока номеров пунктов в источнике нет:
-             *     фронтенд не показывает пункт, которого нет.
+             * @description Пункт, таблица и строка таблицы для этого типа посадки. `null`, если значение сервиса
+             *     для этого типа первоисточником не подтверждено (например, в таблице у кустарника
+             *     прочерк): фронтенд показывает норму без пункта.
              */
             clause: string | null;
-            /** @description Текст нормы по-русски, например «газопровод». */
+            /** @description Текст нормы для этого типа посадки по-русски. */
             text: string;
             /** @description Адрес первоисточника (docs.cntd.ru, base.garant.ru); `null`, если не найден. */
             source_url: string | null;

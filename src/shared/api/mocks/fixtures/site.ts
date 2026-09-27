@@ -108,7 +108,8 @@ const projectPoint = (placement: Placement | null, point: Point): number[] =>
   placement === null ? [point[0], point[1]] : toLonLat(placement, point);
 
 type SiteObstacle = {
-  // Норма из norms.ts; null — у бэкенда нормы нет, отступ не строится.
+  // Норма из norms.ts без суффикса типа посадки; null — у бэкенда нормы нет, отступ
+  // не строится.
   normId: string | null;
   obstacle: { category: string; subtype: string | null };
   shape: Shape;
@@ -225,12 +226,17 @@ const OBSTACLES: SiteObstacle[] = [
   },
 ];
 
-type NormedObstacle = SiteObstacle & { norm: (typeof NORMS)[number] };
+type Norm = (typeof NORMS)[number];
+type NormedObstacle = SiteObstacle & { norms: Record<PlantType, Norm> };
 
-// Препятствия с нормой — от них строятся зоны и проверки.
+// Препятствия с нормой — от них строятся зоны и проверки. У нормы две записи: для дерева
+// и для кустарника (id с суффиксом типа посадки).
 const NORMED: NormedObstacle[] = OBSTACLES.flatMap((obstacle) => {
-  const norm = NORMS.find(({ id }) => id === obstacle.normId);
-  return norm === undefined ? [] : [{ ...obstacle, norm }];
+  const normOf = (plantType: PlantType) =>
+    NORMS.find(({ id }) => id === `${String(obstacle.normId)}-${plantType}`);
+  const tree = normOf('tree');
+  const shrub = normOf('shrub');
+  return tree === undefined || shrub === undefined ? [] : [{ ...obstacle, norms: { tree, shrub } }];
 });
 
 // Категории без нормы: как у бэкенда, отступ от них не строился
@@ -281,17 +287,15 @@ function distance(point: Point, shape: Shape): number {
 
 const round = (value: number, digits: number): number => Number(value.toFixed(digits));
 
-const setback = (norm: NormedObstacle['norm'], plantType: PlantType): number =>
-  plantType === 'tree' ? norm.tree_m : norm.shrub_m;
-
 type MeasuredCheck = { check: ExplanationCheck; violated: boolean };
 
 // Проверки посадки — по одной на каждое препятствие с нормой, как checks в контракте. Нарушение
 // решается по точному расстоянию, как у раскладки; округляется только выводимое actual_m.
 function checksAt(point: Point, plantType: PlantType): MeasuredCheck[] {
-  return NORMED.map(({ norm, obstacle, shape }) => {
+  return NORMED.map(({ norms, obstacle, shape }) => {
+    const norm = norms[plantType];
     const actual = distance(point, shape);
-    const required = setback(norm, plantType);
+    const required = norm.distance_m;
     return {
       check: {
         category: obstacle.category,
@@ -309,7 +313,7 @@ function checksAt(point: Point, plantType: PlantType): MeasuredCheck[] {
 // Раскладка бэкенда ставит посадку, только если её точка вне всех буферов
 // (../backend/greenplan/layout/engine.py:71,103).
 const violatesSetback = (point: Point, plantType: PlantType): boolean =>
-  NORMED.some(({ norm, shape }) => distance(point, shape) < setback(norm, plantType));
+  NORMED.some(({ norms, shape }) => distance(point, shape) < norms[plantType].distance_m);
 
 const insideRect = ([x, y]: Point, rect: Rect): boolean =>
   x >= rect.x1 && x <= rect.x2 && y >= rect.y1 && y <= rect.y2;
@@ -465,15 +469,16 @@ function buildZones(plantTypes: readonly PlantType[], project: Project): ZoneFea
       type: 'MultiPolygon',
       coordinates: subtract(
         LAWN,
-        NORMED.map(({ norm, shape }) => boundsOf(shape, setback(norm, plantType))),
+        NORMED.map(({ norms, shape }) => boundsOf(shape, norms[plantType].distance_m)),
       ).map((rect) => [closedRing(rectPoints(rect), project)]),
     },
     properties: { zone_type: 'allowed', plant_type: plantType },
   }));
 
   const prohibited: ZoneFeature[] = plantTypes.flatMap((plantType) =>
-    NORMED.flatMap(({ norm, obstacle, shape }) => {
-      const buffer = setback(norm, plantType);
+    NORMED.flatMap(({ norms, obstacle, shape }) => {
+      const norm = norms[plantType];
+      const buffer = norm.distance_m;
       // Как у бэкенда: буфер препятствия, обрезанный допустимой областью base_area
       // (zoning/engine.py:135); в моке она совпадает с газоном.
       const clipped = clipToRect(bufferOf(shape, buffer), LAWN);

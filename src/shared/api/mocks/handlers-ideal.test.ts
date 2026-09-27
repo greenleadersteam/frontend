@@ -33,17 +33,36 @@ beforeEach(() => {
 });
 
 describe('нормы и породы', () => {
-  test('/norms — у каждой нормы источник; пункт только там, где значение сервиса совпадает', async () => {
+  test('/norms — запись на пару «объект + тип посадки»; пункт — только подтверждённый для типа', async () => {
     const { body } = await call<Schemas['Norm'][]>('/norms');
 
     expect(new Set(body.map(({ id }) => id)).size).toBe(body.length);
+    expect(body.filter(({ plant_type }) => plant_type === 'tree')).toHaveLength(body.length / 2);
     expect(
       body
         .filter(({ clause }) => clause !== null)
         .map(({ id }) => id)
         .sort(),
-    ).toEqual(['743-pp-comm-cable', '743-pp-heat', '743-pp-power-cable', '743-pp-road-edge']);
-    for (const norm of body.filter(({ id }) => id !== '743-pp-other-utility')) {
+    ).toEqual([
+      '743-pp-comm-cable-shrub',
+      '743-pp-comm-cable-tree',
+      '743-pp-drainage-tree',
+      '743-pp-gas-tree',
+      '743-pp-heat-shrub',
+      '743-pp-heat-tree',
+      '743-pp-power-cable-shrub',
+      '743-pp-power-cable-tree',
+      '743-pp-road-edge-shrub',
+      '743-pp-road-edge-tree',
+      '743-pp-sewer-tree',
+      '743-pp-water-tree',
+    ]);
+    // В таблице у кустарника прочерк: значение сервиса показывается без пункта.
+    expect(body.find(({ id }) => id === '743-pp-gas-shrub')).toMatchObject({
+      distance_m: 1.5,
+      clause: null,
+    });
+    for (const norm of body.filter(({ act }) => act !== null)) {
       expect(norm.source_url).toBe(
         'https://base.garant.ru/378956/53f89421bbdaf741eb2d1ecc4ddb4c33/',
       );
@@ -90,13 +109,14 @@ describe('обоснование', () => {
     expect(first?.checks?.find(({ subtype }) => subtype === 'power_cable')).toMatchObject({
       required_m: 2,
       actual_m: 2.3,
-      norm_id: '743-pp-power-cable',
+      norm_id: '743-pp-power-cable-tree',
     });
     expect(first?.checks?.find(({ category }) => category === 'road_edge')?.actual_m).toBe(2.2);
     for (const entry of body) {
       for (const check of entry.checks ?? []) {
         expect(check.actual_m).toBeGreaterThanOrEqual(check.required_m);
-        expect(norms.some(({ id }) => id === check.norm_id)).toBe(true);
+        // Ссылка — на запись для типа этой посадки.
+        expect(norms.find(({ id }) => id === check.norm_id)?.plant_type).toBe(entry.plant_type);
       }
     }
   });
