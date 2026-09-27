@@ -1,5 +1,5 @@
 import { NumberInput, Stack, Text, Title } from '@mantine/core';
-import { type JSX, useState } from 'react';
+import { type JSX, type ReactNode, useState } from 'react';
 
 import { georeferenceActions } from '@/entities/georeference';
 import {
@@ -20,7 +20,7 @@ import { Readout } from './readout';
 
 type CommittedFieldProps = {
   label: string;
-  description: string;
+  description: string | undefined;
   value: number;
   // Поле принимает значение, только если это конечное число и commit его не отверг.
   valid: (value: number) => boolean;
@@ -31,6 +31,7 @@ type CommittedFieldProps = {
   // Знаков после запятой в поле, как в прототипе: поворот — 4, масштаб — 6.
   decimalScale: number;
   suffix?: string;
+  disabled: boolean;
 };
 
 // Число фиксируется по Enter и уходу из поля, а не на каждый символ: иначе «0,0» по дороге
@@ -46,6 +47,7 @@ function CommittedField({
   normalize = (value) => value,
   decimalScale,
   suffix,
+  disabled,
 }: CommittedFieldProps): JSX.Element {
   const [draft, setDraft] = useState<string | number>(value);
   const [invalid, setInvalid] = useState(false);
@@ -74,6 +76,7 @@ function CommittedField({
       decimalScale={decimalScale}
       hideControls
       suffix={suffix}
+      disabled={disabled}
       error={invalid ? error : undefined}
     />
   );
@@ -81,11 +84,20 @@ function CommittedField({
 
 type BindingPanelProps = {
   placement: Placement | null;
+  // С двух учтённых опорных точек положение задают они: поворот и масштаб вручную не меняются.
+  locked: boolean;
   // В выдвижном блоке заголовок — у самого блока.
   withTitle?: boolean;
+  // Опорные точки, сравнение с эталонами и выгрузка — под параметрами привязки.
+  children?: ReactNode;
 };
 
-export function BindingPanel({ placement, withTitle = true }: BindingPanelProps): JSX.Element {
+export function BindingPanel({
+  placement,
+  locked,
+  withTitle = true,
+  children,
+}: BindingPanelProps): JSX.Element {
   const title = withTitle && (
     <Title order={2} size="h3">
       Привязка
@@ -101,6 +113,7 @@ export function BindingPanel({ placement, withTitle = true }: BindingPanelProps)
           Загрузите контур, перетащите его мышью на место и поверните за круглую ручку. Параметры
           привязки появятся здесь.
         </Text>
+        {children}
       </Stack>
     );
   }
@@ -125,12 +138,17 @@ export function BindingPanel({ placement, withTitle = true }: BindingPanelProps)
       <CommittedField
         key={`rotation-${String(rotation)}`}
         label="Поворот против часовой"
-        description="Q и E — на 0,5°, с Shift — на 5°. Ручка на карте вращает свободно, с Shift — шагом 15°."
+        description={
+          locked
+            ? undefined
+            : 'Q и E — на 0,5°, с Shift — на 5°. Ручка на карте вращает свободно, с Shift — шагом 15°.'
+        }
         value={rotation}
         valid={() => true}
         error="Введите угол в градусах"
         suffix="°"
         decimalScale={4}
+        disabled={locked}
         normalize={normalizeAngle}
         onCommit={(value) => dispatch(georeferenceActions.contourRotated({ rotation: value }))}
       />
@@ -141,6 +159,7 @@ export function BindingPanel({ placement, withTitle = true }: BindingPanelProps)
         value={scale}
         valid={(value) => value > 0}
         decimalScale={6}
+        disabled={locked}
         error="Введите положительное число: 1 для метров, 0,001 для миллиметров"
         onCommit={(value) => dispatch(georeferenceActions.contourScaled({ scale: value }))}
       />
@@ -154,13 +173,16 @@ export function BindingPanel({ placement, withTitle = true }: BindingPanelProps)
         Погрешность модели — насколько касательная плоскость отходит от эллипсоида на краю участка,
         r³/(3R²). Ошибка ручного совмещения по подложке на порядки больше.
       </Text>
+      {/* Стрелки молчат, пока положение задают опорные точки; отмена работает всегда. */}
       <Text size="xs" c="dimmed">
-        Стрелки сдвигают контур на 1 м, с Shift — на 10 м. Ctrl+Z отменяет, Ctrl+Shift+Z и Ctrl+Y
-        возвращают.
+        {locked
+          ? 'Ctrl+Z отменяет, Ctrl+Shift+Z и Ctrl+Y возвращают.'
+          : 'Стрелки сдвигают контур на 1 м, с Shift — на 10 м. Ctrl+Z отменяет, Ctrl+Shift+Z и Ctrl+Y возвращают.'}
       </Text>
       <Text size="xs" c="dimmed">
         Точность ручного совмещения зависит от подложки. Оценки прототипа получены по космоснимку.
       </Text>
+      {children}
     </Stack>
   );
 }

@@ -196,7 +196,8 @@ export function MapView({
           {note}
         </Text>
       ) : (
-        basemap === 'missing' && (
+        basemap === 'missing' &&
+        basemapKind === 'scheme' && (
           <Text size="xs" className={classes.note}>
             Подложка не загружена
           </Text>

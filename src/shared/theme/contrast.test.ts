@@ -132,6 +132,18 @@ describe('контур геопривязки', () => {
     expect(Math.sqrt(contrast(contour, contourHalo))).toBeGreaterThanOrEqual(3);
   });
 
+  const pairs: [string, string, string][] = [
+    ['опорные точки и векторы', georeferenceColors.control, georeferenceColors.controlHalo],
+    ...georeferenceColors.references.map((color, index): [string, string, string] => [
+      `эталон ${String(index + 1)}`,
+      color,
+      georeferenceColors.referenceHalo,
+    ]),
+  ];
+  test.each(pairs)('%s — та же пара: на любом фоне не меньше 3:1', (_name, line, halo) => {
+    expect(Math.sqrt(contrast(line, halo))).toBeGreaterThanOrEqual(3);
+  });
+
   test.each([
     ['«Земля» схемы', basemapColors.earth],
     ['дороги схемы', basemapColors.roads],

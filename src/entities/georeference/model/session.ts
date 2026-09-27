@@ -38,7 +38,11 @@ type Snapshot = {
   unitsConfirmed: boolean;
 };
 
-export type StoredReference = Reference & { id: string };
+// Видимость эталона на карте — его собственное поле, как в прототипе: скрытый эталон остаётся
+// в списке и в сравнении.
+// Номер добавления seq не меняется при удалении соседей: по нему эталон держит свой оттенок
+// на карте и в списке.
+export type StoredReference = Reference & { id: string; seq: number; visible: boolean };
 
 export type Session = Snapshot & {
   // Знаменатель масштаба работ для допуска.
@@ -257,7 +261,12 @@ export function restoreManual(s: Session): Session {
 
 export function addReference(s: Session, reference: Reference): Session {
   const referenceSeq = s.referenceSeq + 1;
-  const stored: StoredReference = { ...reference, id: `ref-${String(referenceSeq)}` };
+  const stored: StoredReference = {
+    ...reference,
+    id: `ref-${String(referenceSeq)}`,
+    seq: referenceSeq,
+    visible: true,
+  };
   return { ...s, references: [...s.references, stored], referenceSeq };
 }
 
@@ -267,6 +276,11 @@ export const removeReference = (s: Session, id: string): Session => ({
 });
 
 export const clearReferences = (s: Session): Session => ({ ...s, references: [] });
+
+export const setReferenceVisible = (s: Session, id: string, visible: boolean): Session => ({
+  ...s,
+  references: s.references.map((r) => (r.id === id ? { ...r, visible } : r)),
+});
 
 // Совпадает ли эталон с уже загруженным: опорная точка, поворот и масштаб. Выгрузка одной
 // привязки даёт JSON и geojson, которые в списке выглядят одинаково — дубль ловится по числам.

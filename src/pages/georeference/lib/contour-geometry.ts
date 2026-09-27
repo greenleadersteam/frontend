@@ -74,15 +74,19 @@ export function contourFeature(
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-export function verticesFeature(placement: Placement): FeatureCollection<Point> {
+// Вершина на карте несёт свои координаты в файле: по ним первая точка опорной пары
+// притягивается к вершине через queryRenderedFeatures.
+export type VertexProperties = { x: number; y: number };
+
+export function verticesFeature(placement: Placement): FeatureCollection<Point, VertexProperties> {
   const { vertices } = placement.source;
   if (vertices.length > MAX_DRAWN_VERTICES) return { type: 'FeatureCollection', features: [] };
   const frame = frameOf(placement);
   return {
     type: 'FeatureCollection',
-    features: vertices.map((vertex): Feature<Point> => ({
+    features: vertices.map((vertex): Feature<Point, VertexProperties> => ({
       type: 'Feature',
-      properties: {},
+      properties: { x: vertex.x, y: vertex.y },
       geometry: { type: 'Point', coordinates: lonLat(vertexLatLon(vertex, placement, frame)) },
     })),
   };

@@ -16,7 +16,7 @@ import {
 import type { ExportData, ExportResult, GeoreferenceState } from './export';
 import {
   buildExport,
-  fileName,
+  exportFileName,
   roundTo,
   roundTrip as checkRoundTrip,
   roundTripCloses,
@@ -295,10 +295,12 @@ check('geojson: координаты идут как долгота, широт�
   ).toBe(0);
 });
 
-check('Имя файла: исходное имя, дата и время', () => {
-  expect(fileName(sampleContour().name, '_каталог', 'csv', DATE)).toBe(
-    'Участок-образец_привязка_2026-09-23_1405_каталог.csv',
-  );
+// Ожидание изменено в Г3: в прототипе «Участок-образец_привязка_2026-09-23_1405_каталог.csv».
+// Имя — от имени контура, как у файлов проекта; время выгрузки — внутри файла.
+check('Имя файла: от имени контура, без его расширения', () => {
+  expect(exportFileName(sampleContour().name, 'csv')).toBe('Участок-образец — привязка.csv');
+  expect(exportFileName('a/b:c.geojson', 'json')).toBe('a_b_c — привязка.json');
+  expect(exportFileName('.geojson', 'geojson')).toBe('контур — привязка.geojson');
 });
 
 // В прототипе замыкание круга было только проверкой; здесь без него выгрузки нет.

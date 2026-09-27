@@ -32,6 +32,7 @@ import {
   CONTOUR_LAYERS,
   CONTOUR_SOURCE,
   GRAB_LAYERS,
+  LEVER_LAYERS,
 } from './contour-layers';
 import classes from './georeference-page.module.css';
 
@@ -56,6 +57,10 @@ type ContourMapOptions = {
   placement: Placement | null;
   fillOpacity: number;
   contourVisible: boolean;
+  // Контур двигают мышью и ручкой: не в режиме расстановки опорных точек (там щелчки ставят
+  // пары, а ручка перехватывала бы их) и не после двух учтённых пар (положение задают они).
+  // Когда двигать нельзя, ручки и рычага нет.
+  movable: boolean;
   // Число у курсора во время поворота.
   readout: RefObject<HTMLDivElement | null>;
 };
@@ -90,15 +95,16 @@ export function useContourMap({
   placement,
   fillOpacity,
   contourVisible,
+  movable,
   readout,
 }: ContourMapOptions): { fit: (target?: Placement) => void } {
   const dispatch = useAppDispatch();
   const live = useRef<Live>({ placement: null, gesture: null, frame: null });
   const marker = useRef<Marker | null>(null);
   // Параметры для обработчиков, созданных один раз на карту.
-  const latest = useRef({ fillOpacity, readout });
+  const latest = useRef({ fillOpacity, readout, movable });
   useLayoutEffect(() => {
-    latest.current = { fillOpacity, readout };
+    latest.current = { fillOpacity, readout, movable };
   });
 
   useEffect(() => {
@@ -181,7 +187,7 @@ export function useContourMap({
     };
     const begin = (event: MapMouseEvent | MapTouchEvent) => {
       const current = state.placement;
-      if (current === null || state.gesture !== null) return;
+      if (current === null || state.gesture !== null || !latest.current.movable) return;
       if ('points' in event && event.points.length > 1) return;
       if ('button' in event.originalEvent && event.originalEvent.button !== 0) return;
       // Нажатие на ручку — поворот: маркер MapLibre начинает его с того же mousedown карты,
@@ -236,7 +242,7 @@ export function useContourMap({
       if (state.gesture?.kind === 'rotate') map.fire(new MapMouseEvent('mouseup', map, event));
     };
     const rotateStart = () => {
-      if (state.placement === null || state.gesture !== null) return;
+      if (state.placement === null || state.gesture !== null || !latest.current.movable) return;
       state.gesture = { kind: 'rotate', start: state.placement.rotation, shift: false };
       window.addEventListener('keydown', trackShift);
       window.addEventListener('keyup', trackShift);
@@ -293,12 +299,13 @@ export function useContourMap({
   useEffect(() => {
     if (map === null) return;
     for (const id of CONTOUR_LAYERS) {
-      map.setLayoutProperty(id, 'visibility', contourVisible ? 'visible' : 'none');
+      const shown = contourVisible && (movable || !LEVER_LAYERS.includes(id));
+      map.setLayoutProperty(id, 'visibility', shown ? 'visible' : 'none');
     }
-    marker.current?.getElement().toggleAttribute('hidden', !contourVisible);
+    marker.current?.getElement().toggleAttribute('hidden', !contourVisible || !movable);
     // Контур тянут пальцем: жест не должен прокручивать страницу.
     map.getCanvasContainer().style.touchAction = placement === null ? '' : 'none';
-  }, [map, contourVisible, placement]);
+  }, [map, contourVisible, movable, placement]);
 
   return {
     // Без аргумента — текущее положение; только что загруженный контур передаётся явно: в Redux

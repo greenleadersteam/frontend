@@ -2,28 +2,39 @@ import { createAction, type UnknownAction } from '@reduxjs/toolkit';
 
 import type { Contour, Reference } from '@/shared/lib/contour';
 import type { LatLon } from '@/shared/lib/geodesy';
+import { isLocked, type WorkScale } from '@/shared/lib/georeference';
 
 import {
+  addGcp,
   addReference,
+  applyGcp,
+  clearReferences,
   createSession,
   findSameReference,
   loadContour,
   moveBy,
+  type NewGcpPair,
   redo,
+  removeGcp,
+  removeReference,
+  restoreManual,
   rotateBy,
   type Session,
   setAnchor,
+  setReferenceVisible,
   setRotation,
   setScale,
   snapshot,
   undo,
+  updateGcp,
   updateSession,
 } from './session';
 
 export const GEOREFERENCE_SLICE = 'georeference';
 
-// Действия — завершённые операции: одно на жест, клавишу или правку поля, и каждое, кроме
-// эталона, — шаг истории отмены (снимок перед изменением, как в прототипе).
+// Действия — завершённые операции: одно на жест, клавишу или правку поля. Шаг истории отмены
+// (снимок перед изменением, как в прототипе) — у всех, кроме эталонов и масштаба работ: это не
+// привязка, а то, с чем её сравнивают и чем меряют.
 export const georeferenceActions = {
   contourLoaded: createAction<{ contour: Contour; anchor: LatLon }>(
     `${GEOREFERENCE_SLICE}/contourLoaded`,
@@ -38,6 +49,22 @@ export const georeferenceActions = {
   // миллиметры не показывается.
   contourScaled: createAction<{ scale: number }>(`${GEOREFERENCE_SLICE}/contourScaled`),
   referenceAdded: createAction<{ reference: Reference }>(`${GEOREFERENCE_SLICE}/referenceAdded`),
+  referenceVisibilityChanged: createAction<{ id: string; visible: boolean }>(
+    `${GEOREFERENCE_SLICE}/referenceVisibilityChanged`,
+  ),
+  referenceRemoved: createAction<{ id: string }>(`${GEOREFERENCE_SLICE}/referenceRemoved`),
+  referencesCleared: createAction(`${GEOREFERENCE_SLICE}/referencesCleared`),
+  // Опорные точки: каждая правка набора сразу пересчитывает положение, и отмена откатывает
+  // правку вместе с пересчётом.
+  gcpAdded: createAction<{ pair: NewGcpPair }>(`${GEOREFERENCE_SLICE}/gcpAdded`),
+  gcpChanged: createAction<{ id: string; enabled?: boolean; control?: boolean }>(
+    `${GEOREFERENCE_SLICE}/gcpChanged`,
+  ),
+  gcpRemoved: createAction<{ id: string }>(`${GEOREFERENCE_SLICE}/gcpRemoved`),
+  manualRestored: createAction(`${GEOREFERENCE_SLICE}/manualRestored`),
+  workScaleChanged: createAction<{ workScale: WorkScale }>(
+    `${GEOREFERENCE_SLICE}/workScaleChanged`,
+  ),
   undone: createAction(`${GEOREFERENCE_SLICE}/undone`),
   redone: createAction(`${GEOREFERENCE_SLICE}/redone`),
 };
@@ -54,24 +81,48 @@ export function georeferenceReducer(
   if (actions.contourLoaded.match(action)) {
     return loadContour(state, action.payload.contour, action.payload.anchor);
   }
-  if (actions.contourMoved.match(action)) return setAnchor(snapshot(state), action.payload.anchor);
+  // С двух учтённых пар положение задают точки: ручные сдвиг, поворот и масштаб спорили бы
+  // с решением.
+  const locked = isLocked(state.gcp);
+  if (actions.contourMoved.match(action)) {
+    return locked ? state : setAnchor(snapshot(state), action.payload.anchor);
+  }
   if (actions.contourShifted.match(action)) {
-    return moveBy(snapshot(state), action.payload.east, action.payload.north);
+    return locked ? state : moveBy(snapshot(state), action.payload.east, action.payload.north);
   }
   if (actions.contourRotated.match(action)) {
-    return setRotation(snapshot(state), action.payload.rotation);
+    return locked ? state : setRotation(snapshot(state), action.payload.rotation);
   }
   if (actions.contourTurned.match(action)) {
-    return rotateBy(snapshot(state), action.payload.degrees);
+    return locked ? state : rotateBy(snapshot(state), action.payload.degrees);
   }
   if (actions.contourScaled.match(action)) {
     const { scale } = action.payload;
-    if (!Number.isFinite(scale) || scale <= 0) return state;
+    if (locked || !Number.isFinite(scale) || scale <= 0) return state;
     return updateSession(setScale(snapshot(state), scale), { unitsConfirmed: true });
   }
   if (actions.referenceAdded.match(action)) {
     const { reference } = action.payload;
     return findSameReference(state, reference) === null ? addReference(state, reference) : state;
+  }
+  if (actions.referenceVisibilityChanged.match(action)) {
+    return setReferenceVisible(state, action.payload.id, action.payload.visible);
+  }
+  if (actions.referenceRemoved.match(action)) return removeReference(state, action.payload.id);
+  if (actions.referencesCleared.match(action)) return clearReferences(state);
+  if (actions.gcpAdded.match(action)) {
+    return state.source === null ? state : applyGcp(addGcp(snapshot(state), action.payload.pair));
+  }
+  if (actions.gcpChanged.match(action)) {
+    const { id, ...patch } = action.payload;
+    return applyGcp(updateGcp(snapshot(state), id, patch));
+  }
+  if (actions.gcpRemoved.match(action)) {
+    return applyGcp(removeGcp(snapshot(state), action.payload.id));
+  }
+  if (actions.manualRestored.match(action)) return restoreManual(state);
+  if (actions.workScaleChanged.match(action)) {
+    return updateSession(state, { workScale: action.payload.workScale });
   }
   if (actions.undone.match(action)) return undo(state);
   if (actions.redone.match(action)) return redo(state);

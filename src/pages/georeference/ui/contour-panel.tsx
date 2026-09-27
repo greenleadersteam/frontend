@@ -1,6 +1,17 @@
-import { Alert, Button, Group, Select, Slider, Stack, Switch, Text, Title } from '@mantine/core';
+import {
+  ActionIcon,
+  Alert,
+  Button,
+  Group,
+  Select,
+  Slider,
+  Stack,
+  Switch,
+  Text,
+  Title,
+} from '@mantine/core';
 import { Dropzone } from '@mantine/dropzone';
-import { IconFileUpload, IconFocusCentered } from '@tabler/icons-react';
+import { IconFileUpload, IconFocusCentered, IconTrash } from '@tabler/icons-react';
 import type { JSX } from 'react';
 
 import { georeferenceActions, type Session } from '@/entities/georeference';
@@ -12,6 +23,7 @@ import { Icon } from '@/shared/ui';
 import { MAX_DRAWN_VERTICES } from '../lib/contour-geometry';
 import classes from './georeference-page.module.css';
 import { Readout } from './readout';
+import { ReferenceSymbol } from './reference-symbol';
 
 // GeoJSON приходит и как application/geo+json, и как application/json, и без типа вовсе:
 // принимаются расширения.
@@ -36,6 +48,8 @@ type ContourPanelProps = {
   onFit: () => void;
   // Карта ещё не готова или недоступна: контур некуда поставить.
   disabled: boolean;
+  // С двух учтённых опорных точек масштаб задают они: единицы вручную не меняются.
+  locked: boolean;
   // В выдвижном блоке заголовок — у самого блока.
   withTitle?: boolean;
 };
@@ -50,13 +64,16 @@ export function ContourPanel({
   onExample,
   onFit,
   disabled,
+  locked,
   withTitle = true,
 }: ContourPanelProps): JSX.Element {
   const dispatch = useAppDispatch();
   const { source, scale } = session;
   // Подсказка про миллиметры — вопрос, пока пользователь сам не выбирал единицы.
   const hint =
-    source !== null && !session.unitsConfirmed && scale === 1 ? millimetreHint(source) : null;
+    source !== null && !session.unitsConfirmed && scale === 1 && !locked
+      ? millimetreHint(source)
+      : null;
 
   return (
     <Stack gap="lg">
@@ -134,6 +151,7 @@ export function ContourPanel({
             </Alert>
           )}
           <Select
+            disabled={locked}
             label="Единицы файла"
             data={UNITS.map((unit) => ({ value: unit.id, label: unit.title }))}
             value={unitOf(scale)}
@@ -199,10 +217,49 @@ export function ContourPanel({
             Эталоны
           </Title>
           {session.references.map((reference) => (
-            <Text key={reference.id} size="sm">
-              {`${reference.name}, вершин: ${formatDecimal(reference.counts.vertices)}`}
-            </Text>
+            <Group key={reference.id} justify="space-between" wrap="nowrap" gap="xs">
+              <Switch
+                classNames={{
+                  root: classes.referenceSwitch,
+                  body: classes.referenceLabel,
+                  labelWrapper: classes.referenceLabel,
+                  label: classes.fileName,
+                }}
+                title={reference.name}
+                label={
+                  <>
+                    <ReferenceSymbol reference={reference} />
+                    {reference.name}
+                  </>
+                }
+                description={`Вершин: ${formatDecimal(reference.counts.vertices)}`}
+                checked={reference.visible}
+                onChange={(event) =>
+                  dispatch(
+                    georeferenceActions.referenceVisibilityChanged({
+                      id: reference.id,
+                      visible: event.currentTarget.checked,
+                    }),
+                  )
+                }
+              />
+              <ActionIcon
+                variant="subtle"
+                aria-label={`Удалить эталон «${reference.name}»`}
+                onClick={() => dispatch(georeferenceActions.referenceRemoved({ id: reference.id }))}
+              >
+                <Icon icon={IconTrash} />
+              </ActionIcon>
+            </Group>
           ))}
+          {session.references.length > 1 && (
+            <Button
+              variant="subtle"
+              onClick={() => dispatch(georeferenceActions.referencesCleared())}
+            >
+              Удалить все эталоны
+            </Button>
+          )}
         </Stack>
       )}
     </Stack>

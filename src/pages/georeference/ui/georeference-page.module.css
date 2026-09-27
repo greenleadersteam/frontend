@@ -156,3 +156,80 @@
   font-size: var(--mantine-font-size-lg);
   font-weight: 600;
 }
+
+/* Таблица невязок — панель под картой над строкой состояния; прокручивается сама. Высота
+   постоянная: росла бы с каждой парой — карта сжималась бы, и контур уезжал бы из-под курсора
+   между двумя щелчками пары. */
+.residualsPanel {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  height: 14rem;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-radius: var(--mantine-radius-lg);
+  background-color: var(--app-surface);
+  box-shadow: var(--mantine-shadow-sm);
+
+  &[data-collapsed] {
+    height: auto;
+  }
+}
+
+.residualsBody {
+  overflow: auto;
+}
+
+.residuals {
+  font-size: var(--mantine-font-size-sm);
+  font-variant-numeric: tabular-nums;
+
+  & th,
+  & td {
+    white-space: nowrap;
+  }
+}
+
+.residualRow {
+  /* Точка, наведённая на карте или в таблице, — рамкой: фон занят выбросом. */
+  &[data-hot] {
+    outline: 2px solid var(--app-accent);
+    outline-offset: -2px;
+  }
+
+  /* Выброс — фон clay.1; текст с пояснением — в ячейке номера и в подсказке. */
+  &[data-outlier] {
+    background-color: var(--mantine-color-clay-1);
+  }
+
+  &[data-off] td {
+    color: var(--app-text-muted);
+  }
+}
+
+.residualDs {
+  font-weight: 600;
+}
+
+.outlierHint {
+  max-width: var(--app-binding-panel-width);
+}
+
+/* Длинное имя эталона обрезается многоточием, а не выталкивает кнопку удаления. */
+.referenceSwitch {
+  flex: 1;
+  min-width: 0;
+}
+
+.referenceLabel {
+  min-width: 0;
+}
+
+.referenceSymbol {
+  display: inline-block;
+  flex: none;
+  width: var(--mantine-spacing-lg);
+  margin-inline-end: var(--mantine-spacing-xs);
+  border-top: 2px dashed;
+  vertical-align: middle;
+}

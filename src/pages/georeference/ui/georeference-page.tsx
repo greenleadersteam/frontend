@@ -10,14 +10,20 @@ import {
   VisuallyHidden,
 } from '@mantine/core';
 import { Dropzone } from '@mantine/dropzone';
-import { useMediaQuery } from '@mantine/hooks';
+import { useMediaQuery, useWindowEvent } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconArrowBackUp, IconArrowForwardUp } from '@tabler/icons-react';
+import {
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconChevronDown,
+  IconChevronUp,
+} from '@tabler/icons-react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { type JSX, useEffect, useRef, useState } from 'react';
 
 import { georeferenceActions, placementOf, selectGeoreference } from '@/entities/georeference';
 import { getRuntimeConfig, PRODUCT_NAME } from '@/shared/config';
+import { isLocked, isOutlier, stats as gcpStats } from '@/shared/lib/georeference';
 import { useAppDispatch, useAppSelector } from '@/shared/lib/store';
 import {
   type BasemapKind,
@@ -30,12 +36,17 @@ import { PANELS_BREAKPOINT } from '@/shared/theme';
 import { Icon } from '@/shared/ui';
 
 import { BindingPanel } from './binding-panel';
+import { CompareSection } from './compare-section';
 import { DEFAULT_FILL_OPACITY } from './contour-layers';
 import { ContourPanel, GEOJSON_ACCEPT } from './contour-panel';
+import { ExportMenu } from './export-menu';
+import { GcpSection, type VectorScale } from './gcp-section';
 import classes from './georeference-page.module.css';
+import { ResidualsTable } from './residuals-table';
 import { StatusBar } from './status-bar';
 import { useContourFiles } from './use-contour-files';
 import { useContourMap } from './use-contour-map';
+import { type PendingPoint, useGcpMap } from './use-gcp-map';
 import { useGeoreferenceKeys } from './use-georeference-keys';
 
 // Начальный вид — центр Москвы: контур встаёт в центр карты, и его двигают к месту.
@@ -61,11 +72,46 @@ export function GeoreferencePage(): JSX.Element {
   const [contourVisible, setContourVisible] = useState(true);
   const [drawer, setDrawer] = useState<Drawer>(null);
   const readout = useRef<HTMLDivElement>(null);
+  // Режим расстановки опорных точек и первая точка незаконченной пары — состояние экрана.
+  const [gcpActive, setGcpActive] = useState(false);
+  const [pending, setPending] = useState<PendingPoint | null>(null);
+  const [hot, setHot] = useState<string | null>(null);
+  // Множитель векторов невязок; ×50, как в прототипе.
+  const [vectorScale, setVectorScale] = useState<VectorScale>(50);
+  const [residualsOpen, setResidualsOpen] = useState(true);
+
+  const locked = isLocked(session.gcp);
+  const statistics =
+    placement === null ? null : gcpStats(placement, session.gcp, session.workScale);
+  const outliers = new Set(
+    statistics?.rows.filter((row) => isOutlier(row, statistics)).map((row) => row.pair.id),
+  );
   const narrow = useMediaQuery(`(max-width: ${PANELS_BREAKPOINT})`, false, {
     getInitialValueInEffect: false,
   });
 
-  const { fit } = useContourMap({ map, placement, fillOpacity, contourVisible, readout });
+  const { fit } = useContourMap({
+    map,
+    placement,
+    fillOpacity,
+    contourVisible,
+    movable: !gcpActive && !locked,
+    readout,
+  });
+  useGcpMap({
+    map,
+    placement,
+    gcp: session.gcp,
+    rows: statistics?.rows ?? [],
+    outliers,
+    references: session.references,
+    vectorScale,
+    active: gcpActive && placement !== null,
+    pending,
+    onPending: setPending,
+    hot,
+    onHot: setHot,
+  });
   const files = useContourFiles({
     anchor: () => {
       if (map === null) return null;
@@ -74,13 +120,22 @@ export function GeoreferencePage(): JSX.Element {
     },
     onLoaded: (loaded) => {
       setDrawer(null);
+      // Первая точка пары относилась к прежнему контуру.
+      setPending(null);
       fit(loaded);
     },
   });
   useGeoreferenceKeys({
     map,
     enabled: files.pendingReference === null && !(narrow && drawer !== null),
-    contourLoaded: placement !== null,
+    contourLoaded: placement !== null && !locked,
+  });
+
+  // Esc сначала отменяет незаконченную пару, потом выходит из режима (прототип, gcp.js:41-45).
+  useWindowEvent('keydown', (event) => {
+    if (event.key !== 'Escape' || !gcpActive || files.pendingReference !== null) return;
+    if (pending !== null) setPending(null);
+    else setGcpActive(false);
   });
 
   // Подложка не отвечает — сообщение с названием источника: ни одного тайла за три секунды.
@@ -107,13 +162,35 @@ export function GeoreferencePage(): JSX.Element {
       onFiles={(dropped) => void files.open(dropped)}
       onExample={() => void files.openExample()}
       disabled={!canOpen}
+      locked={locked}
       withTitle={!narrow}
       onFit={() => {
         fit();
       }}
     />
   );
-  const bindingPanel = <BindingPanel placement={placement} withTitle={!narrow} />;
+  const bindingPanel = (
+    <BindingPanel placement={placement} locked={locked} withTitle={!narrow}>
+      {placement !== null && (
+        <GcpSection
+          stats={statistics}
+          workScale={session.workScale}
+          handoff={session.handoff}
+          locked={locked}
+          active={gcpActive}
+          pending={pending !== null}
+          onToggle={() => {
+            setGcpActive(!gcpActive);
+            setPending(null);
+          }}
+          vectorScale={vectorScale}
+          onVectorScale={setVectorScale}
+        />
+      )}
+      <CompareSection placement={placement} references={session.references} />
+      <ExportMenu placement={placement} gcp={session.gcp} workScale={session.workScale} />
+    </BindingPanel>
+  );
 
   return (
     <div className={classes.page}>
@@ -231,6 +308,42 @@ export function GeoreferencePage(): JSX.Element {
             )}
           </MapView>
         </div>
+
+        {statistics !== null && (session.gcp.length > 0 || gcpActive) && (
+          <section
+            className={classes.residualsPanel}
+            data-collapsed={!residualsOpen || undefined}
+            aria-labelledby="residuals-title"
+          >
+            <Group justify="space-between">
+              <Text id="residuals-title" fw={600} size="sm">
+                {`Невязки опорных точек: ${String(session.gcp.length)}`}
+              </Text>
+              <ActionIcon
+                variant="subtle"
+                aria-expanded={residualsOpen}
+                aria-controls="residuals-body"
+                aria-label={
+                  residualsOpen ? 'Свернуть таблицу невязок' : 'Развернуть таблицу невязок'
+                }
+                onClick={() => {
+                  setResidualsOpen(!residualsOpen);
+                }}
+              >
+                <Icon icon={residualsOpen ? IconChevronDown : IconChevronUp} />
+              </ActionIcon>
+            </Group>
+            <div id="residuals-body" className={classes.residualsBody} hidden={!residualsOpen}>
+              {session.gcp.length === 0 ? (
+                <Text size="sm" c="dimmed">
+                  Пар пока нет: щёлкните по контуру, затем по месту на карте.
+                </Text>
+              ) : (
+                <ResidualsTable stats={statistics} hot={hot} onHot={setHot} />
+              )}
+            </div>
+          </section>
+        )}
 
         <StatusBar map={map} />
       </div>

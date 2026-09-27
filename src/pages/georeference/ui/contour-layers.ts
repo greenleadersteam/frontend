@@ -11,6 +11,9 @@ export const CONTOUR_SOURCE = {
 } as const;
 
 export const CONTOUR_LAYER = {
+  vertices: 'georeference-vertices',
+  leverHalo: 'georeference-lever-halo',
+  lever: 'georeference-lever',
   fill: 'georeference-contour-fill',
   halo: 'georeference-contour-halo',
   line: 'georeference-contour-line',
@@ -49,19 +52,19 @@ const layers = (fillOpacity: number): LayerSpecification[] => [
     paint: { 'line-color': colors.contour, 'line-width': 2 },
   },
   {
-    id: 'georeference-lever-halo',
+    id: CONTOUR_LAYER.leverHalo,
     type: 'line',
     source: CONTOUR_SOURCE.lever,
     paint: { 'line-color': colors.leverHalo, 'line-width': 4 },
   },
   {
-    id: 'georeference-lever',
+    id: CONTOUR_LAYER.lever,
     type: 'line',
     source: CONTOUR_SOURCE.lever,
     paint: { 'line-color': colors.lever, 'line-width': 1.5, 'line-dasharray': [3, 2] },
   },
   {
-    id: 'georeference-vertices',
+    id: CONTOUR_LAYER.vertices,
     type: 'circle',
     source: CONTOUR_SOURCE.vertices,
     paint: {
@@ -90,6 +93,9 @@ const layers = (fillOpacity: number): LayerSpecification[] => [
     paint: { 'circle-radius': 2.5, 'circle-color': colors.anchor },
   },
 ];
+
+// Рычаг ручки поворота: его прячут вместе с ручкой.
+export const LEVER_LAYERS: readonly string[] = [CONTOUR_LAYER.leverHalo, CONTOUR_LAYER.lever];
 
 // Слои, которые скрывает переключатель «Контур» в панели «Слои».
 export const CONTOUR_LAYERS = layers(0).map(({ id }) => id);

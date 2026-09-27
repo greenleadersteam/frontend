@@ -1,5 +1,5 @@
 import type { UnknownAction } from '@reduxjs/toolkit';
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type * as MapLibre from 'maplibre-gl';
 import { type ReactNode, useEffect } from 'react';
@@ -31,24 +31,34 @@ function createFakeMap() {
     emit: (type: string, event: Record<string, unknown>) => {
       for (const handler of handlers.get(type) ?? []) handler(event);
     },
-    on: vi.fn((type: string, handler: Handler) => {
-      handlers.set(type, (handlers.get(type) ?? new Set()).add(handler));
+    // Подписка на событие или на событие слоя: ключ «событие» или «событие:слой».
+    on: vi.fn((type: string, layerOrHandler: string | Handler, handler?: Handler) => {
+      const key = typeof layerOrHandler === 'string' ? `${type}:${layerOrHandler}` : type;
+      const callback = typeof layerOrHandler === 'string' ? handler : layerOrHandler;
+      if (callback !== undefined) handlers.set(key, (handlers.get(key) ?? new Set()).add(callback));
     }),
-    off: vi.fn((type: string, handler: Handler) => handlers.get(type)?.delete(handler)),
+    off: vi.fn((type: string, layerOrHandler: string | Handler, handler?: Handler) => {
+      const key = typeof layerOrHandler === 'string' ? `${type}:${layerOrHandler}` : type;
+      const callback = typeof layerOrHandler === 'string' ? handler : layerOrHandler;
+      if (callback !== undefined) handlers.get(key)?.delete(callback);
+    }),
     fire: vi.fn(),
     addSource: vi.fn(),
     addLayer: vi.fn(),
     getSource: () => ({ setData }),
     setPaintProperty: vi.fn(),
     setLayoutProperty: vi.fn(),
+    setFilter: vi.fn(),
     // Попадание в контур задаёт тест.
-    queryRenderedFeatures: vi.fn((): unknown[] => [{}]),
+    queryRenderedFeatures: vi.fn<(box: unknown, options?: { layers: string[] }) => unknown[]>(
+      () => [{ properties: {} }],
+    ),
     dragPan: { enable: vi.fn(), disable: vi.fn() },
     keyboard: { enable: vi.fn(), disable: vi.fn() },
     getCanvas: () => canvas,
     getCanvasContainer: () => container,
     getCenter: () => CENTER,
-    project: () => ({ x: 100, y: 100 }),
+    project: vi.fn<(lngLat: unknown) => { x: number; y: number }>(() => ({ x: 100, y: 100 })),
     // MapMouseEvent передаёт точку объектом { x, y }.
     unproject: ({ x, y }: { x: number; y: number }) => ({
       lng: CENTER.lng + x * 1e-5,
@@ -289,7 +299,11 @@ describe('загрузка', () => {
 
     expect(session?.references).toHaveLength(1);
     expect(session?.source ?? null).toBeNull();
-    expect(await screen.findByText('привязка.geojson, вершин: 3')).toBeInTheDocument();
+    // Пока диалог закрывается, остальная страница скрыта от скринридера.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('switch', { name: 'привязка.geojson Вершин: 3' })).toBeChecked();
   });
 });
 
@@ -434,6 +448,94 @@ describe('поворот ручкой', () => {
 
     expect(fakeMap.fire).toHaveBeenCalledTimes(1);
     expect(fakeMap.fire.mock.calls[0]?.[0]).toMatchObject({ type: 'mouseup' });
+  });
+});
+
+describe('опорные точки', () => {
+  const click = (x: number, y: number, lngLat = CENTER) => {
+    act(() => {
+      fakeMap.emit('click', { point: { x, y }, lngLat, originalEvent: { button: 0 } });
+    });
+  };
+
+  test('первая точка притягивается к вершине в 12 px, вторая — место на карте; одно действие', async () => {
+    renderPage();
+    await loadSquare();
+    await userEvent.click(screen.getByRole('button', { name: 'Расставить опорные точки' }));
+    // Вершина (100, 0) квадрата отрисована в 5 px от щелчка.
+    fakeMap.queryRenderedFeatures.mockImplementation((_box, options) =>
+      options?.layers.includes('georeference-vertices') === true
+        ? [{ properties: { x: 100, y: 0 } }]
+        : [],
+    );
+    fakeMap.project.mockReturnValue({ x: 205, y: 300 });
+
+    click(200, 300);
+    expect(actions).toEqual([]);
+    expect(screen.getByText(/Теперь укажите на карте/)).toBeInTheDocument();
+    click(400, 300, { lng: 37.63, lat: 55.76 });
+
+    expect(georeferenceActions()).toEqual(['gcpAdded']);
+    expect(actions[0]?.payload).toEqual({
+      pair: { x: 100, y: 0, kind: 'vertex', lat: 55.76, lon: 37.63 },
+    });
+  });
+
+  test('в режиме контур не тянется; Esc отменяет первую точку, затем выходит из режима', async () => {
+    renderPage();
+    await loadSquare();
+    await userEvent.click(screen.getByRole('button', { name: 'Расставить опорные точки' }));
+
+    act(() => {
+      fakeMap.emit('mousedown', {
+        point: { x: 10, y: 10 },
+        lngLat: CENTER,
+        originalEvent: { button: 0 },
+        preventDefault: vi.fn(),
+      });
+    });
+    expect(fakeMap.dragPan.disable).not.toHaveBeenCalled();
+
+    click(100, 100);
+    expect(screen.getByText(/Теперь укажите на карте/)).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.getByText(/Щёлкните по контуру/)).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Расставить опорные точки' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  test('две пары — блокировка ручного совмещения, «Вернуть ручное», таблица невязок', async () => {
+    renderPage();
+    await loadSquare();
+    await userEvent.click(screen.getByRole('button', { name: 'Расставить опорные точки' }));
+    fakeMap.queryRenderedFeatures.mockReturnValue([]);
+    const project = (x: number) => ({ x, y: 300 });
+    // Вершины квадрата 0 и 1 на экране — в 400 и 500 px; щелчки точно по ним.
+    fakeMap.project.mockImplementation((lngLat) =>
+      Array.isArray(lngLat) && typeof lngLat[0] === 'number' && lngLat[0] > CENTER.lng
+        ? project(500)
+        : project(400),
+    );
+    click(400, 300);
+    click(0, 0, { lng: 37.6, lat: 55.7 });
+    click(500, 300);
+    click(0, 0, { lng: 37.601, lat: 55.7 });
+
+    expect(georeferenceActions()).toEqual(['gcpAdded', 'gcpAdded']);
+    expect(screen.getByText(/Положение задано опорными точками/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Поворот против часовой')).toBeDisabled();
+    expect(screen.getAllByRole('row')).toHaveLength(3);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Вернуть ручное' }));
+    expect(anchorOf()).toEqual({ lat: CENTER.lat, lon: CENTER.lng });
+    expect(
+      screen
+        .getAllByRole('checkbox', { name: /^Учитывать точку/ })
+        .map((box) => (box as HTMLInputElement).checked),
+    ).toEqual([false, false]);
   });
 });
 

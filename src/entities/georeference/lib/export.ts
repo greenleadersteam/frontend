@@ -12,6 +12,7 @@ import {
   VERDICT_TEXT,
   vertexLatLon,
 } from '@/shared/lib/georeference';
+import { safeFileName } from '@/shared/lib/save-file';
 
 // Выгрузка результата привязки: JSON с параметрами и каталогом, CSV-каталог, geojson в WGS 84.
 // Перенесено из прототипа ../geojson/js/export.js без изменений форматов. Добавлена самопроверка
@@ -32,23 +33,23 @@ export function roundTo(value: number, digits: number): number | null {
 const pad = (n: number): string => String(n).padStart(2, '0');
 
 // Местное время с указанием сдвига: выгрузку потом сверяют с журналом.
-export function exportStamp(date: Date): { iso: string; file: string } {
+export function exportStamp(date: Date): string {
   const off = -date.getTimezoneOffset();
   const sign = off >= 0 ? '+' : '−';
   const day = `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return {
-    iso:
-      `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
-      ` UTC${sign}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`,
-    file: `${day}_${pad(date.getHours())}${pad(date.getMinutes())}`,
-  };
+  return (
+    `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+    ` UTC${sign}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`
+  );
 }
 
-const baseName = (name: string): string =>
-  (name === '' ? 'контур' : name).replace(/\.[^.]+$/, '').replace(/\s+/g, '-');
+export type ExportFormat = 'json' | 'csv' | 'geojson';
 
-export const fileName = (sourceName: string, suffix: string, ext: string, date: Date): string =>
-  `${baseName(sourceName)}_привязка_${exportStamp(date).file}${suffix}.${ext}`;
+// Имя файла выгрузки — от имени контура без расширения: «участок-А — привязка.json». В прототипе
+// в имени были дата и время; время выгрузки есть в самом файле («создано»), а имя, как у файлов
+// проекта, очищается от недопустимых символов.
+export const exportFileName = (contourName: string, format: ExportFormat): string =>
+  safeFileName(contourName.replace(/\.[^.]+$/, ''), ` — привязка.${format}`, 'контур');
 
 export type CatalogRow = {
   номер: number;
@@ -127,9 +128,11 @@ export type ExportResult<T> = { ok: true; value: T } | { ok: false; error: Expor
 
 // Отказ самопроверки — ошибка вычислений, а не пользователя: текст не отправляет проверять
 // масштаб и положение, которые пользователь задал сам.
-export const EXPORT_ERROR_TEXT =
-  'Выгрузка не прошла самопроверку: координаты в файле не восстанавливают привязку с точностью ' +
-  'выгрузки. Файл не сохранён. Сообщите разработчикам, указав размер участка и поворот.';
+export const EXPORT_ERROR_TEXT: Record<ExportError['kind'], string> = {
+  RoundTripFailed:
+    'Выгрузка не прошла самопроверку: координаты в файле не восстанавливают привязку с точностью ' +
+    'выгрузки. Файл не сохранён. Сообщите разработчикам, указав размер участка и поворот.',
+};
 
 export function roundTrip(data: ExportData): RoundTrip | null {
   const p = data.параметры_трансформирования;
@@ -223,7 +226,7 @@ function collect(s: GeoreferenceState, date: Date): ExportData {
 
   return {
     файл: s.source.name,
-    создано: exportStamp(date).iso,
+    создано: exportStamp(date),
     параметры_трансформирования: {
       модель: 'подобие, 4 параметра',
       опорная_точка_wgs84: {
@@ -369,7 +372,7 @@ export function toGeoJson(s: GeoreferenceState, date: Date): ExportResult<string
             type: 'Feature',
             properties: {
               файл: s.source.name,
-              создано: exportStamp(date).iso,
+              создано: exportStamp(date),
               поворот_градусы: roundTo(s.rotation, 6),
               масштаб_метров_в_единице_файла: s.scale,
               опорная_точка: [roundTo(s.anchor.lon, LL_DIGITS), roundTo(s.anchor.lat, LL_DIGITS)],

@@ -1,4 +1,4 @@
-import { clay, sage, stone, WHITE } from './palette';
+import { clay, ochre, sage, stone, WHITE } from './palette';
 
 // Подложка — design.md, раздел «Карта». MapLibre не читает CSS-переменные, поэтому цвета
 // карты — значениями; других литералов карты в проекте нет.
@@ -69,6 +69,16 @@ export const georeferenceColors = {
   lever: stone[9],
   leverHalo: WHITE,
   sector: stone[9],
+  // Опорные точки, резинка пары и векторы невязок — тёмная бирюза на том же белом ореоле:
+  // отличаются от контура оттенком, а читаются по тому же правилу пары (контраст к ореолу 10,0).
+  control: '#0A4A50',
+  controlHalo: WHITE,
+  // Выброс в таблице и на карте — цвет ошибки палитры.
+  outlier: clay[6],
+  // Эталоны — штриховые контуры, у каждого свой тёмный оттенок на белом ореоле, по кругу.
+  // Контраст каждого к ореолу не ниже 10.
+  references: [clay[8], '#1F3F66', ochre[9], '#4A2E5E'],
+  referenceHalo: WHITE,
 } as const;
 
 export type UtilityDash = 'solid' | 'dashed' | 'dashDot';
