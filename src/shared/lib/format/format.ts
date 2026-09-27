@@ -74,7 +74,43 @@ export function formatCount(count: number, forms: CountForms): string {
 // Счётчики на карте: «1 204» с неразрывным пробелом между разрядами.
 export const formatNumber = (value: number): string => integer.format(value);
 
-const meters = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 });
+const meters = {
+  1: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }),
+  2: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 }),
+};
 
-// Расстояния хранятся в метрах числом (api.md): «1,5 м», «0,35 м».
-export const formatMeters = (value: number): string => `${meters.format(value)}${NBSP}м`;
+// Расстояния хранятся в метрах числом (api.md): «1,5 м», «0,35 м». Подписи на карте — с одним
+// знаком: «2,3 м».
+export const formatMeters = (value: number, fractionDigits: 1 | 2 = 2): string =>
+  `${meters[fractionDigits].format(value)}${NBSP}м`;
+
+const squareMeters = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
+
+// Площадь зоны: «1 240 м²».
+export const formatSquareMeters = (value: number): string =>
+  `${squareMeters.format(value)}${NBSP}м²`;
+
+const coordinate = new Intl.NumberFormat(LOCALE, {
+  minimumFractionDigits: 6,
+  maximumFractionDigits: 6,
+  useGrouping: false,
+});
+
+// Широта и долгота с точностью ~0,1 м: «55,759312».
+export const formatCoordinate = (value: number): string => coordinate.format(value);
+
+// signDisplay 'negative': бэкенд округляет -0,004 до -0.0, а «-0,00» на чертеже читается как
+// ошибка.
+const drawingMeters = new Intl.NumberFormat(LOCALE, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+  useGrouping: false,
+  signDisplay: 'negative',
+});
+
+// Координата чертежа в метрах, как в CAD — без разрядов: «-1499,26».
+export const formatDrawingCoordinate = (value: number): string => drawingMeters.format(value);
+
+// Та же координата с единицей: «-1499,26 м».
+export const formatDrawingMeters = (value: number): string =>
+  `${drawingMeters.format(value)}${NBSP}м`;

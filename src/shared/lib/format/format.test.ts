@@ -1,12 +1,16 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  formatCoordinate,
   formatCount,
   formatDate,
+  formatDrawingCoordinate,
+  formatDrawingMeters,
   formatDuration,
   formatFileSize,
   formatMeters,
   formatNumber,
+  formatSquareMeters,
   formatTransferred,
 } from './format';
 
@@ -98,4 +102,25 @@ test('formatMeters — запятая и неразрывный пробел п�
   expect(formatMeters(1.5)).toBe('1,5\u00A0м');
   expect(formatMeters(0.35)).toBe('0,35\u00A0м');
   expect(formatMeters(12)).toBe('12\u00A0м');
+});
+
+test('formatMeters с одним знаком — подписи на карте', () => {
+  expect(formatMeters(2.34, 1)).toBe(`2,3${NBSP}м`);
+  expect(formatMeters(2.0, 1)).toBe(`2${NBSP}м`);
+});
+
+test('formatSquareMeters — разряды и единица через неразрывный пробел', () => {
+  expect(formatSquareMeters(1240.4)).toBe(`1${NBSP}240${NBSP}м²`);
+  expect(formatSquareMeters(80)).toBe(`80${NBSP}м²`);
+});
+
+test('formatCoordinate — шесть знаков, без разрядов', () => {
+  expect(formatCoordinate(55.7593124)).toBe('55,759312');
+  expect(formatCoordinate(37.6)).toBe('37,600000');
+});
+
+test('координата чертежа — два знака, без разрядов, без «-0,00»', () => {
+  expect(formatDrawingCoordinate(-1499.264)).toBe('-1499,26');
+  expect(formatDrawingCoordinate(-0.004)).toBe('0,00');
+  expect(formatDrawingMeters(-1499.264)).toBe(`-1499,26${NBSP}м`);
 });
