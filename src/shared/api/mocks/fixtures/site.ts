@@ -1,4 +1,5 @@
 import { formatMeters } from '@/shared/lib/format';
+import { metersPerDegree } from '@/shared/lib/geodesy';
 import { isInside, type LocalPoint, nearestOnBoundary } from '@/shared/lib/geometry';
 
 import type { components } from '../../generated/proposed';
@@ -68,14 +69,6 @@ export const placementOf = (georeference: ManualGeoreference): Placement => ({
   rotationDeg: georeference.rotation_deg,
   scale: georeference.scale,
 });
-
-function metersPerDegree(lat: number) {
-  const radians = (lat * Math.PI) / 180;
-  return {
-    lat: 111_132.954 - 559.822 * Math.cos(2 * radians) + 1.175 * Math.cos(4 * radians),
-    lon: 111_412.84 * Math.cos(radians) - 93.5 * Math.cos(3 * radians),
-  };
-}
 
 function toLonLat({ anchorWgs84, anchorDrawing, rotationDeg, scale }: Placement, [x, y]: Point) {
   const angle = (rotationDeg * Math.PI) / 180;

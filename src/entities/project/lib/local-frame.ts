@@ -1,3 +1,4 @@
+import { metersPerDegree, WGS84 } from '@/shared/lib/geodesy';
 import type { LocalPoint } from '@/shared/lib/geometry';
 
 import type { Extent, Position } from './plan-projection';
@@ -17,18 +18,8 @@ export type LocalFrame = {
 const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 const toDegrees = (radians: number) => (radians * 180) / Math.PI;
 
-// Длина градуса на эллипсоиде WGS84 на широте φ (ряды для меридиана и параллели): на участке
-// в пределах километра равнопромежуточная проекция от центра даёт погрешность меньше 0,03 %.
-function metersPerDegree(latitude: number): { lon: number; lat: number } {
-  const phi = toRadians(latitude);
-  return {
-    lat: 111_132.954 - 559.822 * Math.cos(2 * phi) + 1.175 * Math.cos(4 * phi),
-    lon: 111_412.84 * Math.cos(phi) - 93.5 * Math.cos(3 * phi),
-  };
-}
-
-// Радиус сферы Web Mercator — той, на которой MapLibre строит карту.
-const MERCATOR_RADIUS_M = 6_378_137;
+// Радиус сферы Web Mercator — той, на которой MapLibre строит карту: большая полуось WGS 84.
+const MERCATOR_RADIUS_M = WGS84.A;
 
 // Метры чертежа → условные lon/lat у экватора по обратной формуле Web Mercator. Масштаб
 // Меркатора на широте φ — 1/cos φ; на расстоянии 1 км от экватора это 1 + 1,2·10⁻⁸, так что
@@ -58,6 +49,8 @@ export function createLocalFrame(extent: Extent, geographic: boolean): LocalFram
       toData: ([x, y]) => [x + centerX, y + centerY],
     };
   }
+  // Равнопромежуточная проекция от центра: на участке в пределах километра погрешность меньше
+  // 0,03 %.
   const scale = metersPerDegree(centerY);
   return {
     geographic,

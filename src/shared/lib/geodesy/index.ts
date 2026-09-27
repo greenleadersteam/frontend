@@ -17,6 +17,7 @@ export {
   fitSimilarity,
   geodeticToEcef,
   geodeticToEnu,
+  metersPerDegree,
   similarity,
   toDeg,
   toMercator,

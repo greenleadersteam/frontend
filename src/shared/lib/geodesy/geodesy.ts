@@ -153,6 +153,17 @@ export function enuFrame(anchor: LatLon & { h?: number }): EnuFrame {
   };
 }
 
+// Длина градуса широты и долготы на эллипсоиде WGS 84 на широте φ — ряды для меридиана
+// и параллели. Не часть модуля геопривязки: ими считает равнопромежуточная проекция плана
+// проекта (entities/project/lib/local-frame.ts) и мок сервера, у которого та же проекция.
+export function metersPerDegree(latitude: number): { lat: number; lon: number } {
+  const phi = (latitude * Math.PI) / 180;
+  return {
+    lat: 111_132.954 - 559.822 * Math.cos(2 * phi) + 1.175 * Math.cos(4 * phi),
+    lon: 111_412.84 * Math.cos(phi) - 93.5 * Math.cos(3 * phi),
+  };
+}
+
 // Метры восток / север / вверх относительно опорной точки.
 export const geodeticToEnu = (
   point: LatLon & { h?: number },

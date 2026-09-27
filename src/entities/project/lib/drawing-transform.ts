@@ -1,3 +1,5 @@
+import { WGS84 } from '@/shared/lib/geodesy';
+
 import type { ExplanationEntry } from '../api/project-result-api';
 
 // Точка плана в данных результата: [lon, lat] при геопривязке, [x, y] чертежа без неё.
@@ -27,10 +29,8 @@ export const DRAWING_FIT_LIMIT_M = 0.01;
 // Четыре параметра подобия: третья пара даёт избыток, по которому видно, сошлась ли подгонка.
 const MIN_PAIRS = 3;
 
-// Эллипсоид WGS84.
-const SEMI_MAJOR = 6_378_137;
-const FLATTENING = 1 / 298.257223563;
-const E2 = FLATTENING * (2 - FLATTENING);
+const { A: SEMI_MAJOR, E2 } = WGS84;
+// Второй эксцентриситет в квадрате.
 const EP2 = E2 / (1 - E2);
 
 // Длина дуги меридиана от экватора (Snyder, «Map projections — a working manual», 3-21).
