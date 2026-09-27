@@ -1,7 +1,8 @@
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import devConfig from '../../../public/config.json';
+import devConfig from '../../../config.dev.json';
+import buildConfig from '../../../public/config.json';
 import { basemapStyle } from './basemap-style';
 import {
   BASEMAP_STATUS_DELAY_MS,
@@ -55,8 +56,16 @@ describe('состав подложек', () => {
   });
 
   test('ни Яндекса, ни tile.openstreetmap.org: ни в стиле, ни в конфиге разработки', () => {
-    const text = JSON.stringify([basemapStyle('/basemap/moscow.pmtiles', IMAGERY), devConfig]);
+    const text = JSON.stringify([
+      basemapStyle('/basemap/moscow.pmtiles', IMAGERY),
+      devConfig,
+      buildConfig,
+    ]);
     expect(text).not.toMatch(/yandex|tile\.openstreetmap\.org/i);
+  });
+
+  test('конфиг сборки безопасен для контура заказчика: снимка нет', () => {
+    expect(buildConfig.imagery).toBeNull();
   });
 
   test('конфиг разработки: снимок Esri с полной атрибуцией', () => {

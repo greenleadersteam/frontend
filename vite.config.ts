@@ -11,7 +11,7 @@ import { serveBasemap } from './vite-plugins/serve-basemap.ts';
 
 const DEFAULT_API_PROXY_TARGET = 'https://backend.greenleaders.online';
 
-// Космоснимок модуля геопривязки (imagery в public/config.json): MapLibre грузит растровые тайлы
+// Космоснимок модуля геопривязки (imagery в config.dev.json и в конфиге стенда): MapLibre грузит растровые тайлы
 // через fetch, поэтому источник нужен и в connect-src, и в img-src.
 const IMAGERY_ORIGIN = 'https://server.arcgisonline.com';
 
@@ -55,6 +55,26 @@ function mockServiceWorker(): Plugin {
   };
 }
 
+// Конфиг разработки: public/config.json безопасен по умолчанию для контура заказчика (без
+// снимка), а dev-серверу нужен снимок. config.dev.json лежит вне public и в dist не попадает;
+// dev-сервер отдаёт его по /config.json. preview и сборка его не видят.
+function devRuntimeConfig(): Plugin {
+  const configPath = fileURLToPath(new URL('config.dev.json', import.meta.url));
+  return {
+    name: 'dev-runtime-config',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/config.json', (_request, response, next) => {
+        readFile(configPath).then((config) => {
+          response.setHeader('Content-Type', 'application/json');
+          response.setHeader('Cache-Control', 'no-store');
+          response.end(config);
+        }, next);
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   // Третий аргумент '' читает переменные без префикса VITE_: они нужны только dev-серверу и в бандл не попадают.
   const env = loadEnv(mode, process.cwd(), '');
@@ -65,6 +85,7 @@ export default defineConfig(({ mode }) => {
       react(),
       babel({ presets: [reactCompilerPreset()] }),
       mockServiceWorker(),
+      devRuntimeConfig(),
       serveBasemap(fileURLToPath(new URL('.data/basemap', import.meta.url))),
     ],
     resolve: { tsconfigPaths: true },
