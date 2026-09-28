@@ -12,3 +12,19 @@ blob-report
 .env
 .env.*
 !.env.example
+
+# Файлы инструментов ИИ: скрыты от git (.git/info/exclude), но лежат в рабочей папке.
+# Шаблоны — от корня контекста, поэтому с **/: иначе вложенные файлы попали бы в образ.
+**/CLAUDE.md
+**/CLAUDE.local.md
+**/.claude
+**/.mcp.json
+**/AGENTS.md
+**/.cursor
+**/.cursorrules
+**/.windsurf*
+**/.aider*
+**/.continue
+**/.github/copilot-instructions.md
+**/*.prompt.md
+prompts
