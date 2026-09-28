@@ -1,9 +1,12 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
+import { type ReactNode, useEffect } from 'react';
+import { useDispatch } from 'react-redux';
 import type { RouteObject } from 'react-router';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { baseApi } from '@/shared/api';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { enterViewport, renderWithProviders, resetMockDb, server } from '@/shared/lib/test';
 
@@ -15,6 +18,21 @@ const routes: RouteObject[] = [
 ];
 
 const renderPage = () => renderWithProviders(routes, '/');
+
+// Вкладка без фокуса: опрос стоит (skipPollingIfUnfocused), а отсчёт предохранителя идёт
+// (entities/project/model/polling.ts). Иначе 30 минут поддельного времени — 900 опросов по 2 с,
+// каждый с запросом через MSW и перерисовкой списка: около секунды на тест без нагрузки и больше
+// предела 5 с под нагрузкой полного прогона.
+function UnfocusedProjectsPage(): ReactNode {
+  const dispatch = useDispatch();
+  useEffect(() => {
+    dispatch(baseApi.internalActions.onFocusLost());
+  }, [dispatch]);
+  return <ProjectsPage />;
+}
+
+const renderUnfocusedPage = () =>
+  renderWithProviders([{ path: '/', Component: UnfocusedProjectsPage }, ...routes.slice(1)], '/');
 
 // getByText сводит пробелы в тексте DOM к обычным (U+00A0 тоже), а строку-ожидание не трогает,
 // поэтому в ожиданиях между числом и единицей стоит обычный пробел.
@@ -352,8 +370,6 @@ describe('меню карточки', () => {
     }
   });
 
-  // Сценарий идёт около 4 с при пределе 5 с: под нагрузкой он выходил за предел, а продолжение
-  // прерванного теста роняло следующие тесты «меню карточки».
   test.each([
     ['zoning_layout', 'Обработка идёт больше 30 минут.'],
     ['queued', 'Проект ждёт в очереди больше 30 минут.'],
@@ -374,7 +390,7 @@ describe('меню карточки', () => {
           ]),
         ),
       );
-      renderPage();
+      renderUnfocusedPage();
       await act(() =>
         vi.waitFor(() => screen.getByRole('heading', { name: 'Сквер на Трубной площади' })),
       );
@@ -392,14 +408,14 @@ describe('меню карточки', () => {
       expect(dialog).toHaveTextContent(text);
       expect(dialog).not.toHaveTextContent(/прерван/);
     },
-    15_000,
   );
 
   test('после срабатывания предохранителя недавняя обработка удалению по-прежнему закрыта', async () => {
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     });
-    const startedAt = new Date(Date.now() + 29 * 60 * 1000).toISOString();
+    // К последнему ответу сервера — он же единственный: вкладка без фокуса — обработка шла минуту.
+    const startedAt = new Date(Date.now() - 60 * 1000).toISOString();
     server.use(
       http.get('/api/projects', () =>
         HttpResponse.json([
@@ -411,7 +427,7 @@ describe('меню карточки', () => {
         ]),
       ),
     );
-    renderPage();
+    renderUnfocusedPage();
     await act(() =>
       vi.waitFor(() => screen.getByRole('heading', { name: 'Сквер у Рогожской заставы' })),
     );
