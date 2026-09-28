@@ -99,4 +99,6 @@ export function obstacleLabel(category: string, subtype: string | null): string 
 export const GEOREFERENCE_CONFIDENCE_LABELS: Record<string, string> = {
   validated: 'проверена по опорным точкам',
   unvalidated: 'без проверки',
+  // Привязка из модуля геопривязки (PUT /georeference): значение мока, контракт его не задаёт.
+  manual: 'вручную',
 };

@@ -7,7 +7,8 @@ export {
   toGeoJson,
   toJson,
 } from './lib/export';
-export type { Handoff, Session, StoredReference } from './model/session';
+export { projectGeoreference } from './lib/project-georeference';
+export type { Handoff, ProjectPair, Session, StoredReference } from './model/session';
 export { findSameReference, placementOf } from './model/session';
 export {
   GEOREFERENCE_SLICE,

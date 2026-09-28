@@ -7,40 +7,58 @@ import type { Position } from './plan-projection';
 import type { ResultData } from './result-layers';
 
 // Для карты MapLibre: у проекта с геопривязкой данные уже в WGS84, у проекта без неё метры
-// чертежа переводятся в условные lon/lat у точки (0, 0) — та же карта, без подложки.
-// Посадки — любого расширения PlantingFeatureCollection: у расстановки с правками свойства
-// правок доходят до карты.
-export function toMapData<Data extends ResultData>(data: Data, frame: LocalFrame): Data {
-  if (frame.geographic) return data;
-  const { planting, zones } = data;
+// чертежа переводятся в условные lon/lat у точки (0, 0) — та же карта, без подложки, — или,
+// с ручной привязкой, в WGS84 по ней.
+// Зоны и посадки переводятся отдельно: у «Олимпийского» в зонах 1,1 млн вершин, и правка
+// посадки не должна пересчитывать их заново.
+export function toMapZones(zones: ResultData['zones'], frame: LocalFrame): ResultData['zones'] {
+  if (frame.geographic) return zones;
   const move = (position: Position) => frame.toMap(frame.toLocal(position));
   return {
+    ...zones,
+    features: zones.features.map((feature) => ({
+      ...feature,
+      geometry:
+        feature.geometry.type === 'Polygon'
+          ? {
+              type: 'Polygon',
+              coordinates: feature.geometry.coordinates.map((ring) => ring.map(move)),
+            }
+          : {
+              type: 'MultiPolygon',
+              coordinates: feature.geometry.coordinates.map((polygon) =>
+                polygon.map((ring) => ring.map(move)),
+              ),
+            },
+    })),
+  };
+}
+
+// Посадки — любого расширения PlantingFeatureCollection: у расстановки с правками свойства
+// правок доходят до карты.
+export function toMapPlanting<Planting extends ResultData['planting']>(
+  planting: Planting,
+  frame: LocalFrame,
+): Planting {
+  if (frame.geographic) return planting;
+  return {
+    ...planting,
+    features: planting.features.map((feature) => ({
+      ...feature,
+      geometry: {
+        ...feature.geometry,
+        coordinates: frame.toMap(frame.toLocal(feature.geometry.coordinates)),
+      },
+    })),
+  };
+}
+
+export function toMapData<Data extends ResultData>(data: Data, frame: LocalFrame): Data {
+  if (frame.geographic) return data;
+  return {
     ...data,
-    planting: {
-      ...planting,
-      features: planting.features.map((feature) => ({
-        ...feature,
-        geometry: { ...feature.geometry, coordinates: move(feature.geometry.coordinates) },
-      })),
-    },
-    zones: {
-      ...zones,
-      features: zones.features.map((feature) => ({
-        ...feature,
-        geometry:
-          feature.geometry.type === 'Polygon'
-            ? {
-                type: 'Polygon',
-                coordinates: feature.geometry.coordinates.map((ring) => ring.map(move)),
-              }
-            : {
-                type: 'MultiPolygon',
-                coordinates: feature.geometry.coordinates.map((polygon) =>
-                  polygon.map((ring) => ring.map(move)),
-                ),
-              },
-      })),
-    },
+    planting: toMapPlanting(data.planting, frame),
+    zones: toMapZones(data.zones, frame),
   };
 }
 

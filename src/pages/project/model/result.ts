@@ -32,6 +32,7 @@ import {
 import type { FinalPlanting } from '@/features/edit-plantings';
 import { type AppError, toAppError } from '@/shared/api';
 import { useCapability } from '@/shared/config';
+import type { PlacementCore } from '@/shared/lib/georeference';
 
 // Результат обработки со всем, что сервер отдаёт сверх /planting и /zones.
 export type LoadedResult = {
@@ -115,25 +116,32 @@ export function useResultData(project: Project): ResultState {
 
 export type MapObstacles = { map: ObstaclesFeatureCollection; prepared: PreparedObstacles };
 
-// Итоговый результат: расстановка сервиса с правками и всё, что по ней считается.
-export type EditedResult = {
+// Всё, что считается по результату сервиса без правок: система координат, подготовленные зоны
+// и объекты. Считается один раз на результат и привязку — правка посадки его не пересчитывает.
+export type ResultBase = {
   // Охват расстановки сервиса: по нему строится система координат плана.
   extent: NonNullable<ReturnType<typeof resultExtent>>;
   geographic: boolean;
   frame: LocalFrame;
-  // Итоговая расстановка и зоны сервиса.
-  edited: { planting: FinalPlanting; zones: ResultData['zones'] };
+  zones: ResultData['zones'];
   prepared: PreparedZones;
   obstacles: MapObstacles | null;
   entries: Map<string, ExplanationEntry>;
+};
+
+// Итоговый результат: расстановка сервиса с правками и всё, что по ней считается.
+export type EditedResult = ResultBase & {
+  // Итоговая расстановка и зоны сервиса.
+  edited: { planting: FinalPlanting; zones: ResultData['zones'] };
   statuses: Map<string, PlantingStatus>;
 };
 
-// null — в результате нет ни посадок, ни зон запрета: охвата нет.
-export function editedResult(
+// null — в результате нет ни посадок, ни зон запрета: охвата нет. placement — ручная привязка
+// проекта без геопривязки сервера: она меняет только путь на карту (createLocalFrame).
+export function resultBase(
   { data, explanation, obstacles, norms }: LoadedResult,
-  edits: { final: FinalPlanting; serverStatuses: ReadonlyMap<string, PlantingStatus> | null },
-): EditedResult | null {
+  placement: PlacementCore | null,
+): ResultBase | null {
   const extent = resultExtent(data);
   if (extent === null) return null;
   // Без геопривязки бэкенд отдаёт координаты чертежа с меткой CRS
@@ -141,25 +149,34 @@ export function editedResult(
   // пока не отдаёт metadata в /planting.
   const geographic = isGeographic(data.zones.metadata.crs);
   // Охват и система координат — по расстановке сервиса: правка не сдвигает центр плана.
-  const frame = createLocalFrame(extent, geographic);
-  const prepared = prepareZones(data.zones, frame);
-  const objects =
-    obstacles === null
-      ? null
-      : {
-          map: toMapObstacles(obstacles, frame),
-          prepared: prepareObstacles(obstacles, norms, data.zones, frame),
-        };
+  const frame = createLocalFrame(extent, geographic, geographic ? null : placement);
   return {
     extent,
     geographic,
     frame,
-    edited: { planting: edits.final, zones: data.zones },
-    prepared,
-    obstacles: objects,
+    zones: data.zones,
+    prepared: prepareZones(data.zones, frame),
+    obstacles:
+      obstacles === null
+        ? null
+        : {
+            map: toMapObstacles(obstacles, frame),
+            prepared: prepareObstacles(obstacles, norms, data.zones, frame),
+          },
     entries: new Map(explanation.map((entry) => [entry.id, entry])),
+  };
+}
+
+export function editedResult(
+  base: ResultBase,
+  edits: { final: FinalPlanting; serverStatuses: ReadonlyMap<string, PlantingStatus> | null },
+): EditedResult {
+  const { frame, prepared, obstacles } = base;
+  return {
+    ...base,
+    edited: { planting: edits.final, zones: base.zones },
     statuses: plantingStatuses(edits.final, edits.serverStatuses, (point, plantType) =>
-      plantingStatus(frame.toLocal(point), plantType, prepared, objects?.prepared ?? null),
+      plantingStatus(frame.toLocal(point), plantType, prepared, obstacles?.prepared ?? null),
     ),
   };
 }

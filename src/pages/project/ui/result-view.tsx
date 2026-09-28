@@ -9,20 +9,28 @@ import {
   Text,
 } from '@mantine/core';
 import { useWindowEvent } from '@mantine/hooks';
-import { type JSX, useState } from 'react';
-import { useBlocker, useSearchParams } from 'react-router';
+import { type JSX, type ReactNode, useState } from 'react';
+import { Link, useBlocker, useSearchParams } from 'react-router';
 
-import { PlanCanvas, type Project, resultExtent, toMapData } from '@/entities/project';
+import {
+  placementOfGeoreference,
+  PlanCanvas,
+  type Project,
+  resultExtent,
+  toMapPlanting,
+  toMapZones,
+} from '@/entities/project';
 import {
   EditsLoadAlert,
   StaleDraftAlert,
   useEditsLoader,
   usePlantingEdits,
 } from '@/features/edit-plantings';
+import { StaleGeoreferenceAlert, useBrowserGeoreference } from '@/features/georeference-project';
 import { describeAppError } from '@/shared/api';
-import { BASEMAP_BOUNDS } from '@/shared/config';
+import { BASEMAP_BOUNDS, georeferenceProjectPath } from '@/shared/config';
 
-import { editedResult, type LoadedResult, useResultData } from '../model/result';
+import { editedResult, type LoadedResult, resultBase, useResultData } from '../model/result';
 import { PlantingRegister } from './planting-register';
 import { resultLabel } from './result-label';
 import { type CenterRequest, ResultMap, type Selection } from './result-map';
@@ -37,6 +45,10 @@ const VIEWS = [
   { value: 'plan', label: 'План' },
   { value: 'register', label: 'Ведомость' },
 ];
+
+const DRAWING_NOTE = 'Координаты чертежа, без привязки к городу';
+const OUTSIDE_BASEMAP_NOTE = 'Участок за пределами карты Москвы, подложки нет';
+const MANUAL_NOTE = 'Привязано вручную в этом браузере';
 
 // Параметр URL — внешние данные: всё, кроме register, — план.
 const parseView = (value: string | null): View => (value === 'register' ? 'register' : 'plan');
@@ -80,6 +92,11 @@ function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
   const notice = failureNotice(failed);
   useEditsLoader(project, data.planting);
   const edits = usePlantingEdits(project.id, data.planting);
+  // Ручная привязка из модуля геопривязки: план ложится на карту города, расчёты остаются
+  // в координатах чертежа.
+  const stored = useBrowserGeoreference(project);
+  const manual = stored.kind === 'current' ? stored.georeference : null;
+  const base = resultBase(result, manual === null ? null : placementOfGeoreference(manual));
   // Уход со страницы с правками, которых нет на сервере, спрашивает подтверждение. Смена вида
   // «План» / «Ведомость» меняет только параметры адреса и уходом не считается.
   const blocker = useBlocker(
@@ -104,8 +121,7 @@ function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
   const [registerShown, setRegisterShown] = useState(view === 'register');
   if (view === 'register' && !registerShown) setRegisterShown(true);
 
-  const computed = editedResult(result, edits);
-  if (computed === null) {
+  if (base === null) {
     return <Text className={classes.area}>В результате обработки нет посадок и зон запрета.</Text>;
   }
   const {
@@ -117,16 +133,42 @@ function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
     obstacles: objects,
     entries,
     statuses,
-  } = computed;
-  const mapData = toMapData(edited, frame);
+  } = editedResult(base, edits);
+  // Зоны переводятся на карту один раз на результат и привязку, посадки — на каждую правку.
+  const mapZones = toMapZones(base.zones, frame);
+  const mapData = { ...edited, planting: toMapPlanting(edited.planting, frame), zones: mapZones };
   const mapExtent = resultExtent(mapData) ?? extent;
   const [west, south, east, north] = BASEMAP_BOUNDS;
   const withinBasemap =
-    geographic &&
-    extent.minX >= west &&
-    extent.minY >= south &&
-    extent.maxX <= east &&
-    extent.maxY <= north;
+    frame.onCity &&
+    mapExtent.minX >= west &&
+    mapExtent.minY >= south &&
+    mapExtent.maxX <= east &&
+    mapExtent.maxY <= north;
+  const bindLink = (label: string) => (
+    <Button
+      component={Link}
+      to={georeferenceProjectPath(project.id)}
+      variant="subtle"
+      size="compact-xs"
+    >
+      {label}
+    </Button>
+  );
+  const note: ReactNode =
+    manual !== null ? (
+      <>
+        {withinBasemap ? MANUAL_NOTE : `${MANUAL_NOTE}. ${OUTSIDE_BASEMAP_NOTE}`}
+        {bindLink('Изменить привязку')}
+      </>
+    ) : withinBasemap ? undefined : geographic ? (
+      OUTSIDE_BASEMAP_NOTE
+    ) : (
+      <>
+        {DRAWING_NOTE}
+        {bindLink('Привязать к карте')}
+      </>
+    );
 
   const changeView = (next: View) => {
     setSearchParams(
@@ -158,6 +200,7 @@ function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
       />
       <EditsLoadAlert projectId={project.id} />
       <StaleDraftAlert projectId={project.id} />
+      <StaleGeoreferenceAlert project={project} />
       {/* План в ведомости скрыт, а не размонтирован: камера и выбор сохраняются. */}
       <div hidden={view !== 'plan'} className={classes.plan}>
         {notice !== null && (
@@ -181,6 +224,8 @@ function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
         ) : (
           planShown && (
             <ResultMap
+              // Новая привязка — новая карта: с подложкой города или без неё, вписанная в участок.
+              key={manual === null ? 'drawing' : JSON.stringify(manual)}
               projectId={project.id}
               source={data.planting}
               data={edited}
@@ -194,6 +239,7 @@ function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
               species={speciesById}
               rejected={rejected}
               basemap={withinBasemap}
+              note={note}
               selection={selection}
               onSelect={setSelection}
               centerRequest={centerRequest}

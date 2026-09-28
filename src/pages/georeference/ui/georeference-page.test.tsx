@@ -2,13 +2,15 @@ import type { UnknownAction } from '@reduxjs/toolkit';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type * as MapLibre from 'maplibre-gl';
+import { http, HttpResponse } from 'msw';
 import { type ReactNode, useEffect } from 'react';
+import { Link, Outlet } from 'react-router';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { GEOREFERENCE_SLICE, georeferenceReducer, type Session } from '@/entities/georeference';
 import type * as Config from '@/shared/config';
 import { enuToGeodetic, geodeticToEnu } from '@/shared/lib/geodesy';
-import { renderWithProviders } from '@/shared/lib/test';
+import { renderWithProviders, server } from '@/shared/lib/test';
 import type * as SharedMap from '@/shared/map';
 
 import { GeoreferencePage } from './georeference-page';
@@ -144,12 +146,17 @@ vi.mock('@/shared/map', async (importOriginal) => ({
   },
 }));
 
-const configMock = vi.hoisted(() => ({ imagery: null as Config.ImageryConfig | null }));
+const configMock = vi.hoisted(() => ({
+  imagery: null as Config.ImageryConfig | null,
+  manualGeoreference: false,
+}));
 vi.mock('@/shared/config', async (importOriginal) => {
   const actual = await importOriginal<typeof Config>();
   return {
     ...actual,
     getRuntimeConfig: () => ({ ...actual.getRuntimeConfig(), imagery: configMock.imagery }),
+    useCapability: (name: Config.Capability) =>
+      name === 'manualGeoreference' ? configMock.manualGeoreference : actual.useCapability(name),
   };
 });
 
@@ -158,9 +165,16 @@ let actions: UnknownAction[] = [];
 let session: Session | null = null;
 const reducers = {
   [GEOREFERENCE_SLICE]: (state: Session | undefined, action: UnknownAction) => {
-    if (action.type.startsWith(`${GEOREFERENCE_SLICE}/`)) actions.push(action);
-    session = georeferenceReducer(state, action);
-    return session;
+    const next = georeferenceReducer(state, action);
+    // Store прошлого теста получает поздние действия RTK Query: его сессия не должна подменять
+    // сессию текущего теста. Последнее состояние — по действиям сессии и созданию store.
+    if (action.type.startsWith(`${GEOREFERENCE_SLICE}/`)) {
+      actions.push(action);
+      session = next;
+    } else if (state === undefined) {
+      session = next;
+    }
+    return next;
   },
 };
 const georeferenceActions = () =>
@@ -214,6 +228,7 @@ beforeEach(() => {
   fakeMap = createFakeMap();
   markers.created = [];
   configMock.imagery = null;
+  configMock.manualGeoreference = false;
   mapMock.unavailable = false;
   actions = [];
   session = null;
@@ -222,6 +237,10 @@ beforeEach(() => {
 afterEach(() => {
   fakeMap.canvas.remove();
   for (const marker of markers.created) marker.element.remove();
+  vi.restoreAllMocks();
+  // eslint-disable-next-line no-restricted-properties -- привязка проекта из тестов режима проекта
+  window.localStorage.clear();
+  server.events.removeAllListeners();
 });
 
 describe('пустое состояние', () => {
@@ -717,5 +736,254 @@ describe('подложки', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('режим проекта', () => {
+  // «Улица Шаболовка, 37» из моков: готова, без геопривязки; граница участка — 60 × 23 м,
+  // центр габарита — (30; 8,5) м чертежа.
+  const PROJECT_ID = '0e8d2b6a4c1f47e9a3b5d7c9e1f2a4b6';
+  const KEY = `greenleaders:georeference:${PROJECT_ID}`;
+  const renderProjectMode = (id = PROJECT_ID) =>
+    renderWithProviders(
+      [
+        { path: '/georeference', Component: GeoreferencePage },
+        {
+          path: '/projects/:projectId',
+          element: (
+            <>
+              <h1>Страница проекта</h1>
+              <Link to="/georeference">Модуль геопривязки</Link>
+            </>
+          ),
+        },
+      ],
+      `/georeference?project=${id}`,
+      reducers,
+    );
+  const opened = async () => {
+    await screen.findByText('Граница участка из чертежа');
+    await waitFor(() => {
+      expect(session?.projectId).toBe(PROJECT_ID);
+    });
+  };
+  // eslint-disable-next-line no-restricted-properties -- привязка проекта в браузере
+  const stored = (): unknown => JSON.parse(window.localStorage.getItem(KEY) ?? 'null');
+
+  test('контур — граница участка проекта в центре карты; файлов контура и единиц нет', async () => {
+    renderProjectMode();
+    await opened();
+
+    expect(screen.getByText('Улица Шаболовка, 37')).toBeInTheDocument();
+    expect(georeferenceActions()).toEqual(['projectOpened']);
+    expect(anchorOf()).toEqual({ lat: CENTER.lat, lon: CENTER.lng });
+    expect(session?.source?.center).toEqual({ x: 30, y: 8.5 });
+    expect([session?.rotation, session?.scale, session?.undoStack]).toEqual([0, 1, []]);
+    expect(fakeMap.fitBounds).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Открыть пример' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Единицы файла' })).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /^План проекта/ })).toBeChecked();
+    // Первая отмена контур проекта не убирает: истории у только что открытого нет.
+    await userEvent.keyboard('{Control>}z{/Control}');
+    expect(session?.source).not.toBeNull();
+  });
+
+  test('файл контура в режиме проекта не открывается — только эталоны', async () => {
+    renderProjectMode();
+    await opened();
+    const input = screen
+      .getByRole('button', { name: 'Открыть эталон — выгрузку привязки' })
+      .querySelector('input');
+    if (input === null) throw new Error('нет поля выбора файла');
+
+    await userEvent.upload(
+      input,
+      new File([SQUARE], 'квадрат.geojson', { type: 'application/geo+json' }),
+    );
+
+    expect(
+      await screen.findByText(/^Файл «квадрат\.geojson» не открыт: контур здесь/),
+    ).toBeInTheDocument();
+    expect(session?.source?.name).toBe('Улица Шаболовка, 37');
+  });
+
+  test('«Применить к проекту» без manualGeoreference — привязка в браузере и назад к проекту', async () => {
+    renderProjectMode();
+    await opened();
+    await userEvent.keyboard('{Shift>}{ArrowRight}{/Shift}');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Применить к проекту' }));
+
+    expect(await screen.findByRole('heading', { name: 'Страница проекта' })).toBeInTheDocument();
+    expect(await screen.findByText('Привязка применена')).toBeInTheDocument();
+    expect(stored()).toMatchObject({
+      georeference: {
+        anchor_wgs84: anchorOf(),
+        anchor_drawing: { x: 30, y: 8.5 },
+        rotation_deg: 0,
+        scale: 1,
+        method: 'manual',
+        rms_m: null,
+        control_points: [],
+      },
+    });
+    const { e } = geodeticToEnu(anchorOf(), { lat: CENTER.lat, lon: CENTER.lng });
+    expect(e).toBeCloseTo(10, 6);
+  });
+
+  test('с manualGeoreference — PUT /georeference, в браузер ничего не пишется', async () => {
+    configMock.manualGeoreference = true;
+    const bodies: unknown[] = [];
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT')
+        void request
+          .clone()
+          .json()
+          .then((body: unknown) => bodies.push(body));
+    });
+    renderProjectMode();
+    await opened();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Применить к проекту' }));
+
+    expect(await screen.findByRole('heading', { name: 'Страница проекта' })).toBeInTheDocument();
+    expect(
+      await screen.findByText('Привязка отправлена: проект обрабатывается заново'),
+    ).toBeInTheDocument();
+    expect(bodies).toEqual([
+      expect.objectContaining({ anchor_drawing: { x: 30, y: 8.5 }, method: 'manual' }),
+    ]);
+    expect(stored()).toBeNull();
+  });
+
+  test('сервер отказал в PUT — уведомление, пользователь остаётся в модуле', async () => {
+    configMock.manualGeoreference = true;
+    server.use(
+      http.put('/api/projects/:projectId/georeference', () =>
+        HttpResponse.json({ detail: 'Project is not runnable' }, { status: 409 }),
+      ),
+    );
+    renderProjectMode();
+    await opened();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Применить к проекту' }));
+
+    expect(
+      await screen.findByText(
+        'Действие недоступно в текущем состоянии проекта. Обновите страницу и проверьте статус.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Применить к проекту' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Страница проекта' })).not.toBeInTheDocument();
+  });
+
+  test('браузер не дал сохранить привязку — объяснение, пользователь остаётся в модуле', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError');
+    });
+    renderProjectMode();
+    await opened();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Применить к проекту' }));
+
+    expect(await screen.findByText(/^Браузер не дал сохранить привязку/)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Страница проекта' })).not.toBeInTheDocument();
+  });
+
+  test('без карты контур проекта не открывается, и контур из файла к проекту не применить', async () => {
+    renderWithProviders(
+      [
+        {
+          element: (
+            <>
+              <Link to={`/georeference?project=${PROJECT_ID}`}>Привязать проект</Link>
+              <Outlet />
+            </>
+          ),
+          children: [{ path: '/georeference', Component: GeoreferencePage }],
+        },
+      ],
+      '/georeference',
+      reducers,
+    );
+    await loadSquare();
+    mapMock.unavailable = true;
+
+    await userEvent.click(screen.getByRole('link', { name: 'Привязать проект' }));
+
+    expect(await screen.findByText('Граница участка из чертежа')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Карта не открылась или перестала отвечать'),
+    ).toBeInTheDocument();
+    // В сессии всё ещё квадрат из файла, но экран проекта его не видит.
+    expect(session?.source?.name).toBe('квадрат.geojson');
+    expect(screen.getByRole('button', { name: 'Применить к проекту' })).toBeDisabled();
+    expect(screen.queryByText('квадрат.geojson')).not.toBeInTheDocument();
+  });
+
+  test('«Отмена» — назад к проекту без изменений', async () => {
+    renderProjectMode();
+    await opened();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+
+    expect(await screen.findByRole('heading', { name: 'Страница проекта' })).toBeInTheDocument();
+    expect(stored()).toBeNull();
+  });
+
+  test('«Изменить привязку» — начать с прежней, вместе с опорными точками', async () => {
+    const previous = {
+      anchor_wgs84: { lat: 55.7203, lon: 37.6089 },
+      anchor_drawing: { x: 30, y: 8.5 },
+      rotation_deg: 12,
+      scale: 1.01,
+      method: 'control_points',
+      rms_m: 0.1,
+      control_points: [
+        {
+          label: '1',
+          drawing: { x: 0, y: -3 },
+          wgs84: { lat: 55.72, lon: 37.608 },
+          residual_m: 0.1,
+          used: true,
+        },
+        {
+          label: '2',
+          drawing: { x: 60, y: 20 },
+          wgs84: { lat: 55.7205, lon: 37.6098 },
+          residual_m: 0.1,
+          used: false,
+        },
+      ],
+    };
+    // eslint-disable-next-line no-restricted-properties -- прежняя привязка проекта
+    window.localStorage.setItem(KEY, JSON.stringify({ finishedAt: null, georeference: previous }));
+    renderProjectMode();
+    await opened();
+
+    expect(anchorOf()).toEqual(previous.anchor_wgs84);
+    expect([session?.rotation, session?.scale]).toEqual([12, 1.01]);
+    expect(session?.gcp.map(({ n, x, y, control }) => ({ n, x, y, control }))).toEqual([
+      { n: 1, x: 0, y: -3, control: false },
+      { n: 2, x: 60, y: 20, control: true },
+    ]);
+  });
+
+  test('некорректный идентификатор проекта — «Страница не найдена»', async () => {
+    renderProjectMode('не-проект');
+
+    expect(await screen.findByRole('heading', { name: 'Страница не найдена' })).toBeInTheDocument();
+  });
+
+  test('после режима проекта модуль без проекта начинает с пустого контура', async () => {
+    renderProjectMode();
+    await opened();
+    await userEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Модуль геопривязки' }));
+
+    await waitFor(() => {
+      expect(session?.source).toBeNull();
+    });
+    expect(georeferenceActions().at(-1)).toBe('projectClosed');
   });
 });

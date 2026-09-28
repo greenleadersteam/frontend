@@ -7,7 +7,9 @@ import {
   GEOREFERENCE_CONFIDENCE_LABELS,
   isProjectId,
   lawnArea,
+  type ManualGeoreference,
   obstacleLabel,
+  placementOfGeoreference,
   PLANT_TYPE_LABELS,
   prohibitedArea,
   type Project,
@@ -15,11 +17,14 @@ import {
   useProjectWithPolling,
 } from '@/entities/project';
 import { EditsLoadAlert, useEditsLoader, usePlantingEdits } from '@/features/edit-plantings';
+import { useBrowserGeoreference } from '@/features/georeference-project';
 import { describeAppError, toAppError } from '@/shared/api';
 import { currentDataSource, PRODUCT_NAME, projectPath } from '@/shared/config';
 import {
+  formatCoordinate,
   formatCount,
   formatDateTime,
+  formatDrawingCoordinate,
   formatMeters,
   formatNumber,
   formatSquareMeters,
@@ -41,9 +46,11 @@ import {
   editedResult,
   type LoadedResult,
   plantingChecks,
+  resultBase,
   useResultData,
 } from '../model/result';
 import { CROWN_NOTE } from './check-item';
+import { manualMethod, manualParameters, serverManualMethod } from './manual-georeference';
 import { normReference } from './norm-reference';
 import { editsLine } from './planting-register';
 import classes from './report-page.module.css';
@@ -115,6 +122,10 @@ type ReportProps = { project: Project; result: LoadedResult };
 function Report({ project, result }: ReportProps): JSX.Element {
   useEditsLoader(project, result.data.planting);
   const edits = usePlantingEdits(project.id, result.data.planting);
+  // Ручная привязка из этого браузера кладёт план отчёта на подложку города.
+  const stored = useBrowserGeoreference(project);
+  const manual = stored.kind === 'current' ? stored.georeference : null;
+  const base = resultBase(result, manual === null ? null : placementOfGeoreference(manual));
   const [allPlantings, setAllPlantings] = useState(false);
   const demo = currentDataSource() === 'demo';
   const [generatedAt] = useState(() => new Date().toISOString());
@@ -138,11 +149,10 @@ function Report({ project, result }: ReportProps): JSX.Element {
       </Stack>
     );
   }
-  const computed = editedResult(result, edits);
-
-  if (computed === null) {
+  if (base === null) {
     return <Text>В результате обработки нет посадок и зон запрета.</Text>;
   }
+  const computed = editedResult(base, edits);
   const species = new Map(result.species.map((item) => [item.id, item]));
   const plantings = reportPlantings({
     planting: computed.edited.planting,
@@ -259,7 +269,7 @@ function Report({ project, result }: ReportProps): JSX.Element {
       </section>
 
       <NotChecked uncovered={computed.edited.zones.metadata.uncovered_categories} />
-      <Georeference project={project} />
+      <Georeference project={project} manual={manual} />
     </article>
   );
 }
@@ -493,9 +503,9 @@ function NotChecked({ uncovered }: NotCheckedProps): JSX.Element {
   );
 }
 
-type GeoreferenceProps = { project: Project };
+type GeoreferenceProps = { project: Project; manual: ManualGeoreference | null };
 
-function Georeference({ project }: GeoreferenceProps): JSX.Element {
+function Georeference({ project, manual }: GeoreferenceProps): JSX.Element {
   const georeference = project.job.georeference ?? null;
   const residuals = Object.entries(georeference?.residuals_m ?? {});
   return (
@@ -503,18 +513,92 @@ function Georeference({ project }: GeoreferenceProps): JSX.Element {
       <Title order={2} id="report-georeference">
         Геопривязка
       </Title>
-      {georeference === null ? (
+      {manual !== null ? (
+        <>
+          <Text>
+            {`Способ: вручную в браузере${manual.method === 'control_points' ? `, ${manualMethod(manual)}` : ''}. Привязка задана в модуле геопривязки и на сервер не передавалась: она кладёт план на карту города, а проверки норм, ведомость и слой DXF — в координатах чертежа.`}
+          </Text>
+          <Table className={classes.table}>
+            <Table.Tbody>
+              {manualParameters(manual).map(([label, value]) => (
+                <Table.Tr key={label} className={classes.row}>
+                  <Table.Th scope="row">{label}</Table.Th>
+                  <Table.Td className={classes.numbers}>{value}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+          {manual.control_points.length > 0 && (
+            <Table className={classes.table}>
+              <Table.Thead className={classes.head}>
+                <Table.Tr>
+                  <Table.Th scope="col">№</Table.Th>
+                  <Table.Th scope="col">X чертежа, м</Table.Th>
+                  <Table.Th scope="col">Y чертежа, м</Table.Th>
+                  <Table.Th scope="col">Широта</Table.Th>
+                  <Table.Th scope="col">Долгота</Table.Th>
+                  <Table.Th scope="col">Невязка</Table.Th>
+                  <Table.Th scope="col">Роль</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {manual.control_points.map((point, index) => (
+                  // У точки привязки нет идентификатора: пара координат и есть точка.
+                  <Table.Tr
+                    key={[
+                      point.drawing.x,
+                      point.drawing.y,
+                      point.wgs84.lat,
+                      point.wgs84.lon,
+                    ].join()}
+                    className={classes.row}
+                  >
+                    <Table.Td className={classes.numbers}>
+                      {point.label ?? String(index + 1)}
+                    </Table.Td>
+                    <Table.Td className={classes.numbers}>
+                      {formatDrawingCoordinate(point.drawing.x)}
+                    </Table.Td>
+                    <Table.Td className={classes.numbers}>
+                      {formatDrawingCoordinate(point.drawing.y)}
+                    </Table.Td>
+                    <Table.Td className={classes.numbers}>
+                      {formatCoordinate(point.wgs84.lat)}
+                    </Table.Td>
+                    <Table.Td className={classes.numbers}>
+                      {formatCoordinate(point.wgs84.lon)}
+                    </Table.Td>
+                    <Table.Td className={classes.numbers}>
+                      {formatMeters(point.residual_m)}
+                    </Table.Td>
+                    <Table.Td>{point.used ? 'Опорная' : 'Контрольная'}</Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          )}
+        </>
+      ) : georeference === null ? (
         <Text>
           Без геопривязки: план построен в координатах чертежа, расстояния — в метрах чертежа.
         </Text>
       ) : (
         <>
-          <Text>
-            {`Способ: по геодезическим пунктам чертежа и каталогу пунктов, привязка ${GEOREFERENCE_CONFIDENCE_LABELS[georeference.confidence] ?? 'без оценки'}.`}
-          </Text>
-          <Text className={classes.numbers}>
-            {`Совпало пунктов: ${formatNumber(georeference.matched_labels.length)}.`}
-          </Text>
+          {georeference.confidence === 'manual' ? (
+            // Привязка из модуля геопривязки, применённая сервером: параметров сервер не возвращает.
+            <Text>
+              {`Способ: вручную в модуле геопривязки${residuals.length === 0 ? '' : `, ${serverManualMethod(residuals.map(([, value]) => value))}`}; привязку применил сервер. Опорную точку, поворот и масштаб сервер не возвращает.`}
+            </Text>
+          ) : (
+            <>
+              <Text>
+                {`Способ: по геодезическим пунктам чертежа и каталогу пунктов, привязка ${GEOREFERENCE_CONFIDENCE_LABELS[georeference.confidence] ?? 'без оценки'}.`}
+              </Text>
+              <Text className={classes.numbers}>
+                {`Совпало пунктов: ${formatNumber(georeference.matched_labels.length)}.`}
+              </Text>
+            </>
+          )}
           {residuals.length > 0 && (
             <Table className={classes.table}>
               <Table.Thead className={classes.head}>

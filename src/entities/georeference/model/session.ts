@@ -45,6 +45,9 @@ type Snapshot = {
 export type StoredReference = Reference & { id: string; seq: number; visible: boolean };
 
 export type Session = Snapshot & {
+  // Контур — граница участка проекта (режим проекта модуля); null — контур из файла или его нет.
+  // Вне истории: отмена не превращает контур проекта в чужой файл.
+  projectId: string | null;
   // Знаменатель масштаба работ для допуска.
   workScale: WorkScale;
   // Эталоны живут вне истории отмены: это не привязка, а отпечатки для сравнения, и откатывать их
@@ -57,6 +60,7 @@ export type Session = Snapshot & {
 };
 
 export const createSession = (): Session => ({
+  projectId: null,
   source: null,
   anchor: null,
   rotation: 0,
@@ -132,6 +136,7 @@ export function redo(s: Session): Session {
 export function loadContour(s: Session, source: Contour, anchor: LatLon): Session {
   return {
     ...snapshot(s),
+    projectId: null,
     source,
     anchor: { lat: anchor.lat, lon: anchor.lon },
     rotation: 0,
@@ -143,12 +148,54 @@ export function loadContour(s: Session, source: Contour, anchor: LatLon): Sessio
   };
 }
 
-export const clearContour = (s: Session): Session => ({
-  ...snapshot(s),
-  source: null,
-  anchor: null,
-  rotation: 0,
-  scale: 1,
+// Точка привязки проекта, сохранённая раньше: control — контрольная, не участвует в подгонке.
+export type ProjectPair = { x: number; y: number; lat: number; lon: number; control: boolean };
+
+export type OpenedProject = {
+  projectId: string;
+  contour: Contour;
+  anchor: LatLon;
+  rotation: number;
+  scale: number;
+  gcp: readonly ProjectPair[];
+};
+
+// Контур проекта открывается в новой сессии без истории: первая отмена не должна убирать его —
+// другого контура в режиме проекта нет. Эталоны и масштаб работ остаются: это не привязка.
+export function openProject(s: Session, project: OpenedProject): Session {
+  return {
+    ...createSession(),
+    workScale: s.workScale,
+    references: s.references,
+    referenceSeq: s.referenceSeq,
+    projectId: project.projectId,
+    source: project.contour,
+    anchor: { lat: project.anchor.lat, lon: project.anchor.lon },
+    rotation: project.rotation,
+    scale: project.scale,
+    // Контур проекта — в метрах чертежа: вопрос про миллиметры к нему не относится.
+    unitsConfirmed: true,
+    gcp: project.gcp.map((pair, index) => ({
+      id: `gcp-${String(index + 1)}`,
+      n: index + 1,
+      x: pair.x,
+      y: pair.y,
+      lat: pair.lat,
+      lon: pair.lon,
+      kind: 'vertex',
+      enabled: true,
+      control: pair.control,
+    })),
+    gcpSeq: project.gcp.length,
+  };
+}
+
+// Выход из режима проекта: контур проекта не остаётся в модуле для файлов.
+export const closeProject = (s: Session): Session => ({
+  ...createSession(),
+  workScale: s.workScale,
+  references: s.references,
+  referenceSeq: s.referenceSeq,
 });
 
 // Снимок в историю берёт вызывающая сторона.
@@ -207,8 +254,6 @@ export const removeGcp = (s: Session, id: string): Session => ({
   ...s,
   gcp: s.gcp.filter((p) => p.id !== id),
 });
-
-export const clearGcp = (s: Session): Session => ({ ...s, gcp: [] });
 
 // Пересчитать контур по точкам. Вызывается после каждой правки набора.
 //

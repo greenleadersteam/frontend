@@ -24,6 +24,8 @@ import { useAppDispatch, useAppSelector } from '@/shared/lib/store';
 export type PendingReference = { fileName: string; value: unknown; created: string | null };
 
 type ContourFilesOptions = {
+  // false — контур уже задан (граница участка проекта): файлы открываются только эталонами.
+  contourAllowed: boolean;
   // Куда поставить опорную точку нового контура — центр карты.
   anchor: () => LatLon | null;
   // Положение нового контура: опорная точка в центре карты, без поворота, масштаб 1.
@@ -34,7 +36,7 @@ type SourceFile = { name: string; text: () => Promise<string> };
 
 // Открытие файлов: кнопкой, перетаскиванием и примером. Файлов может быть несколько: первый
 // с полигонами становится контуром, собственные выгрузки предлагаются эталонами.
-export function useContourFiles({ anchor, onLoaded }: ContourFilesOptions) {
+export function useContourFiles({ contourAllowed, anchor, onLoaded }: ContourFilesOptions) {
   const dispatch = useAppDispatch();
   const session = useAppSelector(selectGeoreference);
   const [pending, setPending] = useState<PendingReference[]>([]);
@@ -73,6 +75,12 @@ export function useContourFiles({ anchor, onLoaded }: ContourFilesOptions) {
       }
       if (read.result !== null) {
         references.push({ fileName: file.name, value: read.value, created: read.result.created });
+        continue;
+      }
+      if (!contourAllowed) {
+        notifications.show({
+          message: `Файл «${file.name}» не открыт: контур здесь — граница участка проекта. Эталоном открывается только выгрузка привязки.`,
+        });
         continue;
       }
       const parsed = buildContour(read.value, file.name);

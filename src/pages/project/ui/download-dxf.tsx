@@ -16,7 +16,7 @@ import { formatMeters } from '@/shared/lib/format';
 import { saveFile } from '@/shared/lib/save-file';
 
 import { type EditedDxf, editedDxf } from '../model/edited-dxf';
-import { editedResult, type LoadedResult, useResultData } from '../model/result';
+import { editedResult, type LoadedResult, resultBase, useResultData } from '../model/result';
 import classes from './project-header.module.css';
 
 type DownloadDxfProps = { project: Project };
@@ -79,8 +79,10 @@ function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Ele
 
   // Слой собирается по щелчку: расчёт статусов и подгонка не нужны при каждом рендере шапки.
   const downloadLayer = () => {
-    const computed = editedResult(result, edits);
-    const layer = computed === null ? ({ kind: 'insufficient' } as const) : editedDxf(computed);
+    // Слой — в координатах чертежа: ручная привязка карты его не касается.
+    const base = resultBase(result, null);
+    const layer =
+      base === null ? ({ kind: 'insufficient' } as const) : editedDxf(editedResult(base, edits));
     if (layer.kind !== 'ready') {
       notifications.show({ color: 'clay', message: failureText(layer) });
       return;

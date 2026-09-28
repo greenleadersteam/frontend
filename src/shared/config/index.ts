@@ -4,6 +4,7 @@ export type { DataSource } from './data-source';
 export { currentDataSource, switchDataSource, unregisterMockWorker } from './data-source';
 export {
   FOCUS_PROJECTS_HEADING,
+  georeferenceProjectPath,
   isFocusProjectsHeading,
   paths,
   projectPath,

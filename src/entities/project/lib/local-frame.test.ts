@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
+import { enuToGeodetic } from '@/shared/lib/geodesy';
+import { placementTransform } from '@/shared/lib/georeference';
+
 import { createLocalFrame } from './local-frame';
 
 const R = 6_378_137;
@@ -72,4 +75,54 @@ test('обратные преобразования: карта → локаль
     expect(back[0]).toBeCloseTo(data[0] ?? NaN, 9);
     expect(back[1]).toBeCloseTo(data[1] ?? NaN, 9);
   }
+});
+
+describe('ручная привязка', () => {
+  // Охват «Олимпийского» — около 2 × 1,8 км; опорная точка — в стороне от центра охвата,
+  // как у привязки по границе участка.
+  const extent = { minX: -3200, minY: -300, maxX: -1200, maxY: 1500 };
+  const placement = {
+    source: { center: { x: -2074.65, y: 825.5 } },
+    anchor: { lat: 55.743, lon: 37.628 },
+    rotation: -17.3,
+    scale: 1.02,
+  };
+  const frame = createLocalFrame(extent, false, placement);
+  const plain = createLocalFrame(extent, false);
+  const grid = Array.from({ length: 11 }, (_, i) =>
+    Array.from({ length: 11 }, (_, j) => [-3200 + i * 200, -300 + j * 180]),
+  ).flat();
+
+  test('туда и обратно точнее 1 мм на всём охвате участка', () => {
+    let worst = 0;
+    for (const point of grid) {
+      const [x = 0, y = 0] = point;
+      const [bx, by] = frame.toData(frame.fromMap(frame.toMap(frame.toLocal(point))));
+      worst = Math.max(worst, Math.hypot(bx - x, by - y));
+    }
+    expect(worst).toBeLessThan(1e-3);
+  });
+
+  test('на карту — путём модуля геопривязки; расчётные метры — метры чертежа, как без привязки', () => {
+    const { toLatLon } = placementTransform(placement);
+    for (const point of grid) {
+      const [x = 0, y = 0] = point;
+      const { lat, lon } = toLatLon({ x, y });
+      expect(frame.toMap(frame.toLocal(point))).toEqual([lon, lat]);
+      expect(frame.toLocal(point)).toEqual(plain.toLocal(point));
+    }
+    expect(frame.onCity).toBe(true);
+    expect(frame.geographic).toBe(false);
+  });
+
+  // Правка: курсор сдвинулся на d метров местности — посадка сдвигается на d / масштаб метров
+  // чертежа, в ту же сторону на местности.
+  test('сдвиг курсора на карте — сдвиг в метрах чертежа, делённый на масштаб привязки', () => {
+    const start = frame.toMap([100, 50]);
+    const from = { lat: start[1], lon: start[0] };
+    const east = enuToGeodetic({ e: 14, n: 0, u: 0 }, from);
+    const [x0, y0] = frame.fromMap(start);
+    const [x1, y1] = frame.fromMap([east.lon, east.lat]);
+    expect(Math.hypot(x1 - x0, y1 - y0)).toBeCloseTo(14 / 1.02, 5);
+  });
 });

@@ -2,7 +2,16 @@ import { ActionIcon, Popover, Skeleton } from '@mantine/core';
 import { useElementSize, useMediaQuery, useWindowEvent } from '@mantine/hooks';
 import { IconStack2 } from '@tabler/icons-react';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
-import { type JSX, lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react';
+import {
+  type JSX,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   allowedArea,
@@ -72,8 +81,6 @@ const NARROW_QUERY = '(max-width: 56.25em)';
 // Поля вписывания в пикселях: от края карты до участка, справа — место под кнопки масштаба.
 const FIT_GAP_PX = 32;
 const ZOOM_CONTROLS_PX = 72;
-const DRAWING_NOTE = 'Координаты чертежа, без привязки к городу';
-const OUTSIDE_BASEMAP_NOTE = 'Участок за пределами карты Москвы, подложки нет';
 // Линию сети толщиной 1,5px трудно попасть курсором: щелчок ищет объект в квадрате вокруг.
 const OBSTACLE_HIT_PX = 4;
 
@@ -117,8 +124,11 @@ type ResultMapProps = {
   species: ReadonlyMap<string, Species>;
   // Отклонённые места (возможность rejected); null — сервер их не отдаёт.
   rejected: RejectedSitesFeatureCollection | null;
-  // Подложка есть только у проекта с геопривязкой в пределах карты Москвы.
+  // Подложка есть только у плана на карте города (геопривязка сервера или ручная) в пределах
+  // карты Москвы.
   basemap: boolean;
+  // Подпись в углу карты вместо атрибуции подложки.
+  note: ReactNode;
   selection: Selection;
   onSelect: (selection: Selection) => void;
   centerRequest: CenterRequest | null;
@@ -143,6 +153,7 @@ export function ResultMap({
   species,
   rejected,
   basemap,
+  note,
   selection,
   onSelect,
   centerRequest,
@@ -593,7 +604,13 @@ export function ResultMap({
           data.zones.metadata.used_site_boundary,
         )
       : null;
-  const [lon, lat] = selectedPlanting?.geometry.coordinates ?? [];
+  // Широта и долгота — у плана на карте города: у ручной привязки — по ней.
+  const [lon, lat] =
+    selectedPlanting === undefined || !frame.onCity
+      ? []
+      : geographic
+        ? selectedPlanting.geometry.coordinates
+        : frame.toMap(frame.toLocal(selectedPlanting.geometry.coordinates));
   // Правка выбранной посадки: статус, на сколько перемещена, пересекаются ли кроны.
   const selectedLocal =
     selectedPlanting === undefined ? null : frame.toLocal(selectedPlanting.geometry.coordinates);
@@ -653,7 +670,7 @@ export function ResultMap({
             plantingEditsActions.restored({ projectId, id: selectedPlanting.properties.id }),
           );
         }}
-        coordinates={geographic && lon !== undefined && lat !== undefined ? { lat, lon } : null}
+        coordinates={lon !== undefined && lat !== undefined ? { lat, lon } : null}
         checks={checks}
         uncovered={data.zones.metadata.uncovered_categories}
         usedSiteBoundary={data.zones.metadata.used_site_boundary}
@@ -774,7 +791,7 @@ export function ResultMap({
             label={resultLabel(data)}
             basemap={basemap}
             basemapVisible={visibility.basemap}
-            note={basemap ? undefined : geographic ? OUTSIDE_BASEMAP_NOTE : DRAWING_NOTE}
+            note={note}
             onReady={addResult}
             onBasemapResolved={setBasemapAvailable}
             onUnavailable={onUnavailable}

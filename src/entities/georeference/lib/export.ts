@@ -1,5 +1,3 @@
-import type { Unit } from '@/shared/lib/contour';
-import { UNITS } from '@/shared/lib/contour';
 import { enuFrame, fitSimilarity, toMercator, WGS84 } from '@/shared/lib/geodesy';
 import type { GcpPair, Placement, WorkScale } from '@/shared/lib/georeference';
 import {
@@ -384,29 +382,5 @@ export function toGeoJson(s: GeoreferenceState, date: Date): ExportResult<string
       null,
       2,
     ),
-  };
-}
-
-// Что показать в панели после выгрузки.
-export function exportSummary({ source, scale }: Pick<Placement, 'source' | 'scale'>): {
-  points: number;
-  scale: number;
-  width: number;
-  height: number;
-  unit: Unit | null;
-  suspicious: boolean;
-} {
-  const size = sizeOnMap({ source, scale });
-  let known: Unit | null = null;
-  for (const u of UNITS) {
-    if (u.scale !== null && Math.abs(scale - u.scale) < u.scale * 1e-6) known = u;
-  }
-  return {
-    points: source.counts.vertices,
-    scale,
-    width: size.width,
-    height: size.height,
-    unit: known,
-    suspicious: Math.abs(Math.log10(scale)) > 0.02,
   };
 }

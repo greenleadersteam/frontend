@@ -20,9 +20,19 @@ import {
 } from '@tabler/icons-react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { type JSX, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 
-import { georeferenceActions, placementOf, selectGeoreference } from '@/entities/georeference';
-import { getRuntimeConfig, PRODUCT_NAME } from '@/shared/config';
+import {
+  georeferenceActions,
+  georeferenceReducer,
+  placementOf,
+  projectGeoreference,
+  selectGeoreference,
+} from '@/entities/georeference';
+import { isProjectId } from '@/entities/project';
+import { useApplyGeoreference } from '@/features/georeference-project';
+import { describeAppError } from '@/shared/api';
+import { getRuntimeConfig, PRODUCT_NAME, projectPath } from '@/shared/config';
 import { isLocked, isOutlier, stats as gcpStats } from '@/shared/lib/georeference';
 import { useAppDispatch, useAppSelector } from '@/shared/lib/store';
 import {
@@ -33,7 +43,7 @@ import {
   watchBasemap,
 } from '@/shared/map';
 import { PANELS_BREAKPOINT } from '@/shared/theme';
-import { Icon } from '@/shared/ui';
+import { Icon, NotFoundScreen } from '@/shared/ui';
 
 import { BindingPanel } from './binding-panel';
 import { CompareSection } from './compare-section';
@@ -42,12 +52,14 @@ import { ContourPanel, GEOJSON_ACCEPT } from './contour-panel';
 import { ExportMenu } from './export-menu';
 import { GcpSection, type VectorScale } from './gcp-section';
 import classes from './georeference-page.module.css';
+import { ProjectGeoreference, type ProjectMode } from './project-georeference';
 import { ResidualsTable } from './residuals-table';
 import { StatusBar } from './status-bar';
 import { useContourFiles } from './use-contour-files';
 import { useContourMap } from './use-contour-map';
 import { type PendingPoint, useGcpMap } from './use-gcp-map';
 import { useGeoreferenceKeys } from './use-georeference-keys';
+import { useProjectOverlay } from './use-project-overlay';
 
 // Начальный вид — центр Москвы: контур встаёт в центр карты, и его двигают к месту.
 const START_BOUNDS: [number, number, number, number] = [37.56, 55.73, 37.68, 55.77];
@@ -55,9 +67,35 @@ const MAP_PADDING = { top: 24, right: 24, bottom: 24, left: 24 };
 
 type Drawer = 'contour' | 'binding' | null;
 
+const EMPTY_SESSION = georeferenceReducer(undefined, { type: 'georeference/empty' });
+
+// Модуль открывается сам по себе — контур из файла — или из проекта: ?project=<id>.
 export function GeoreferencePage(): JSX.Element {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project');
+  if (projectId === null) return <GeoreferenceWorkspace project={null} />;
+  // Параметр адреса — внешние данные: проверяется, прежде чем уйти в запрос.
+  if (!isProjectId(projectId)) return <NotFoundScreen />;
+  return (
+    <ProjectGeoreference key={projectId} id={projectId}>
+      {(mode) => <GeoreferenceWorkspace project={mode} />}
+    </ProjectGeoreference>
+  );
+}
+
+type GeoreferenceWorkspaceProps = {
+  // null — контур из файла; иначе — граница участка проекта и её прежняя привязка.
+  project: ProjectMode | null;
+};
+
+function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Element {
   const dispatch = useAppDispatch();
-  const session = useAppSelector(selectGeoreference);
+  const navigate = useNavigate();
+  const current = useAppSelector(selectGeoreference);
+  // Сессия живёт в store приложения и переживает экран. Пока в ней контур не этого экрана
+  // (файл из прошлого раза или другой проект, а карта ещё не готова открыть проект), экран её не
+  // видит: иначе «Применить к проекту» и выгрузка взяли бы чужой контур.
+  const session = current.projectId === (project?.project.id ?? null) ? current : EMPTY_SESSION;
   const placement = placementOf(session);
   const { imagery } = getRuntimeConfig();
   const options = basemapOptions(imagery);
@@ -79,6 +117,11 @@ export function GeoreferencePage(): JSX.Element {
   // Множитель векторов невязок; ×50, как в прототипе.
   const [vectorScale, setVectorScale] = useState<VectorScale>(50);
   const [residualsOpen, setResidualsOpen] = useState(true);
+  const [planVisible, setPlanVisible] = useState(true);
+  const { apply, applying } = useApplyGeoreference();
+  // Контур проекта ставится в сессию один раз на открытие экрана — и когда в сессии остался тот же
+  // проект с прошлого раза: начинать надо с сохранённой привязки, а не с брошенной правки.
+  const openedRef = useRef(false);
 
   const locked = isLocked(session.gcp);
   const statistics =
@@ -98,6 +141,13 @@ export function GeoreferencePage(): JSX.Element {
     movable: !gcpActive && !locked,
     readout,
   });
+  // До useGcpMap: слои плана ложатся под слои опорных точек и эталонов.
+  useProjectOverlay({
+    map,
+    overlay: project?.overlay ?? null,
+    placement,
+    visible: planVisible,
+  });
   useGcpMap({
     map,
     placement,
@@ -113,6 +163,8 @@ export function GeoreferencePage(): JSX.Element {
     onHot: setHot,
   });
   const files = useContourFiles({
+    // В режиме проекта контур — граница участка проекта: файлы открываются только эталонами.
+    contourAllowed: project === null,
     anchor: () => {
       if (map === null) return null;
       const { lat, lng } = map.getCenter();
@@ -127,7 +179,9 @@ export function GeoreferencePage(): JSX.Element {
   });
   useGeoreferenceKeys({
     map,
-    enabled: files.pendingReference === null && !(narrow && drawer !== null),
+    // Пока экран не видит сессию (режим проекта до готовой карты), отмена не трогает чужой контур.
+    enabled:
+      session !== EMPTY_SESSION && files.pendingReference === null && !(narrow && drawer !== null),
     contourLoaded: placement !== null && !locked,
   });
 
@@ -137,6 +191,68 @@ export function GeoreferencePage(): JSX.Element {
     if (pending !== null) setPending(null);
     else setGcpActive(false);
   });
+
+  // Сессия модуля живёт в store приложения: в режиме проекта она получает контур проекта, когда
+  // готова карта (без привязки контур встаёт в её центр), а вне его контур проекта не остаётся.
+  useEffect(() => {
+    if (project === null) {
+      if (current.projectId !== null) dispatch(georeferenceActions.projectClosed());
+      return;
+    }
+    if (map === null || openedRef.current) return;
+    openedRef.current = true;
+    const center = map.getCenter();
+    const { start, contour } = project;
+    const opened = {
+      source: contour,
+      anchor: start?.anchor ?? { lat: center.lat, lon: center.lng },
+      rotation: start?.rotation ?? 0,
+      scale: start?.scale ?? 1,
+    };
+    dispatch(
+      georeferenceActions.projectOpened({
+        projectId: project.project.id,
+        contour,
+        anchor: opened.anchor,
+        rotation: opened.rotation,
+        scale: opened.scale,
+        gcp: start?.gcp ?? [],
+      }),
+    );
+    fit(opened);
+  }, [map, project, current.projectId, dispatch, fit]);
+
+  // Применить к проекту: с возможностью manualGeoreference привязка уходит на сервер и проект
+  // обрабатывается заново, иначе — в браузер. В обоих случаях — назад к проекту.
+  const applyToProject = async () => {
+    if (project === null || placement === null) return;
+    const outcome = await apply(
+      project.project,
+      projectGeoreference(placement, session.gcp, session.workScale),
+    );
+    switch (outcome.kind) {
+      case 'browser':
+        notifications.show({ message: 'Привязка применена' });
+        break;
+      case 'server':
+        notifications.show({ message: 'Привязка отправлена: проект обрабатывается заново' });
+        break;
+      case 'failed':
+        notifications.show({
+          color: 'clay',
+          message:
+            outcome.error === null
+              ? 'Браузер не дал сохранить привязку. Разрешите сайту хранить данные и примените привязку снова.'
+              : describeAppError(outcome.error),
+        });
+        return;
+      default: {
+        const unexpected: never = outcome;
+        return unexpected;
+      }
+    }
+    void navigate(projectPath(project.project.id));
+  };
 
   // Подложка не отвечает — сообщение с названием источника: ни одного тайла за три секунды.
   useEffect(() => {
@@ -154,6 +270,12 @@ export function GeoreferencePage(): JSX.Element {
 
   const contourPanel = (
     <ContourPanel
+      project={
+        project === null
+          ? null
+          : { name: project.project.name, origin: project.origin, planVisible }
+      }
+      onPlanVisible={setPlanVisible}
       session={session}
       fillOpacity={fillOpacity}
       onFillOpacity={setFillOpacity}
@@ -189,14 +311,38 @@ export function GeoreferencePage(): JSX.Element {
       )}
       <CompareSection placement={placement} references={session.references} />
       <ExportMenu placement={placement} gcp={session.gcp} workScale={session.workScale} />
+      {project !== null && (
+        <Group gap="sm">
+          <Button
+            loading={applying}
+            disabled={placement === null}
+            onClick={() => void applyToProject()}
+          >
+            Применить к проекту
+          </Button>
+          <Button
+            variant="default"
+            disabled={applying}
+            onClick={() => void navigate(projectPath(project.project.id))}
+          >
+            Отмена
+          </Button>
+        </Group>
+      )}
     </BindingPanel>
   );
 
   return (
     <div className={classes.page}>
-      <title>{`Геопривязка — ${PRODUCT_NAME}`}</title>
+      <title>
+        {project === null
+          ? `Геопривязка — ${PRODUCT_NAME}`
+          : `Геопривязка — ${project.project.name} — ${PRODUCT_NAME}`}
+      </title>
       <VisuallyHidden>
-        <h1>Геопривязка</h1>
+        <h1>
+          {project === null ? 'Геопривязка' : `Геопривязка проекта «${project.project.name}»`}
+        </h1>
       </VisuallyHidden>
 
       {!narrow && <aside className={classes.panel}>{contourPanel}</aside>}
@@ -290,7 +436,8 @@ export function GeoreferencePage(): JSX.Element {
                 </Stack>
               </div>
             ) : (
-              placement === null && (
+              placement === null &&
+              project === null && (
                 <div className={classes.empty}>
                   <Stack gap="sm">
                     <Text fw={600}>
@@ -377,7 +524,11 @@ export function GeoreferencePage(): JSX.Element {
         multiple
         onDrop={(dropped) => void files.open(dropped)}
       >
-        <div className={classes.fullscreenDrop}>Отпустите файл, чтобы открыть контур</div>
+        <div className={classes.fullscreenDrop}>
+          {project === null
+            ? 'Отпустите файл, чтобы открыть контур'
+            : 'Отпустите выгрузку привязки, чтобы открыть её эталоном'}
+        </div>
       </Dropzone.FullScreen>
 
       <Modal

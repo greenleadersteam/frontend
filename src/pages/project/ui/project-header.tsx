@@ -15,9 +15,11 @@ import {
 } from '@/entities/project';
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
 import { EditModeButton } from '@/features/edit-plantings';
+import { removeBrowserGeoreference, useBrowserGeoreference } from '@/features/georeference-project';
 import { describeAppError } from '@/shared/api';
 import {
   FOCUS_PROJECTS_HEADING,
+  georeferenceProjectPath,
   paths,
   projectReportPath,
   projectUploadPath,
@@ -27,6 +29,7 @@ import { formatCount, formatDuration, formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
 import { DownloadDxf } from './download-dxf';
+import { manualMethod, manualParameters, serverManualMethod } from './manual-georeference';
 import classes from './project-header.module.css';
 
 type ProjectHeaderProps = {
@@ -62,9 +65,7 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
             {duration !== null && (
               <Text size="sm" c="dimmed">{`обработано за ${formatDuration(duration)}`}</Text>
             )}
-            {state.kind === 'ready' && (
-              <GeoreferenceButton georeference={job.georeference ?? null} />
-            )}
+            {state.kind === 'ready' && <GeoreferenceButton project={project} />}
           </Group>
           {project.description !== null && <Text c="dimmed">{project.description}</Text>}
         </Stack>
@@ -79,9 +80,7 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
   );
 }
 
-type Georeference = NonNullable<Project['job']['georeference']>;
-
-type GeoreferenceButtonProps = { georeference: Georeference | null };
+type GeoreferenceButtonProps = { project: Project };
 
 // Список невязок по точкам показывается, пока он читается глазами.
 const RESIDUALS_LIST_LIMIT = 20;
@@ -90,30 +89,95 @@ const RESIDUALS_LIST_LIMIT = 20;
 const RESIDUAL_LIMIT_M = 1;
 const POINT_FORMS = { one: 'опорная точка', few: 'опорные точки', many: 'опорных точек' };
 
-function GeoreferenceButton({ georeference }: GeoreferenceButtonProps): JSX.Element {
+// Геопривязка сервера, ручная привязка из этого браузера или её отсутствие. Кнопка одна на все
+// случаи: снятая привязка меняет подпись, а фокус возвращается на ту же кнопку.
+function GeoreferenceButton({ project }: GeoreferenceButtonProps): JSX.Element {
+  const georeference = project.job.georeference ?? null;
+  const stored = useBrowserGeoreference(project);
+  const manual = stored.kind === 'current' ? stored.georeference : null;
+  const [opened, setOpened] = useState(false);
   const confidence =
     georeference === null ? null : GEOREFERENCE_CONFIDENCE_LABELS[georeference.confidence];
   const residuals = Object.entries(georeference?.residuals_m ?? {});
   const values = residuals.map(([, value]) => value);
+  // Привязка из модуля, применённая сервером: геодезических пунктов у неё нет.
+  const serverManual = georeference?.confidence === 'manual';
 
   return (
-    <Popover position="bottom-start" shadow="md">
+    <Popover position="bottom-start" shadow="md" opened={opened} onChange={setOpened} returnFocus>
       <Popover.Target>
-        <Button variant="subtle" size="compact-sm">
-          {georeference === null ? 'Без геопривязки' : `Геопривязка: ${confidence ?? 'есть'}`}
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          onClick={() => {
+            setOpened(!opened);
+          }}
+        >
+          {manual !== null
+            ? `Геопривязка: ${manualMethod(manual)}`
+            : georeference === null
+              ? 'Без геопривязки'
+              : `Геопривязка: ${serverManual ? serverManualMethod(values) : (confidence ?? 'есть')}`}
         </Button>
       </Popover.Target>
       <Popover.Dropdown className={classes.georeference}>
-        {georeference === null ? (
+        {manual !== null ? (
+          <Stack gap="sm">
+            <Table className={classes.numbers}>
+              <Table.Tbody>
+                {manualParameters(manual).map(([label, value]) => (
+                  <Table.Tr key={label}>
+                    <Table.Th scope="row">{label}</Table.Th>
+                    <Table.Td>{value}</Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+            <Text size="sm" c="dimmed">
+              Привязка задана в модуле геопривязки и хранится только в этом браузере. Она кладёт
+              план на карту города; проверки норм, ведомость и слой DXF остаются в координатах
+              чертежа.
+            </Text>
+            <Group gap="sm">
+              <Button
+                component={Link}
+                to={georeferenceProjectPath(project.id)}
+                variant="default"
+                size="compact-md"
+              >
+                Изменить привязку
+              </Button>
+              <Button
+                variant="subtle"
+                color="clay"
+                size="compact-md"
+                onClick={() => {
+                  setOpened(false);
+                  removeBrowserGeoreference(project.id);
+                }}
+              >
+                Снять привязку
+              </Button>
+            </Group>
+          </Stack>
+        ) : georeference === null ? (
           <Text size="sm">
             Чертёж не привязан к городу: план показан в координатах чертежа, без подложки.
             Расстояния на плане — в метрах чертежа.
           </Text>
         ) : (
           <Stack gap="xs">
-            <Text size="sm" className={classes.numbers}>
-              {`Совпало: ${formatCount(georeference.matched_labels.length, POINT_FORMS)}`}
-            </Text>
+            {serverManual ? (
+              <Text size="sm">
+                Привязка задана в модуле геопривязки и применена сервером: она кладёт план на карту
+                города, а слой DXF — в координатах чертежа. Опорную точку, поворот и масштаб сервер
+                не возвращает, поэтому здесь их нет.
+              </Text>
+            ) : (
+              <Text size="sm" className={classes.numbers}>
+                {`Совпало: ${formatCount(georeference.matched_labels.length, POINT_FORMS)}`}
+              </Text>
+            )}
             {values.length > 0 && (
               <Text size="sm" className={classes.numbers}>
                 {`Невязка наибольшая ${formatMeters(Math.max(...values))}, средняя ${formatMeters(values.reduce((sum, value) => sum + value, 0) / values.length)}`}
@@ -139,9 +203,11 @@ function GeoreferenceButton({ georeference }: GeoreferenceButtonProps): JSX.Elem
             )}
             {/* Невязка — остаток подгонки поворота и сдвига по опорным точкам
                 (../backend/greenplan/cli.py:45-48). */}
-            <Text size="sm" c="dimmed">
-              {`Невязка — расхождение между опорной точкой чертежа после привязки и координатами этого геодезического пункта. При трёх и более точках сервер по умолчанию отклоняет привязку, если невязка больше ${formatMeters(RESIDUAL_LIMIT_M)}; при четырёх и более может отбросить одну точку, и в списке её нет.`}
-            </Text>
+            {!serverManual && (
+              <Text size="sm" c="dimmed">
+                {`Невязка — расхождение между опорной точкой чертежа после привязки и координатами этого геодезического пункта. При трёх и более точках сервер по умолчанию отклоняет привязку, если невязка больше ${formatMeters(RESIDUAL_LIMIT_M)}; при четырёх и более может отбросить одну точку, и в списке её нет.`}
+              </Text>
+            )}
             {georeference.confidence === 'unvalidated' && (
               <Text size="sm" c="dimmed">
                 По двум точкам привязка строится без запаса, поэтому невязки её не подтверждают.
@@ -163,6 +229,7 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
   const archive = archiveAction(project.state);
   const deletion = deleteAvailability(project, polling);
   const withEditedDxf = useCapability('editedDxf');
+  const stored = useBrowserGeoreference(project);
   const ready = project.state.kind === 'ready';
 
   // Пока файл скачивается, пункт недоступен: второй щелчок скачал бы его ещё раз.
@@ -194,6 +261,12 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
           {ready && (
             <Menu.Item component={Link} to={projectReportPath(project.id)}>
               Отчёт для согласования
+            </Menu.Item>
+          )}
+          {/* План в координатах чертежа: его можно положить на карту города. */}
+          {ready && project.job.georeference == null && stored.kind !== 'current' && (
+            <Menu.Item component={Link} to={georeferenceProjectPath(project.id)}>
+              Привязать к карте
             </Menu.Item>
           )}
           {/* С editedDxf «Скачать DXF» отдаёт результат с правками, исходный — отсюда. */}

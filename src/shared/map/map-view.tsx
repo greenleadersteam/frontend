@@ -50,8 +50,8 @@ type MapViewProps = {
   // Космоснимок из конфига контура; без него карта строится только со «Схемой».
   imagery?: ImageryConfig | null;
   maxZoom?: number;
-  // Тихая подпись в углу вместо атрибуции подложки.
-  note?: string;
+  // Тихая подпись в углу вместо атрибуции подложки; может нести тихую кнопку.
+  note?: ReactNode;
   // Стиль загружен: потребитель добавляет свои источники и слои.
   onReady: (map: MapLibreMap) => void;
   onBasemapResolved: (available: boolean) => void;
@@ -192,7 +192,7 @@ export function MapView({
       <div ref={containerRef} className={classes.map} />
       {children}
       {note !== undefined ? (
-        <Text size="xs" className={classes.note}>
+        <Text size="xs" component="div" className={classes.note}>
           {note}
         </Text>
       ) : (

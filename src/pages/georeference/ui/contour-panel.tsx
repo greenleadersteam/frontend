@@ -21,6 +21,7 @@ import { useAppDispatch } from '@/shared/lib/store';
 import { Icon } from '@/shared/ui';
 
 import { MAX_DRAWN_VERTICES } from '../lib/contour-geometry';
+import { CONTOUR_ORIGIN_TEXT, type ContourOrigin } from '../lib/project-contour';
 import classes from './georeference-page.module.css';
 import { Readout } from './readout';
 import { ReferenceSymbol } from './reference-symbol';
@@ -38,6 +39,9 @@ const unitOf = (scale: number) =>
     ?.id ?? OTHER_UNIT;
 
 type ContourPanelProps = {
+  // Режим проекта: контур — граница участка проекта, под ним — план проекта.
+  project: { name: string; origin: ContourOrigin; planVisible: boolean } | null;
+  onPlanVisible: (visible: boolean) => void;
   session: Session;
   fillOpacity: number;
   onFillOpacity: (value: number) => void;
@@ -55,6 +59,8 @@ type ContourPanelProps = {
 };
 
 export function ContourPanel({
+  project,
+  onPlanVisible,
   session,
   fillOpacity,
   onFillOpacity,
@@ -74,6 +80,19 @@ export function ContourPanel({
     source !== null && !session.unitsConfirmed && scale === 1 && !locked
       ? millimetreHint(source)
       : null;
+  // Файлы в режиме проекта — только эталоны: контур задан проектом.
+  const dropLabel =
+    project === null
+      ? {
+          aria: 'Открыть GeoJSON с границей участка',
+          title: 'Перетащите GeoJSON или выберите файл',
+          hint: 'Можно несколько файлов сразу',
+        }
+      : {
+          aria: 'Открыть эталон — выгрузку привязки',
+          title: 'Перетащите выгрузку привязки, чтобы открыть её эталоном',
+          hint: 'JSON или GeoJSON из этого модуля',
+        };
 
   return (
     <Stack gap="lg">
@@ -81,6 +100,15 @@ export function ContourPanel({
         <Title order={2} size="h3">
           Контур
         </Title>
+      )}
+
+      {project !== null && (
+        <Stack gap="xs">
+          <Text fw={600}>{project.name}</Text>
+          <Text size="sm" c="dimmed">
+            {CONTOUR_ORIGIN_TEXT[project.origin]}
+          </Text>
+        </Stack>
       )}
 
       <Stack gap="xs">
@@ -92,28 +120,32 @@ export function ContourPanel({
           className={classes.dropzone}
           // Зона фокусируется и открывает выбор файла по Enter и пробелу: для скринридера это кнопка.
           role="button"
-          aria-label="Открыть GeoJSON с границей участка"
+          aria-label={dropLabel.aria}
         >
           <Stack gap="xs" align="center" className={classes.dropzoneInner}>
             <Icon icon={IconFileUpload} />
             <Text size="sm" fw={600}>
-              Перетащите GeoJSON или выберите файл
+              {dropLabel.title}
             </Text>
             <Text size="xs" c="dimmed">
-              Можно несколько файлов сразу
+              {dropLabel.hint}
             </Text>
           </Stack>
         </Dropzone>
-        <Button variant="subtle" disabled={disabled} onClick={onExample}>
-          Открыть пример
-        </Button>
+        {project === null && (
+          <Button variant="subtle" disabled={disabled} onClick={onExample}>
+            Открыть пример
+          </Button>
+        )}
       </Stack>
 
       {source !== null && (
         <Stack gap="sm">
-          <Text fw={600} className={classes.fileName} title={source.name}>
-            {source.name}
-          </Text>
+          {project === null && (
+            <Text fw={600} className={classes.fileName} title={source.name}>
+              {source.name}
+            </Text>
+          )}
           <Readout
             rows={[
               ['Полигонов', formatDecimal(source.counts.polygons)],
@@ -134,7 +166,7 @@ export function ContourPanel({
               {warning.text}
             </Alert>
           ))}
-          {hint !== null && (
+          {hint !== null && project === null && (
             <Alert color="stone" variant="light">
               <Stack gap="xs" align="flex-start">
                 <Text size="sm">
@@ -150,20 +182,23 @@ export function ContourPanel({
               </Stack>
             </Alert>
           )}
-          <Select
-            disabled={locked}
-            label="Единицы файла"
-            data={UNITS.map((unit) => ({ value: unit.id, label: unit.title }))}
-            value={unitOf(scale)}
-            allowDeselect={false}
-            onChange={(id) => {
-              const unit = UNITS.find((candidate) => candidate.id === id);
-              if (unit?.scale != null) {
-                dispatch(georeferenceActions.contourScaled({ scale: unit.scale }));
-              }
-            }}
-            description="«Другое» — введите множитель в поле «Метров в единице файла»"
-          />
+          {/* Контур проекта — в метрах чертежа, единицы не выбираются. */}
+          {project === null && (
+            <Select
+              disabled={locked}
+              label="Единицы файла"
+              data={UNITS.map((unit) => ({ value: unit.id, label: unit.title }))}
+              value={unitOf(scale)}
+              allowDeselect={false}
+              onChange={(id) => {
+                const unit = UNITS.find((candidate) => candidate.id === id);
+                if (unit?.scale != null) {
+                  dispatch(georeferenceActions.contourScaled({ scale: unit.scale }));
+                }
+              }}
+              description="«Другое» — введите множитель в поле «Метров в единице файла»"
+            />
+          )}
         </Stack>
       )}
 
@@ -189,6 +224,16 @@ export function ContourPanel({
               Вписать в вид
             </Button>
           </Group>
+          {project !== null && (
+            <Switch
+              label="План проекта"
+              description="Посадки и зоны запрета — по ним удобно совмещать с газонами и дорогами"
+              checked={project.planVisible}
+              onChange={(event) => {
+                onPlanVisible(event.currentTarget.checked);
+              }}
+            />
+          )}
           <div>
             <Text size="sm" id="fill-opacity-label">
               Заливка

@@ -10,6 +10,7 @@ import { dimensionLabelsMinZoom } from '@/entities/project';
 import { plantingEditsActions, plantingEditsSlice } from '@/features/edit-plantings';
 import type * as Config from '@/shared/config';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
+import { placementTransform } from '@/shared/lib/georeference';
 import { renderWithProviders, server } from '@/shared/lib/test';
 
 import { ProjectPage } from './project-page';
@@ -2294,4 +2295,235 @@ describe('отчёт для согласования', () => {
     const heading = await screen.findByRole('heading', { name: 'Ведомость озеленения' });
     expect(heading.closest('section')).toHaveTextContent('Порода не определена сервисом');
   });
+});
+
+describe('ручная привязка в браузере', () => {
+  // Привязка «Шаболовки» из модуля геопривязки: по двум опорным точкам и одной контрольной.
+  const MANUAL = {
+    anchor_wgs84: { lat: 55.7203, lon: 37.6089 },
+    anchor_drawing: { x: 30, y: 8.5 },
+    rotation_deg: 23.4,
+    scale: 1.02,
+    method: 'control_points',
+    rms_m: 0.208,
+    control_points: [
+      {
+        label: '1',
+        drawing: { x: 0, y: 0 },
+        wgs84: { lat: 55.72, lon: 37.608 },
+        residual_m: 0.2,
+        used: true,
+      },
+      {
+        label: '2',
+        drawing: { x: 60, y: 20 },
+        wgs84: { lat: 55.7205, lon: 37.6098 },
+        residual_m: 0.21,
+        used: true,
+      },
+      {
+        label: '3',
+        drawing: { x: 60, y: 0 },
+        wgs84: { lat: 55.7201, lon: 37.6097 },
+        residual_m: 0.4,
+        used: false,
+      },
+    ],
+  };
+  const KEY = `greenleaders:georeference:${NO_GEOREF_ID}`;
+
+  // finished_at обработки мока зависит от времени запуска: берётся из ответа сервера.
+  const finishedAt = async () => {
+    const body: unknown = await (await fetch(new Request(`/api/projects/${NO_GEOREF_ID}`))).json();
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'job' in body &&
+      typeof body.job === 'object' &&
+      body.job !== null &&
+      'finished_at' in body.job &&
+      typeof body.job.finished_at === 'string'
+    ) {
+      return body.job.finished_at;
+    }
+    throw new Error('у проекта нет finished_at');
+  };
+  const store = (finished: string) => {
+    // eslint-disable-next-line no-restricted-properties -- привязка из модуля геопривязки, как её пишет браузер
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({ finishedAt: finished, georeference: MANUAL }),
+    );
+  };
+  const placement = placementTransform({
+    source: { center: MANUAL.anchor_drawing },
+    anchor: MANUAL.anchor_wgs84,
+    rotation: MANUAL.rotation_deg,
+    scale: MANUAL.scale,
+  });
+  const lngLatOf = (x: number, y: number) => {
+    const { lat, lon } = placement.toLatLon({ x, y });
+    return { lng: lon, lat };
+  };
+
+  test('без привязки — «Привязать к карте» в подписи карты и в меню проекта', async () => {
+    renderProject(NO_GEOREF_ID);
+
+    const map = await screen.findByRole('region', { name: /^План посадок/ });
+    expect(within(map).getByRole('link', { name: 'Привязать к карте' })).toHaveAttribute(
+      'href',
+      `/georeference?project=${NO_GEOREF_ID}`,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Действия с проектом' }));
+    expect(await screen.findByRole('menuitem', { name: 'Привязать к карте' })).toHaveAttribute(
+      'href',
+      `/georeference?project=${NO_GEOREF_ID}`,
+    );
+  });
+
+  test('привязка из браузера: план на подложке, шапка с параметрами, «Снять привязку»', async () => {
+    store(await finishedAt());
+    renderProject(NO_GEOREF_ID);
+
+    const map = await screen.findByRole('region', { name: /^План посадок/ });
+    expect(map).toHaveTextContent('Привязано вручную в этом браузере');
+    expect(within(map).getByRole('link', { name: 'Изменить привязку' })).toHaveAttribute(
+      'href',
+      `/georeference?project=${NO_GEOREF_ID}`,
+    );
+    expect(screen.getByRole('switch', { name: 'Подложка' })).toBeInTheDocument();
+
+    // Между числом и единицей — неразрывный пробел.
+    const button = screen.getByRole('button', {
+      name: /^Геопривязка: по опорным точкам, RMS 0,21\sм$/,
+    });
+    await userEvent.click(button);
+    const table = await screen.findByRole('table');
+    expect(
+      within(table).getByRole('rowheader', { name: 'Поворот против часовой' }),
+    ).toBeInTheDocument();
+    expect(table).toHaveTextContent('23,4000°');
+    expect(table).toHaveTextContent('Масштаб1,020000');
+    expect(table).toHaveTextContent('Опорных точек2');
+    expect(table).toHaveTextContent('Контрольных точек1');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Снять привязку' }));
+
+    const plain = await screen.findByRole('button', { name: 'Без геопривязки' });
+    await waitFor(() => {
+      expect(plain).toHaveFocus();
+    });
+    expect(
+      await screen.findByText('Координаты чертежа, без привязки к городу'),
+    ).toBeInTheDocument();
+    // eslint-disable-next-line no-restricted-properties -- снятая привязка удалена из браузера
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+  });
+
+  test('привязка прошлой обработки — план в координатах чертежа и «Удалить привязку»', async () => {
+    store('2026-01-01T00:00:00Z');
+    renderProject(NO_GEOREF_ID);
+
+    const map = await screen.findByRole('region', { name: /^План посадок/ });
+    expect(map).toHaveTextContent('Координаты чертежа, без привязки к городу');
+    expect(
+      screen.getByText(/^Привязка к карте сделана для прошлой обработки проекта/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Удалить привязку' }));
+
+    expect(
+      screen.queryByText(/^Привязка к карте сделана для прошлой обработки/),
+    ).not.toBeInTheDocument();
+    // eslint-disable-next-line no-restricted-properties -- удалённая привязка
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+  });
+
+  test('правка поверх привязки хранится в координатах чертежа', async () => {
+    store(await finishedAt());
+    renderProject(NO_GEOREF_ID);
+    await screen.findByRole('region', { name: /^План посадок/ });
+    await startEditing();
+
+    // Дерево в (3; 2,2) м чертежа. Курсор уходит туда, где по привязке точка (5; 3,2).
+    const preventDefault = vi.fn();
+    act(() => {
+      fakeMap.emit('mousedown:trees', {
+        point: { x: 0, y: 0 },
+        lngLat: lngLatOf(3, 2.2),
+        features: [{ properties: { id: FIRST_TREE } }],
+        preventDefault,
+      });
+    });
+    act(() => {
+      fakeMap.emit('mousemove', { point: { x: 0, y: 0 }, lngLat: lngLatOf(5, 3.2) });
+    });
+    await act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'));
+    });
+
+    const [moved] = movedActions();
+    if (moved === undefined || !plantingEditsActions.moved.match(moved))
+      throw new Error('правки нет');
+    const [x, y] = moved.payload.point;
+    expect(x).toBeCloseTo(5, 6);
+    expect(y).toBeCloseTo(3.2, 6);
+    const panel = await screen.findByRole('region', { name: FIRST_TREE_TITLE });
+    // √(2² + 1²) м чертежа; у правленой — свои координаты чертежа и широта с долготой по привязке.
+    expect(panel).toHaveTextContent('Перемещено на 2,2 м');
+    expect(panel).toHaveTextContent('В координатах чертежа: X 5,00 м, Y 3,20 м');
+    const { lat, lng } = lngLatOf(5, 3.2);
+    expect(panel).toHaveTextContent(
+      `Ш ${lat.toFixed(6).replace('.', ',')}, Д ${lng.toFixed(6).replace('.', ',')}`,
+    );
+  });
+
+  test('отчёт: раздел «Геопривязка» — вручную в браузере, параметры и точки', async () => {
+    store(await finishedAt());
+    renderReport(NO_GEOREF_ID);
+
+    const heading = await screen.findByRole('heading', { name: 'Геопривязка' });
+    const section = heading.closest('section');
+    expect(section).toHaveTextContent('Способ: вручную в браузере, по опорным точкам, RMS 0,21 м.');
+    expect(section).toHaveTextContent('Поворот против часовой23,4000°');
+    expect(section).toHaveTextContent('Контрольная');
+  });
+});
+
+test('ручная привязка, применённая сервером, — способ и RMS по невязкам, без геодезических пунктов', async () => {
+  server.use(
+    http.get(`/api/projects/${NO_GEOREF_ID}`, () =>
+      HttpResponse.json({
+        id: NO_GEOREF_ID,
+        name: 'Улица Шаболовка, 37',
+        description: null,
+        created_at: '2026-09-19T10:00:00Z',
+        updated_at: '2026-09-19T10:00:00Z',
+        status: 'ready',
+        job: {
+          stage: 'ready',
+          progress_pct: 100,
+          georeference: {
+            confidence: 'manual',
+            matched_labels: ['1', '2'],
+            residuals_m: { '1': 0.2, '2': 0.22 },
+          },
+          started_at: '2026-09-26T10:00:00Z',
+          finished_at: '2026-09-26T10:00:20Z',
+        },
+      }),
+    ),
+  );
+  renderProject(NO_GEOREF_ID);
+
+  await userEvent.click(
+    await screen.findByRole('button', { name: /^Геопривязка: по опорным точкам, RMS 0,21\sм$/ }),
+  );
+
+  expect(
+    await screen.findByText(/^Привязка задана в модуле геопривязки и применена сервером/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/^Совпало/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/геодезического пункта/)).not.toBeInTheDocument();
 });

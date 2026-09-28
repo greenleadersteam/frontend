@@ -63,18 +63,19 @@ export function ReportPlan({ result, editMarks, onReady }: ReportPlanProps): JSX
   const [basemapShown, setBasemapShown] = useState(false);
   // Метров на сантиметр листа: снимок растягивается на ширину плана при печати.
   const [metersPerCm, setMetersPerCm] = useState<number | null>(null);
-  const { edited, frame, geographic, extent, obstacles, statuses } = result;
+  const { edited, frame, extent, obstacles, statuses } = result;
   const mapData = toMapData(edited, frame);
   const mapExtent = resultExtent(mapData) ?? extent;
   const bounds = [mapExtent.minX, mapExtent.minY, mapExtent.maxX, mapExtent.maxY] as const;
   const latitude = (bounds[1] + bounds[3]) / 2;
   const [west, south, east, north] = BASEMAP_BOUNDS;
+  // Подложка — у плана на карте города: с геопривязкой сервера или с ручной привязкой.
   const withinBasemap =
-    geographic &&
-    extent.minX >= west &&
-    extent.minY >= south &&
-    extent.maxX <= east &&
-    extent.maxY <= north;
+    frame.onCity &&
+    mapExtent.minX >= west &&
+    mapExtent.minY >= south &&
+    mapExtent.maxX <= east &&
+    mapExtent.maxY <= north;
 
   const draw = (map: MapLibreMap) => {
     const pixelRatio = map.getPixelRatio();

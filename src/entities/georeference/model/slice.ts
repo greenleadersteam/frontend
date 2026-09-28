@@ -9,11 +9,14 @@ import {
   addReference,
   applyGcp,
   clearReferences,
+  closeProject,
   createSession,
   findSameReference,
   loadContour,
   moveBy,
   type NewGcpPair,
+  type OpenedProject,
+  openProject,
   redo,
   removeGcp,
   removeReference,
@@ -39,6 +42,10 @@ export const georeferenceActions = {
   contourLoaded: createAction<{ contour: Contour; anchor: LatLon }>(
     `${GEOREFERENCE_SLICE}/contourLoaded`,
   ),
+  // Режим проекта: граница участка проекта вместо файла, положение — прежняя привязка проекта
+  // или центр карты.
+  projectOpened: createAction<OpenedProject>(`${GEOREFERENCE_SLICE}/projectOpened`),
+  projectClosed: createAction(`${GEOREFERENCE_SLICE}/projectClosed`),
   contourMoved: createAction<{ anchor: LatLon }>(`${GEOREFERENCE_SLICE}/contourMoved`),
   contourShifted: createAction<{ east: number; north: number }>(
     `${GEOREFERENCE_SLICE}/contourShifted`,
@@ -81,6 +88,8 @@ export function georeferenceReducer(
   if (actions.contourLoaded.match(action)) {
     return loadContour(state, action.payload.contour, action.payload.anchor);
   }
+  if (actions.projectOpened.match(action)) return openProject(state, action.payload);
+  if (actions.projectClosed.match(action)) return closeProject(state);
   // С двух учтённых пар положение задают точки: ручные сдвиг, поворот и масштаб спорили бы
   // с решением.
   const locked = isLocked(state.gcp);

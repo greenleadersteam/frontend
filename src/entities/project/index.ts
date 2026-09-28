@@ -4,6 +4,7 @@ export {
   useCreateProjectMutation,
   useDeleteProjectMutation,
   useLazyGetProjectQuery,
+  usePutGeoreferenceMutation,
   useRunProjectMutation,
 } from './api/project-api';
 export type {
@@ -39,7 +40,15 @@ export { dimensionLines } from './lib/dimension-lines';
 export { DRAWING_FIT_LIMIT_M, drawingTransform } from './lib/drawing-transform';
 export { projectFileName } from './lib/file-name';
 export { createLocalFrame, type LocalFrame } from './lib/local-frame';
-export { toMapData, toMapObstacles, toMapRejected } from './lib/map-data';
+export type { ManualGeoreference } from './lib/manual-georeference';
+export { placementOfGeoreference } from './lib/manual-georeference';
+export {
+  toMapData,
+  toMapObstacles,
+  toMapPlanting,
+  toMapRejected,
+  toMapZones,
+} from './lib/map-data';
 export type { NormBasis } from './lib/norm-basis';
 export { checkBasis, normBasis, NOTE_1_CROWN_LIMIT_M } from './lib/norm-basis';
 export type { PreparedObstacle, PreparedObstacles } from './lib/obstacle-checks';

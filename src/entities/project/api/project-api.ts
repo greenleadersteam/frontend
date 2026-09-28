@@ -1,5 +1,6 @@
 import { type ApiComponents, baseApi, type ProposedApiComponents } from '@/shared/api';
 
+import type { ManualGeoreference } from '../lib/manual-georeference';
 import { type Project, type ProjectResponse, toProject } from '../model/project';
 
 // По контракту-предложению bbox_user необязателен; задеплоенный бэкенд пока требует его (422).
@@ -82,6 +83,16 @@ export const projectApi = baseApi.injectEndpoints({
       transformResponse: (response: ProjectResponse) => toProject(response),
       invalidatesTags: (_project, _error, { id }) => [projectTag(id), LIST],
     }),
+    // Как /runs: ответ 202 — проект снова в обработке, результат придёт с новой привязкой.
+    putGeoreference: build.mutation<Project, { id: string; georeference: ManualGeoreference }>({
+      query: ({ id, georeference }) => ({
+        url: `${projectUrl(id)}/georeference`,
+        method: 'PUT',
+        body: georeference,
+      }),
+      transformResponse: (response: ProjectResponse) => toProject(response),
+      invalidatesTags: (_project, _error, { id }) => [projectTag(id), LIST],
+    }),
   }),
 });
 
@@ -91,6 +102,7 @@ export const {
   useGetProjectQuery,
   useLazyGetProjectQuery,
   useListProjectsQuery,
+  usePutGeoreferenceMutation,
   useRunProjectMutation,
   useUpdateProjectMutation,
 } = projectApi;

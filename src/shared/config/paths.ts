@@ -15,6 +15,10 @@ export const projectReportPath = (projectId: string): string => `${projectPath(p
 export const projectUploadPath = (projectId: string): string =>
   `${paths.projectNew}?project=${encodeURIComponent(projectId)}`;
 
+// Модуль геопривязки в режиме проекта: контур — граница участка из результата обработки.
+export const georeferenceProjectPath = (projectId: string): string =>
+  `${paths.georeference}?project=${encodeURIComponent(projectId)}`;
+
 // Состояние перехода к списку после удаления проекта: список переводит фокус на свой
 // заголовок, а не оставляет его на исчезнувшей кнопке. Состояние истории — недоверенное.
 export const FOCUS_PROJECTS_HEADING = { focus: 'projects-heading' } as const;
