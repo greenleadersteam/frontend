@@ -26,6 +26,8 @@ export type PendingReference = { fileName: string; value: unknown; created: stri
 type ContourFilesOptions = {
   // false — контур уже задан (граница участка проекта): файлы открываются только эталонами.
   contourAllowed: boolean;
+  // Режим проекта без контура в данных: файл становится контуром этого проекта.
+  projectId: string | null;
   // Куда поставить опорную точку нового контура — центр карты.
   anchor: () => LatLon | null;
   // Положение нового контура: опорная точка в центре карты, без поворота, масштаб 1.
@@ -36,7 +38,12 @@ type SourceFile = { name: string; text: () => Promise<string> };
 
 // Открытие файлов: кнопкой, перетаскиванием и примером. Файлов может быть несколько: первый
 // с полигонами становится контуром, собственные выгрузки предлагаются эталонами.
-export function useContourFiles({ contourAllowed, anchor, onLoaded }: ContourFilesOptions) {
+export function useContourFiles({
+  contourAllowed,
+  projectId,
+  anchor,
+  onLoaded,
+}: ContourFilesOptions) {
   const dispatch = useAppDispatch();
   const session = useAppSelector(selectGeoreference);
   const [pending, setPending] = useState<PendingReference[]>([]);
@@ -98,7 +105,18 @@ export function useContourFiles({ contourAllowed, anchor, onLoaded }: ContourFil
         continue;
       }
       loaded = { source: parsed.contour, anchor: at, rotation: 0, scale: 1 };
-      dispatch(georeferenceActions.contourLoaded({ contour: parsed.contour, anchor: at }));
+      dispatch(
+        projectId === null
+          ? georeferenceActions.contourLoaded({ contour: parsed.contour, anchor: at })
+          : georeferenceActions.projectOpened({
+              projectId,
+              contour: parsed.contour,
+              anchor: at,
+              rotation: 0,
+              scale: 1,
+              gcp: [],
+            }),
+      );
     }
     if (loaded !== null) onLoaded(loaded);
     if (references.length > 0) setPending((queue) => [...queue, ...references]);

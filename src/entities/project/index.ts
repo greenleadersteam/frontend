@@ -97,7 +97,13 @@ export {
 } from './lib/result-layers';
 export { useProjectsWithPolling, useProjectWithPolling } from './model/polling';
 export type { PlantType, Project, ProjectState } from './model/project';
-export { archiveAction, getProcessingDurationMs, isProcessing, isProjectId } from './model/project';
+export {
+  archiveAction,
+  failedOnGeoreference,
+  getProcessingDurationMs,
+  isProcessing,
+  isProjectId,
+} from './model/project';
 export { PlanCanvas } from './ui/plan-canvas';
 export { PollingStalledAlert, ProcessingStages } from './ui/processing-stages';
 export { ProjectPreview } from './ui/project-preview';

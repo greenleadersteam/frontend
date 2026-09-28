@@ -37,6 +37,7 @@ const serverMock = vi.hoisted(() => ({
   obstacles: true,
   plantingEdits: true,
   editedDxf: true,
+  manualGeoreference: true,
   dataSource: 'server',
 }));
 vi.mock('@/shared/config', async (importOriginal) => {
@@ -47,6 +48,7 @@ vi.mock('@/shared/config', async (importOriginal) => {
       if (name === 'obstacles') return serverMock.obstacles;
       if (name === 'plantingEdits') return serverMock.plantingEdits;
       if (name === 'editedDxf') return serverMock.editedDxf;
+      if (name === 'manualGeoreference') return serverMock.manualGeoreference;
       return actual.useCapability(name);
     },
     currentDataSource: () => serverMock.dataSource,
@@ -208,6 +210,7 @@ beforeEach(() => {
   serverMock.obstacles = true;
   serverMock.plantingEdits = true;
   serverMock.editedDxf = true;
+  serverMock.manualGeoreference = true;
   serverMock.dataSource = 'server';
   editActions = [];
 });
@@ -2526,4 +2529,38 @@ test('ручная привязка, применённая сервером, �
   ).toBeInTheDocument();
   expect(screen.queryByText(/^Совпало/)).not.toBeInTheDocument();
   expect(screen.queryByText(/геодезического пункта/)).not.toBeInTheDocument();
+});
+
+describe('проект, упавший на геопривязке', () => {
+  // «Улица Бахрушина, 11»: insufficient_geodetic_points.
+  const GEOREFERENCE_FAILED_ID = 'e5b7d9f1a3c54f6e8a0c2e4b6d8f1a3c';
+
+  test('с manualGeoreference — «Привязать вручную» в модуль в режиме проекта', async () => {
+    renderProject(GEOREFERENCE_FAILED_ID);
+
+    expect(await screen.findByRole('link', { name: 'Привязать вручную' })).toHaveAttribute(
+      'href',
+      `/georeference?project=${GEOREFERENCE_FAILED_ID}`,
+    );
+    expect(screen.getByText(/^Не удалось привязать чертёж к координатам/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Загрузить другой архив' })).toBeInTheDocument();
+  });
+
+  test('без manualGeoreference — пункта нет, текст ошибки прежний', async () => {
+    serverMock.manualGeoreference = false;
+    renderProject(GEOREFERENCE_FAILED_ID);
+
+    expect(
+      await screen.findByText(/^Не удалось привязать чертёж к координатам/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Привязать вручную' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Чертёж можно привязать к карте вручную/)).not.toBeInTheDocument();
+  });
+
+  test('другая ошибка обработки — ручной привязки нет', async () => {
+    renderProject(FAILED_ID);
+
+    expect(await screen.findByRole('link', { name: 'Загрузить другой архив' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Привязать вручную' })).not.toBeInTheDocument();
+  });
 });

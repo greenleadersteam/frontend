@@ -1,16 +1,17 @@
-import { Button, Card, Stack, Text } from '@mantine/core';
+import { Button, Card, Group, Stack, Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import type { JSX } from 'react';
 import { Link } from 'react-router';
 
 import {
+  failedOnGeoreference,
   JOB_ERROR_LABELS,
   PollingStalledAlert,
   ProcessingStages,
   type Project,
 } from '@/entities/project';
 import { ChooseRootDxf } from '@/features/choose-root-dxf';
-import { projectUploadPath } from '@/shared/config';
+import { georeferenceProjectPath, projectUploadPath, useCapability } from '@/shared/config';
 import { EmptyState } from '@/shared/ui';
 
 import classes from './project-body.module.css';
@@ -66,6 +67,8 @@ type ProcessingFailedProps = { project: Project };
 function ProcessingFailed({ project }: ProcessingFailedProps): JSX.Element {
   const error = project.state.kind === 'failed' ? project.state.error : null;
   const uploadPath = projectUploadPath(project.id);
+  // Ручная привязка нужна серверу: без PUT /georeference упавший проект её не примет.
+  const manual = useCapability('manualGeoreference') && failedOnGeoreference(project.state);
 
   return (
     <div className={classes.content}>
@@ -86,9 +89,22 @@ function ProcessingFailed({ project }: ProcessingFailedProps): JSX.Element {
           ) : (
             <>
               <Text role="alert">{JOB_ERROR_LABELS[error?.code ?? 'other']}</Text>
-              <Button component={Link} to={uploadPath}>
-                Загрузить другой архив
-              </Button>
+              {manual && (
+                <Text c="dimmed">
+                  Чертёж можно привязать к карте вручную: совместить границу участка с картой в
+                  модуле геопривязки. После этого проект обработается заново.
+                </Text>
+              )}
+              <Group gap="sm">
+                {manual && (
+                  <Button component={Link} to={georeferenceProjectPath(project.id)}>
+                    Привязать вручную
+                  </Button>
+                )}
+                <Button component={Link} to={uploadPath} variant={manual ? 'default' : 'filled'}>
+                  Загрузить другой архив
+                </Button>
+              </Group>
             </>
           )}
         </Stack>

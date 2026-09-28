@@ -149,6 +149,7 @@ vi.mock('@/shared/map', async (importOriginal) => ({
 const configMock = vi.hoisted(() => ({
   imagery: null as Config.ImageryConfig | null,
   manualGeoreference: false,
+  obstacles: true,
 }));
 vi.mock('@/shared/config', async (importOriginal) => {
   const actual = await importOriginal<typeof Config>();
@@ -156,7 +157,11 @@ vi.mock('@/shared/config', async (importOriginal) => {
     ...actual,
     getRuntimeConfig: () => ({ ...actual.getRuntimeConfig(), imagery: configMock.imagery }),
     useCapability: (name: Config.Capability) =>
-      name === 'manualGeoreference' ? configMock.manualGeoreference : actual.useCapability(name),
+      name === 'manualGeoreference'
+        ? configMock.manualGeoreference
+        : name === 'obstacles'
+          ? configMock.obstacles
+          : actual.useCapability(name),
   };
 });
 
@@ -229,6 +234,7 @@ beforeEach(() => {
   markers.created = [];
   configMock.imagery = null;
   configMock.manualGeoreference = false;
+  configMock.obstacles = true;
   mapMock.unavailable = false;
   actions = [];
   session = null;
@@ -985,5 +991,122 @@ describe('режим проекта', () => {
       expect(session?.source).toBeNull();
     });
     expect(georeferenceActions().at(-1)).toBe('projectClosed');
+  });
+});
+
+describe('проект, упавший на геопривязке', () => {
+  // «Улица Бахрушина, 11»: insufficient_geodetic_points; граница участка — 60 × 23 м.
+  const FAILED_ID = 'e5b7d9f1a3c54f6e8a0c2e4b6d8f1a3c';
+  const renderFailed = () =>
+    renderWithProviders(
+      [
+        { path: '/georeference', Component: GeoreferencePage },
+        { path: '/projects/:projectId', element: <h1>Страница проекта</h1> },
+      ],
+      `/georeference?project=${FAILED_ID}`,
+      reducers,
+    );
+
+  test('контур — граница участка из подосновы; «Применить» — PUT, проект обрабатывается заново', async () => {
+    configMock.manualGeoreference = true;
+    const puts: string[] = [];
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT') puts.push(new URL(request.url).pathname);
+    });
+    renderFailed();
+
+    expect(await screen.findByText('Граница участка из подосновы')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(session?.projectId).toBe(FAILED_ID);
+    });
+    expect(session?.source?.center).toEqual({ x: 30, y: 8.5 });
+    expect(screen.queryByRole('switch', { name: /^План проекта/ })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Применить к проекту' }));
+
+    expect(await screen.findByRole('heading', { name: 'Страница проекта' })).toBeInTheDocument();
+    expect(puts).toEqual([`/api/projects/${FAILED_ID}/georeference`]);
+  });
+
+  test('без объектов подосновы — контур загружается файлом и становится контуром проекта', async () => {
+    configMock.manualGeoreference = true;
+    configMock.obstacles = false;
+    renderFailed();
+
+    // Причина — у сервера нет объектов подосновы, а не «границы в чертеже нет»: в панели
+    // и на карте.
+    expect(await screen.findAllByText(/^Сервер не отдаёт объекты подосновы/)).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Применить к проекту' })).toBeDisabled();
+    await loadSquare();
+
+    expect(session?.projectId).toBe(FAILED_ID);
+    expect(screen.getByRole('button', { name: 'Применить к проекту' })).toBeEnabled();
+    expect(screen.getByText('Граница участка из файла')).toBeInTheDocument();
+  });
+
+  // На реальном сервере parsed.geojson пишется после геопривязки: у упавшего проекта /obstacles
+  // ответит 404. Это не сбой, а «подосновы нет» — сразу загрузка файлом, без «Повторить».
+  test('404 от /obstacles — «Сервер не отдаёт объекты подосновы», без «Повторить»', async () => {
+    configMock.manualGeoreference = true;
+    server.use(
+      http.get('/api/projects/:projectId/obstacles', () => new HttpResponse(null, { status: 404 })),
+    );
+    renderFailed();
+
+    expect(await screen.findAllByText(/^Сервер не отдаёт объекты подосновы/)).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument();
+  });
+
+  test('файл контура похож на миллиметры — предупреждение, масштаба 0,001 не предлагается', async () => {
+    configMock.manualGeoreference = true;
+    configMock.obstacles = false;
+    renderFailed();
+    await screen.findAllByText(/^Сервер не отдаёт объекты подосновы/);
+    const input = screen
+      .getByRole('button', { name: 'Открыть GeoJSON с границей участка' })
+      .querySelector('input');
+    if (input === null) throw new Error('нет поля выбора файла');
+    const millimetres = JSON.stringify({
+      type: 'Polygon',
+      coordinates: [
+        [
+          [0, 0],
+          [60_000, 0],
+          [60_000, 23_000],
+          [0, 23_000],
+          [0, 0],
+        ],
+      ],
+    });
+
+    await userEvent.upload(
+      input,
+      new File([millimetres], 'граница-мм.geojson', { type: 'application/geo+json' }),
+    );
+
+    expect(await screen.findByText(/похоже, файл в миллиметрах/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Применить миллиметры' })).not.toBeInTheDocument();
+  });
+
+  test('сбой /obstacles — ошибка с «Повторить»; можно загрузить границу файлом', async () => {
+    configMock.manualGeoreference = true;
+    server.use(
+      http.get('/api/projects/:projectId/obstacles', () => new HttpResponse(null, { status: 500 })),
+    );
+    renderFailed();
+
+    expect(await screen.findByRole('button', { name: 'Повторить' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Загрузить границу файлом' }));
+
+    expect(await screen.findAllByText(/^Объекты подосновы не загрузились/)).toHaveLength(2);
+  });
+
+  test('без manualGeoreference — объяснение, модуля нет', async () => {
+    renderFailed();
+
+    expect(
+      await screen.findByText(/^Сервер пока не принимает ручную привязку/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Применить к проекту' })).not.toBeInTheDocument();
   });
 });

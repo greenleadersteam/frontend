@@ -45,6 +45,7 @@ import {
 import { PANELS_BREAKPOINT } from '@/shared/theme';
 import { Icon, NotFoundScreen } from '@/shared/ui';
 
+import { FILE_REASON, isFileOrigin } from '../lib/project-contour';
 import { BindingPanel } from './binding-panel';
 import { CompareSection } from './compare-section';
 import { DEFAULT_FILL_OPACITY } from './contour-layers';
@@ -164,7 +165,8 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
   });
   const files = useContourFiles({
     // В режиме проекта контур — граница участка проекта: файлы открываются только эталонами.
-    contourAllowed: project === null,
+    contourAllowed: project?.contour == null,
+    projectId: project?.project.id ?? null,
     anchor: () => {
       if (map === null) return null;
       const { lat, lng } = map.getCenter();
@@ -199,10 +201,11 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
       if (current.projectId !== null) dispatch(georeferenceActions.projectClosed());
       return;
     }
-    if (map === null || openedRef.current) return;
+    const { start, contour } = project;
+    // Без контура в данных проекта его откроет файл пользователя.
+    if (map === null || openedRef.current || contour === null) return;
     openedRef.current = true;
     const center = map.getCenter();
-    const { start, contour } = project;
     const opened = {
       source: contour,
       anchor: start?.anchor ?? { lat: center.lat, lon: center.lng },
@@ -273,7 +276,13 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
       project={
         project === null
           ? null
-          : { name: project.project.name, origin: project.origin, planVisible }
+          : {
+              name: project.project.name,
+              origin: project.origin,
+              plan: project.overlay !== null,
+              planVisible,
+              contourFromFile: project.contour === null,
+            }
       }
       onPlanVisible={setPlanVisible}
       session={session}
@@ -437,18 +446,22 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
               </div>
             ) : (
               placement === null &&
-              project === null && (
+              project?.contour == null && (
                 <div className={classes.empty}>
                   <Stack gap="sm">
                     <Text fw={600}>
                       Загрузите границу участка в координатах чертежа — GeoJSON с полигоном
                     </Text>
                     <Text size="sm" c="dimmed">
-                      Перетащите файл в окно или выберите его в панели «Контур».
+                      {project === null
+                        ? 'Перетащите файл в окно или выберите его в панели «Контур».'
+                        : `${isFileOrigin(project.origin) ? `${FILE_REASON[project.origin]} ` : ''}Нужен файл в метрах, в тех же координатах, что DXF. Перетащите его в окно или выберите в панели «Контур».`}
                     </Text>
-                    <Button disabled={!canOpen} onClick={() => void files.openExample()}>
-                      Открыть пример
-                    </Button>
+                    {project === null && (
+                      <Button disabled={!canOpen} onClick={() => void files.openExample()}>
+                        Открыть пример
+                      </Button>
+                    )}
                   </Stack>
                 </div>
               )
@@ -525,7 +538,7 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
         onDrop={(dropped) => void files.open(dropped)}
       >
         <div className={classes.fullscreenDrop}>
-          {project === null
+          {project?.contour == null
             ? 'Отпустите файл, чтобы открыть контур'
             : 'Отпустите выгрузку привязки, чтобы открыть её эталоном'}
         </div>

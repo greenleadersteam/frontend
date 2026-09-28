@@ -216,6 +216,13 @@ function georeferenceInfo(project: MockProject): JobStatus['georeference'] {
 
 export const statusAt = (project: MockProject, now: number): string => jobAt(project, now).stage;
 
+// Обработка упала на этапе геопривязки: подоснова уже разобрана, и её объекты есть — в метрах
+// чертежа (контракт-предложение, /obstacles).
+export function failedOnGeoreference(project: MockProject, now: number): boolean {
+  const code = jobAt(project, now).error?.code;
+  return code !== undefined && FAILURE_STAGE[code] === 'georeferencing';
+}
+
 export function toProjectResponse(project: MockProject, now: number): ProjectResponse {
   const job = jobAt(project, now);
   return {

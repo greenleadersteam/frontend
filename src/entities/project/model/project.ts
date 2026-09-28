@@ -90,6 +90,14 @@ export function getProcessingDurationMs(job: Job): number | null {
   return Date.parse(job.finished_at) - Date.parse(job.started_at);
 }
 
+// Обработка упала на геопривязке: пунктов мало или каталог geobridge недоступен. Подоснова
+// разобрана, и чертёж можно привязать к карте вручную (PUT /georeference) — в контуре без
+// интернета так упадёт каждый проект с областью участка.
+export const failedOnGeoreference = (state: ProjectState): boolean =>
+  state.kind === 'failed' &&
+  (state.error?.code === 'insufficient_geodetic_points' ||
+    state.error?.code === 'georeference_service_error');
+
 // Архив принимается без архива и после ошибки обработки (../backend/greenplan/api/jobs.py:52).
 // После ambiguous_root_dxf вместо нового архива выбирается главный чертёж из уже загруженного.
 export function archiveAction(state: ProjectState): 'upload' | 'choose-root' | null {

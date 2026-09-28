@@ -40,7 +40,15 @@ const unitOf = (scale: number) =>
 
 type ContourPanelProps = {
   // Режим проекта: контур — граница участка проекта, под ним — план проекта.
-  project: { name: string; origin: ContourOrigin; planVisible: boolean } | null;
+  project: {
+    name: string;
+    origin: ContourOrigin;
+    // Под контуром есть план проекта: у упавшего на геопривязке его нет.
+    plan: boolean;
+    planVisible: boolean;
+    // Контура в данных проекта нет — файл открывается контуром.
+    contourFromFile: boolean;
+  } | null;
   onPlanVisible: (visible: boolean) => void;
   session: Session;
   fillOpacity: number;
@@ -80,9 +88,10 @@ export function ContourPanel({
     source !== null && !session.unitsConfirmed && scale === 1 && !locked
       ? millimetreHint(source)
       : null;
-  // Файлы в режиме проекта — только эталоны: контур задан проектом.
+  const fileInMillimetres = source === null ? null : millimetreHint(source);
+  // Файлы в режиме проекта — только эталоны, если контур задан проектом.
   const dropLabel =
-    project === null
+    project === null || project.contourFromFile
       ? {
           aria: 'Открыть GeoJSON с границей участка',
           title: 'Перетащите GeoJSON или выберите файл',
@@ -106,8 +115,17 @@ export function ContourPanel({
         <Stack gap="xs">
           <Text fw={600}>{project.name}</Text>
           <Text size="sm" c="dimmed">
-            {CONTOUR_ORIGIN_TEXT[project.origin]}
+            {project.contourFromFile && source !== null
+              ? 'Граница участка из файла'
+              : CONTOUR_ORIGIN_TEXT[project.origin]}
           </Text>
+          {/* Контур проекта — в метрах чертежа: масштаб 0,001 ушёл бы в PUT /georeference
+              и сервер применил бы его к чертежу. Нужен другой файл, а не другие единицы. */}
+          {project.contourFromFile && fileInMillimetres !== null && (
+            <Alert color="ochre" variant="light">
+              {`Габарит ${formatDecimal(fileInMillimetres.side, 1)}\u00A0единиц — похоже, файл в миллиметрах. Нужна граница в метрах, в тех же координатах, что DXF: загрузите другой файл.`}
+            </Alert>
+          )}
         </Stack>
       )}
 
@@ -141,7 +159,7 @@ export function ContourPanel({
 
       {source !== null && (
         <Stack gap="sm">
-          {project === null && (
+          {(project === null || project.contourFromFile) && (
             <Text fw={600} className={classes.fileName} title={source.name}>
               {source.name}
             </Text>
@@ -224,7 +242,7 @@ export function ContourPanel({
               Вписать в вид
             </Button>
           </Group>
-          {project !== null && (
+          {project?.plan === true && (
             <Switch
               label="План проекта"
               description="Посадки и зоны запрета — по ним удобно совмещать с газонами и дорогами"

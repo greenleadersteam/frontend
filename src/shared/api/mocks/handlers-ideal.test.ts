@@ -123,7 +123,7 @@ describe('обоснование', () => {
     }
   });
 
-  test('/obstacles — сети, здания, борт и тротуар, без путей сервера', async () => {
+  test('/obstacles — сети, здания, борт и тротуар, граница работ, без путей сервера', async () => {
     const { body } = await call<Schemas['ObstaclesFeatureCollection']>(
       `/projects/${READY_LOCAL}/obstacles`,
     );
@@ -136,12 +136,44 @@ describe('обоснование', () => {
         'buildings',
         'footpath_edge',
         'wells_hatches',
+        'site_boundary',
       ]),
     );
     const text = JSON.stringify(body);
     expect(text).not.toContain('source_file');
     expect(text).not.toContain('source_folder');
     expect(body.metadata.crs).toBe('local drawing coordinates, no geo-reference available');
+  });
+
+  // Разобранная подоснова есть и у проекта, упавшего на геопривязке: по границе работ из неё
+  // модуль геопривязки строит контур.
+  test('/obstacles упавшего на геопривязке — объекты в метрах чертежа; у упавшего раньше — 404', async () => {
+    vi.setSystemTime(Date.now() + 60_000);
+    // «Улица Бахрушина, 11»: insufficient_geodetic_points.
+    const { response, body } = await call<Schemas['ObstaclesFeatureCollection']>(
+      '/projects/e5b7d9f1a3c54f6e8a0c2e4b6d8f1a3c/obstacles',
+    );
+    expect(response.status).toBe(200);
+    expect(body.metadata.crs).toBe('local drawing coordinates, no geo-reference available');
+    const boundary = body.features.find(
+      ({ properties }) => properties.category === 'site_boundary',
+    );
+    expect(boundary?.geometry).toEqual({
+      type: 'Polygon',
+      coordinates: [
+        [
+          [0, -3],
+          [60, -3],
+          [60, 20],
+          [0, 20],
+          [0, -3],
+        ],
+      ],
+    });
+
+    // «Улица Большая Ордынка, 21»: архив повреждён, до разбора дело не дошло.
+    const broken = await call('/projects/b4e6a8c0d2f44b7e9a1c3e5b7d9f0a2c/obstacles');
+    expect(broken.response.status).toBe(404);
   });
 
   test('/rejected — 5–15 мест, у каждого непройденная проверка', async () => {

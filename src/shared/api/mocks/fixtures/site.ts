@@ -573,19 +573,39 @@ export function buildSiteResult(params: RunParams, placement: PlacementCore | nu
     obstacles: {
       type: 'FeatureCollection',
       metadata: { crs, source_insunits: 6, scale_to_meters: 1 },
-      features: OBSTACLES.map(({ obstacle, shape, source }) => ({
-        type: 'Feature',
-        geometry: obstacleGeometry(shape, project),
-        properties: {
-          rule_id: source.ruleId,
-          category: obstacle.category,
-          subtype: obstacle.subtype,
-          status: source.status,
-          layer: source.layer,
-          dxftype: source.dxftype,
-          handle: source.handle,
+      features: [
+        ...OBSTACLES.map(({ obstacle, shape, source }) => ({
+          type: 'Feature' as const,
+          geometry: obstacleGeometry(shape, project),
+          properties: {
+            rule_id: source.ruleId,
+            category: obstacle.category,
+            subtype: obstacle.subtype,
+            status: source.status,
+            layer: source.layer,
+            dxftype: source.dxftype,
+            handle: source.handle,
+          },
+        })),
+        // Граница работ — тоже объект подосновы (правило «1» в rules/default.yaml бэкенда). Норм
+        // от неё нет; по ней модуль геопривязки берёт контур проекта, упавшего на геопривязке.
+        {
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [closedRing(rectPoints(SITE_BOUNDARY), project)],
+          },
+          properties: {
+            rule_id: '1',
+            category: 'site_boundary',
+            subtype: null,
+            status: 'auto',
+            layer: 'Границы_работ',
+            dxftype: 'LWPOLYLINE',
+            handle: '2A0',
+          },
         },
-      })),
+      ],
     },
     rejected: {
       type: 'FeatureCollection',

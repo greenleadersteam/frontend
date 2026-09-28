@@ -211,6 +211,13 @@ paths:
         Без путей сервера: `metadata.root_file`, `metadata.source_folder` и
         `properties.source_file` из `parsed.geojson` в ответ не попадают.
 
+        Отдаётся и у проекта, упавшего на этапе геопривязки (`insufficient_geodetic_points`,
+        `georeference_service_error`): подоснова уже разобрана, объекты — в координатах чертежа.
+        По границе работ (`category: site_boundary`) фронтенд строит контур для ручной привязки
+        (`PUT /georeference`). Для этого `parsed.geojson` в координатах чертежа нужно писать до
+        геопривязки: сейчас он пишется после неё (`greenplan/api/jobs.py:293-317`), и при сбое
+        геопривязки его нет. У проекта, упавшего раньше разбора, — 404.
+
         Возможность: `obstacles`.
       operationId: get_obstacles
       parameters:

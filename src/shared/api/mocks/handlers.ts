@@ -6,6 +6,7 @@ import {
   createProject,
   defaultRunParams,
   deleteProject,
+  failedOnGeoreference,
   findProject,
   listProjects,
   type MockProject,
@@ -526,6 +527,12 @@ export const handlers = [
   }),
 
   http.get<ProjectParams>(`${API}/projects/:projectId/obstacles`, ({ params }) => {
+    const project = findProject(params.projectId);
+    // Упавший на геопривязке проект: объекты разобранной подосновы — в метрах чертежа, по ним
+    // модуль геопривязки берёт границу участка.
+    if (project?.run != null && failedOnGeoreference(project, Date.now())) {
+      return geoJson(buildSiteResult(project.run.params, null).obstacles);
+    }
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
     return geoJson(ready.result.obstacles);

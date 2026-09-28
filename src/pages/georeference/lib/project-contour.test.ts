@@ -1,8 +1,17 @@
 import { describe, expect, test } from 'vitest';
 
-import type { PlantingFeatureCollection, ZonesFeatureCollection } from '@/entities/project';
+import type {
+  ObstaclesFeatureCollection,
+  PlantingFeatureCollection,
+  ZonesFeatureCollection,
+} from '@/entities/project';
 
-import { convexHull, PLANTINGS_MARGIN_M, projectContour } from './project-contour';
+import {
+  convexHull,
+  obstaclesContour,
+  PLANTINGS_MARGIN_M,
+  projectContour,
+} from './project-contour';
 
 const DRAWING_CRS = 'local drawing coordinates, no geo-reference available';
 
@@ -109,4 +118,79 @@ test('выпуклая оболочка отбрасывает внутренн�
     [2, 2],
     [0, 2],
   ]);
+});
+
+describe('граница участка из объектов подосновы', () => {
+  const obstacles = (
+    geometries: ObstaclesFeatureCollection['features'][number]['geometry'][],
+    category = 'site_boundary',
+  ): ObstaclesFeatureCollection => ({
+    type: 'FeatureCollection',
+    metadata: { crs: DRAWING_CRS },
+    features: geometries.map((geometry, index) => ({
+      type: 'Feature',
+      geometry,
+      properties: {
+        rule_id: '1',
+        category,
+        subtype: null,
+        status: 'auto',
+        layer: 'Границы_работ',
+        dxftype: 'LWPOLYLINE',
+        handle: String(index),
+      },
+    })),
+  });
+
+  test('полигон и замкнутая линия — контур; незамкнутая линия не угадывается', () => {
+    const found = obstaclesContour(
+      obstacles([
+        { type: 'Polygon', coordinates: [square(0, 0, 10)] },
+        { type: 'LineString', coordinates: square(20, 0, 10) },
+        { type: 'LineString', coordinates: square(40, 0, 10).slice(0, 4) },
+      ]),
+      'Проект',
+    );
+
+    if (found.kind !== 'contour') throw new Error(found.kind);
+    expect(found.contour.counts).toEqual({ polygons: 2, rings: 2, vertices: 8 });
+    expect(found.contour.bbox).toMatchObject({ minX: 0, maxX: 30 });
+  });
+
+  test('граница только из незамкнутых отрезков — причина «open», а не «нет границы»', () => {
+    expect(
+      obstaclesContour(
+        obstacles([{ type: 'LineString', coordinates: square(0, 0, 10).slice(0, 3) }]),
+        'Проект',
+      ),
+    ).toEqual({ kind: 'open' });
+  });
+
+  test('кольца есть, но контур не строится — причина «invalid», а не «незамкнута»', () => {
+    expect(
+      obstaclesContour(
+        obstacles([
+          {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [0, 0],
+                [0, 0],
+              ],
+            ],
+          },
+        ]),
+        'Проект',
+      ),
+    ).toEqual({ kind: 'invalid' });
+  });
+
+  test('границы участка среди объектов нет — причина «missing»', () => {
+    expect(
+      obstaclesContour(
+        obstacles([{ type: 'Polygon', coordinates: [square(0, 0, 10)] }], 'buildings'),
+        'Проект',
+      ),
+    ).toEqual({ kind: 'missing' });
+  });
 });

@@ -1,14 +1,53 @@
-import type { PlantingFeatureCollection, ZonesFeatureCollection } from '@/entities/project';
+import type {
+  ObstaclesFeatureCollection,
+  PlantingFeatureCollection,
+  ZonesFeatureCollection,
+} from '@/entities/project';
 import { buildContour, type Contour } from '@/shared/lib/contour';
 
-// Откуда контур проекта: граница участка из чертежа, внешний контур газона или охват посадок.
-export type ContourOrigin = 'boundary' | 'lawn' | 'plantings';
+// Откуда контур проекта: граница участка из результата, внешний контур газона, охват посадок;
+// у проекта, упавшего на геопривязке, — граница участка из объектов подосновы или файл
+// пользователя. У файла — причина, по которой подоснова контура не дала.
+export type ContourOrigin =
+  | 'boundary'
+  | 'lawn'
+  | 'plantings'
+  | 'obstacles'
+  | 'fileNoObstacles'
+  | 'fileObstaclesFailed'
+  | 'fileMissing'
+  | 'fileOpen'
+  | 'fileInvalid';
+
+type FileOrigin = Extract<ContourOrigin, `file${string}`>;
+
+// Почему подоснова контура не дала — одной фразой; на карте под заголовком «Загрузите границу
+// участка…» идёт только она.
+export const FILE_REASON: Record<FileOrigin, string> = {
+  fileNoObstacles: 'Сервер не отдаёт объекты подосновы.',
+  fileObstaclesFailed: 'Объекты подосновы не загрузились.',
+  fileMissing: 'Границы участка в подоснове не нашлось.',
+  fileOpen: 'Граница участка в подоснове начерчена незамкнутыми отрезками.',
+  fileInvalid: 'Границу участка из подосновы не удалось построить.',
+};
+
+const FILE_REQUEST =
+  'Загрузите границу участка файлом GeoJSON — в координатах чертежа, в метрах, как DXF.';
 
 export const CONTOUR_ORIGIN_TEXT: Record<ContourOrigin, string> = {
   boundary: 'Граница участка из чертежа',
   lawn: 'Граница участка не найдена — показан внешний контур газона',
   plantings: 'Граница участка не найдена — показан охват посадок',
+  obstacles: 'Граница участка из подосновы',
+  fileNoObstacles: `${FILE_REASON.fileNoObstacles} ${FILE_REQUEST}`,
+  fileObstaclesFailed: `${FILE_REASON.fileObstaclesFailed} ${FILE_REQUEST}`,
+  fileMissing: `${FILE_REASON.fileMissing} ${FILE_REQUEST}`,
+  fileOpen: `${FILE_REASON.fileOpen} ${FILE_REQUEST}`,
+  fileInvalid: `${FILE_REASON.fileInvalid} ${FILE_REQUEST}`,
 };
+
+export const isFileOrigin = (origin: ContourOrigin): origin is FileOrigin =>
+  Object.hasOwn(FILE_REASON, origin);
 
 // Запас вокруг охвата посадок: крона дерева и немного газона вокруг, м.
 export const PLANTINGS_MARGIN_M = 5;
@@ -95,4 +134,59 @@ export function projectContour(
   if (outline === null) return null;
   const built = buildContour({ type: 'Polygon', coordinates: [outline] }, name);
   return built.ok ? { contour: built.contour, origin: 'plantings' } : null;
+}
+
+type ObstacleGeometry = ObstaclesFeatureCollection['features'][number]['geometry'];
+
+// Кольца границы участка: полигоны и замкнутые линии. Незамкнутую линию (граница, начерченная
+// отрезками) сервер сшивает сам (../backend/greenplan/zoning/topology.py); здесь её не угадываем.
+function boundaryRings(geometry: ObstacleGeometry): number[][][][] {
+  const closed = (line: number[][]) => {
+    const [first, last] = [line[0], line.at(-1)];
+    return (
+      line.length >= 4 &&
+      first !== undefined &&
+      last !== undefined &&
+      first[0] === last[0] &&
+      first[1] === last[1]
+    );
+  };
+  switch (geometry.type) {
+    case 'Polygon':
+      return [geometry.coordinates];
+    case 'MultiPolygon':
+      return geometry.coordinates;
+    case 'LineString':
+      return closed(geometry.coordinates) ? [[geometry.coordinates]] : [];
+    case 'MultiLineString':
+      return geometry.coordinates.filter(closed).map((line) => [line]);
+    case 'Point':
+      return [];
+    default: {
+      const unexpected: never = geometry;
+      return unexpected;
+    }
+  }
+}
+
+// Контур проекта, упавшего на геопривязке: граница участка (категория site_boundary, у сервера —
+// граница работ) из объектов разобранной подосновы, в метрах чертежа. Без контура — причина:
+// границы нет или она начерчена незамкнутыми отрезками.
+export function obstaclesContour(
+  obstacles: ObstaclesFeatureCollection,
+  name: string,
+):
+  | { kind: 'contour'; contour: Contour }
+  | { kind: 'missing' }
+  | { kind: 'open' }
+  | { kind: 'invalid' } {
+  const boundary = obstacles.features.filter(
+    ({ properties }) => properties.category === 'site_boundary',
+  );
+  if (boundary.length === 0) return { kind: 'missing' };
+  const polygons = boundary.flatMap(({ geometry }) => boundaryRings(geometry));
+  if (polygons.length === 0) return { kind: 'open' };
+  // Кольца замкнуты, но контур не собрался (например, в кольце меньше трёх вершин).
+  const built = buildContour({ type: 'MultiPolygon', coordinates: polygons }, name);
+  return built.ok ? { kind: 'contour', contour: built.contour } : { kind: 'invalid' };
 }
