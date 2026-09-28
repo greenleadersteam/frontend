@@ -19,10 +19,14 @@ export type Placement = {
   scale: number;
 };
 
+// Подобие без самого контура: чтобы перевести точку, нужна только его опорная точка в файле.
+// Так же описана привязка проекта (контракт PUT /georeference) и привязка демо-участка в моке.
+export type PlacementCore = Omit<Placement, 'source'> & { source: Pick<Contour, 'center'> };
+
 // Средний радиус Земли — только для оценки погрешности модели.
 export const R_MEAN = 6_371_008.8;
 
-export function localToEnu(point: LocalPoint, placement: Placement): PlaneEnu {
+export function localToEnu(point: LocalPoint, placement: PlacementCore): PlaneEnu {
   return similarity(point, {
     originX: placement.source.center.x,
     originY: placement.source.center.y,
@@ -31,7 +35,7 @@ export function localToEnu(point: LocalPoint, placement: Placement): PlaneEnu {
   });
 }
 
-export function enuToLocal({ e, n }: PlaneEnu, placement: Placement): LocalPoint {
+export function enuToLocal({ e, n }: PlaneEnu, placement: PlacementCore): LocalPoint {
   const th = toRad(-placement.rotation);
   const c = Math.cos(th);
   const s = Math.sin(th);
@@ -41,15 +45,30 @@ export function enuToLocal({ e, n }: PlaneEnu, placement: Placement): LocalPoint
 }
 
 // Рамку опорной точки вызывающая сторона считает один раз на весь контур.
-export const frameOf = (placement: Placement): EnuFrame => enuFrame(placement.anchor);
+export const frameOf = (placement: PlacementCore): EnuFrame => enuFrame(placement.anchor);
 
 export function vertexLatLon(
   point: LocalPoint,
-  placement: Placement,
+  placement: PlacementCore,
   frame: EnuFrame = frameOf(placement),
 ): LatLon {
   const { lat, lon } = frame.toGeodetic({ ...localToEnu(point, placement), u: 0 });
   return { lat, lon };
+}
+
+export type PlacementTransform = {
+  toLatLon: (point: LocalPoint) => LatLon;
+  // Обратно: точка на эллипсоиде проецируется на касательную плоскость опорной точки.
+  toLocal: (point: LatLon) => LocalPoint;
+};
+
+// Путь «файл ↔ эллипсоид» для множества точек: рамка опорной точки считается один раз.
+export function placementTransform(placement: PlacementCore): PlacementTransform {
+  const frame = frameOf(placement);
+  return {
+    toLatLon: (point) => vertexLatLon(point, placement, frame),
+    toLocal: (point) => enuToLocal(frame.toEnu(point), placement),
+  };
 }
 
 export function sizeOnMap({ source, scale }: Pick<Placement, 'source' | 'scale'>): {

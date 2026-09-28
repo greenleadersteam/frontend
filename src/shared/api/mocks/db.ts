@@ -1,8 +1,10 @@
+import type { PlacementCore } from '@/shared/lib/georeference';
+
 import type { components as Proposed } from '../generated/proposed';
 import type { components as Real } from '../generated/schema';
 import { processingDefaults } from './fixtures/processing-defaults';
 import { type MockArchive, projectSeeds } from './fixtures/projects';
-import { DEFAULT_PLACEMENT, type Placement, placementOf, type RunParams } from './fixtures/site';
+import { DEFAULT_PLACEMENT, placementOf, type RunParams } from './fixtures/site';
 
 type ProjectResponse = Real['schemas']['ProjectResponse'];
 type JobStatus = Real['schemas']['JobStatus'];
@@ -40,7 +42,7 @@ export type MockProject = {
 
 // Как проект привязан к местности: присланная привязка, иначе bbox демо-проекта, иначе —
 // без геопривязки, в метрах чертежа.
-export function placementOfProject(project: MockProject): Placement | null {
+export function placementOfProject(project: MockProject): PlacementCore | null {
   if (project.georeference !== null) return placementOf(project.georeference);
   return project.bbox === null ? null : DEFAULT_PLACEMENT;
 }

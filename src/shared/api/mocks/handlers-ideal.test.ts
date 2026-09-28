@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { placementTransform } from '@/shared/lib/georeference';
+
 import type { components as Proposed } from '../generated/proposed';
 import type { components as Real } from '../generated/schema';
 import { resetMockDb } from './node';
@@ -362,6 +364,37 @@ describe('ручная геопривязка', () => {
         ?.geometry.coordinates ?? [];
     expect((lon - 37.6) * 62_900).toBeCloseTo(-2.2, 1);
     expect((lat - 55.7) * 111_360).toBeCloseTo(3, 1);
+  });
+
+  // Мок кладёт чертёж на местность той же функцией, что модуль геопривязки и план проекта
+  // с ручной привязкой: привязка, применённая в браузере и на сервере-моке, даёт одну картину.
+  test('координаты после привязки — те же, что у клиента по той же привязке', async () => {
+    const drawing = await call<Schemas['PlantingFeatureCollection']>(
+      `/projects/${READY_LOCAL}/planting`,
+    );
+    const body = {
+      ...georeference,
+      anchor_drawing: { x: 30, y: 8.5 },
+      rotation_deg: 17.5,
+      scale: 1.02,
+    };
+    await put(`/projects/${READY_LOCAL}/georeference`, body);
+    vi.setSystemTime(Date.now() + 25_000);
+    const placed = await call<Schemas['PlantingFeatureCollection']>(
+      `/projects/${READY_LOCAL}/planting`,
+    );
+
+    const { toLatLon } = placementTransform({
+      source: { center: body.anchor_drawing },
+      anchor: body.anchor_wgs84,
+      rotation: body.rotation_deg,
+      scale: body.scale,
+    });
+    for (const [index, feature] of drawing.body.features.entries()) {
+      const [x = 0, y = 0] = feature.geometry.coordinates;
+      const { lat, lon } = toLatLon({ x, y });
+      expect(placed.body.features[index]?.geometry.coordinates).toEqual([lon, lat]);
+    }
   });
 
   test('привязка спасает проект, упавший на геопривязке', async () => {

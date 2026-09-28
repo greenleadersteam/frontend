@@ -33,7 +33,7 @@ export {
   VERDICT_TEXT,
   WORK_SCALES,
 } from './gcp';
-export type { Binding, Comparison, Placement } from './placement';
+export type { Binding, Comparison, Placement, PlacementCore } from './placement';
 export {
   azimuthY,
   compare,
@@ -44,6 +44,7 @@ export {
   handleEnu,
   localToEnu,
   normalizeAngle,
+  placementTransform,
   R_MEAN,
   rotationFromEnu,
   sizeOnMap,

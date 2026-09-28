@@ -1,6 +1,6 @@
 import { formatMeters } from '@/shared/lib/format';
-import { metersPerDegree } from '@/shared/lib/geodesy';
 import { isInside, type LocalPoint, nearestOnBoundary } from '@/shared/lib/geometry';
+import { type PlacementCore, placementTransform } from '@/shared/lib/georeference';
 
 import type { components } from '../../generated/proposed';
 import { NORMS } from './norms';
@@ -45,60 +45,47 @@ const LAWN: Rect = { x1: 0, y1: 0, x2: 60, y2: 20 };
 const SITE_BOUNDARY: Rect = { x1: 0, y1: -3, x2: 60, y2: 20 };
 
 // Привязка «метры чертежа → WGS84» — подобием вокруг опорной точки, как в контракте
-// PUT /georeference: поворот от истинного севера против часовой, масштаб. Метры в градусы —
-// теми же рядами эллипсоида WGS84, что в entities/project/lib/local-frame.ts: иначе «Покровка»
-// и «Шаболовка» (те же метры без геопривязки) расходились бы в расстояниях.
-export type Placement = {
-  anchorWgs84: { lat: number; lon: number };
-  anchorDrawing: Point;
-  rotationDeg: number;
-  scale: number;
-};
-
+// PUT /georeference: поворот от истинного севера против часовой, масштаб. Точки переводятся теми же
+// функциями, что у модуля геопривязки и у плана проекта с ручной привязкой (shared/lib/georeference):
+// иначе мок и клиент по-разному положили бы один чертёж на карту.
 // Участок на Покровке: так его привязывает bbox_user демо-проекта.
-export const DEFAULT_PLACEMENT: Placement = {
-  anchorWgs84: { lat: 55.7593, lon: 37.6452 },
-  anchorDrawing: [0, 0],
-  rotationDeg: 0,
+export const DEFAULT_PLACEMENT: PlacementCore = {
+  anchor: { lat: 55.7593, lon: 37.6452 },
+  source: { center: { x: 0, y: 0 } },
+  rotation: 0,
   scale: 1,
 };
 
-export const placementOf = (georeference: ManualGeoreference): Placement => ({
-  anchorWgs84: georeference.anchor_wgs84,
-  anchorDrawing: [georeference.anchor_drawing.x, georeference.anchor_drawing.y],
-  rotationDeg: georeference.rotation_deg,
+export const placementOf = (georeference: ManualGeoreference): PlacementCore => ({
+  anchor: georeference.anchor_wgs84,
+  source: { center: georeference.anchor_drawing },
+  rotation: georeference.rotation_deg,
   scale: georeference.scale,
 });
 
-function toLonLat({ anchorWgs84, anchorDrawing, rotationDeg, scale }: Placement, [x, y]: Point) {
-  const angle = (rotationDeg * Math.PI) / 180;
-  const dx = (x - anchorDrawing[0]) * scale;
-  const dy = (y - anchorDrawing[1]) * scale;
-  const east = dx * Math.cos(angle) - dy * Math.sin(angle);
-  const north = dx * Math.sin(angle) + dy * Math.cos(angle);
-  const perDegree = metersPerDegree(anchorWgs84.lat);
-  return [anchorWgs84.lon + east / perDegree.lon, anchorWgs84.lat + north / perDegree.lat];
+// Рамка опорной точки считается один раз на ответ, а не на каждую вершину.
+function toLonLat(placement: PlacementCore): (point: Point) => number[] {
+  const { toLatLon } = placementTransform(placement);
+  return ([x, y]) => {
+    const { lat, lon } = toLatLon({ x, y });
+    return [lon, lat];
+  };
 }
 
-function fromLonLat(
-  { anchorWgs84, anchorDrawing, rotationDeg, scale }: Placement,
-  [lon, lat]: Point,
-) {
-  const angle = (rotationDeg * Math.PI) / 180;
-  const perDegree = metersPerDegree(anchorWgs84.lat);
-  const east = (lon - anchorWgs84.lon) * perDegree.lon;
-  const north = (lat - anchorWgs84.lat) * perDegree.lat;
-  const dx = east * Math.cos(angle) + north * Math.sin(angle);
-  const dy = -east * Math.sin(angle) + north * Math.cos(angle);
-  return [anchorDrawing[0] + dx / scale, anchorDrawing[1] + dy / scale] as const;
+function fromLonLat(placement: PlacementCore): (point: Point) => Point {
+  const { toLocal } = placementTransform(placement);
+  return ([lon, lat]) => {
+    const { x, y } = toLocal({ lat, lon });
+    return [x, y];
+  };
 }
 
 const GEOGRAPHIC_CRS = 'EPSG:4326 (WGS84 lon/lat)';
 const DRAWING_CRS = 'local drawing coordinates, no geo-reference available';
 
 // null — без геопривязки: координаты отдаются в метрах чертежа, как у бэкенда.
-const projectPoint = (placement: Placement | null, point: Point): number[] =>
-  placement === null ? [point[0], point[1]] : toLonLat(placement, point);
+const projector = (placement: PlacementCore | null): ((point: Point) => number[]) =>
+  placement === null ? (point) => [point[0], point[1]] : toLonLat(placement);
 
 type SiteObstacle = {
   // Норма из norms.ts без суффикса типа посадки; null — у бэкенда нормы нет, отступ
@@ -520,7 +507,7 @@ const MAX_REJECTED = 15;
 type Placed = { id: string; plantType: PlantType; ruleId: string; ruleName: string; point: Point };
 type Rejected = { plantType: PlantType; ruleId: string; point: Point };
 
-export function buildSiteResult(params: RunParams, placement: Placement | null): SiteResult {
+export function buildSiteResult(params: RunParams, placement: PlacementCore | null): SiteResult {
   const placed: Placed[] = [];
   const rejected: Rejected[] = [];
 
@@ -547,7 +534,7 @@ export function buildSiteResult(params: RunParams, placement: Placement | null):
     }
   }
 
-  const project: Project = (point) => projectPoint(placement, point);
+  const project: Project = projector(placement);
   const crs = placement === null ? DRAWING_CRS : GEOGRAPHIC_CRS;
 
   return {
@@ -632,7 +619,7 @@ const minSpacing = (params: RunParams, plantType: PlantType): number =>
 // и шаг. Координаты — в системе ответа /planting.
 export function checkPlantings(
   plantings: EditedPlanting[],
-  placement: Placement | null,
+  placement: PlacementCore | null,
   params: RunParams,
   original: readonly Schemas['PlantingFeature'][],
 ): CheckedPlanting[] {
@@ -647,9 +634,10 @@ export function checkPlantings(
       properties.origin === 'auto' && x === geometry.coordinates[0] && y === geometry.coordinates[1]
     );
   };
+  const toDrawing = placement === null ? null : fromLonLat(placement);
   const local = plantings.map(({ geometry }) => {
     const [x = 0, y = 0] = geometry.coordinates;
-    return placement === null ? ([x, y] as const) : fromLonLat(placement, [x, y]);
+    return toDrawing === null ? ([x, y] as const) : toDrawing([x, y]);
   });
 
   return plantings.map((planting, index) => {
@@ -706,10 +694,11 @@ export function checkPlantings(
 // Координаты посадок для DXF — в метрах чертежа, как пишет ../backend/greenplan/io/dxf_sink.py.
 export function drawingPoints(
   plantings: { coordinates: number[]; plantType: PlantType }[],
-  placement: Placement | null,
+  placement: PlacementCore | null,
 ): { point: Point; plantType: PlantType }[] {
+  const toDrawing = placement === null ? null : fromLonLat(placement);
   return plantings.map(({ coordinates: [x = 0, y = 0], plantType }) => ({
-    point: placement === null ? ([x, y] as const) : fromLonLat(placement, [x, y]),
+    point: toDrawing === null ? ([x, y] as const) : toDrawing([x, y]),
     plantType,
   }));
 }
