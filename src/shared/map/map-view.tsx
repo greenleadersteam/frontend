@@ -1,6 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-import { ActionIcon, Text } from '@mantine/core';
+import { ActionIcon, SegmentedControl, Text } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { IconFocusCentered, IconMinus, IconPlus } from '@tabler/icons-react';
 import {
   AttributionControl,
@@ -12,17 +13,12 @@ import {
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { type JSX, type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
 
-import {
-  BASEMAP_BOUNDS,
-  getRuntimeConfig,
-  type ImageryConfig,
-  MAP_MAX_ZOOM,
-  MAP_MIN_ZOOM,
-} from '@/shared/config';
+import { BASEMAP_BOUNDS, getRuntimeConfig, MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '@/shared/config';
 import { Icon } from '@/shared/ui';
 
+import { useBasemapChoice } from './basemap-choice';
 import { basemapStyle, loadLabelFont } from './basemap-style';
-import { BASEMAP_SOURCE, type BasemapKind, IMAGERY_SOURCES } from './basemaps';
+import { basemapLayerShown, watchBasemap } from './basemaps';
 import classes from './map-view.module.css';
 import { openBasemapArchive } from './pmtiles-protocol';
 
@@ -45,10 +41,9 @@ type MapViewProps = {
   // false — карта без подложки и без охвата Москвы: координаты не привязаны к городу.
   basemap: boolean;
   basemapVisible: boolean;
-  // Какую подложку показать; «Снимок» — только если передан imagery.
-  basemapKind?: BasemapKind;
-  // Космоснимок из конфига контура; без него карта строится только со «Схемой».
-  imagery?: ImageryConfig | null;
+  // Переключатель подложки в углу карты; выбор общий для всех карт и помнится до конца сеанса.
+  // Без него — «Схема» без снимка, как у снимка плана для отчёта.
+  basemapSwitch?: boolean;
   maxZoom?: number;
   // Тихая подпись в углу вместо атрибуции подложки; может нести тихую кнопку.
   note?: ReactNode;
@@ -72,8 +67,7 @@ export function MapView({
   label,
   basemap: withBasemap,
   basemapVisible,
-  basemapKind = 'scheme',
-  imagery = null,
+  basemapSwitch = false,
   maxZoom = MAP_MAX_ZOOM,
   note,
   onReady,
@@ -85,6 +79,15 @@ export function MapView({
   const containerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [basemap, setBasemap] = useState<Basemap>('checking');
+  const imagery = basemapSwitch ? getRuntimeConfig().imagery : null;
+  const choice = useBasemapChoice(imagery);
+  // Без архива «Светлая» — та же пустая «Земля», что и «Схема»: выбранной показывается «Схема».
+  const kind =
+    !basemapSwitch || (basemap === 'missing' && choice.kind === 'light') ? 'scheme' : choice.kind;
+  // Без архива «Схема» и «Светлая» — одна и та же пустая «Земля»: второй пункт лишний.
+  const options = choice.options.filter(
+    (option) => basemap !== 'missing' || option.kind !== 'light',
+  );
 
   const fit = (target: MapLibreMap, animate: boolean) => {
     target.fitBounds(bounds, { padding, maxZoom: FIT_MAX_ZOOM, animate });
@@ -167,21 +170,33 @@ export function MapView({
     };
   }, [withBasemap]);
 
+  // Атрибуцию MapLibre показывает по видимым слоям источника: она меняется вместе с подложкой.
   useEffect(() => {
     if (map === null) return;
-    const shown: Record<string, boolean> = {
-      [BASEMAP_SOURCE]: basemapVisible && basemapKind === 'scheme',
-      ...Object.fromEntries(
-        IMAGERY_SOURCES.map((source) => [source, basemapVisible && basemapKind === 'imagery']),
-      ),
-    };
     for (const layer of map.getStyle().layers) {
-      const visible = 'source' in layer ? shown[layer.source] : undefined;
+      const visible = basemapLayerShown(
+        { id: layer.id, ...('source' in layer && { source: layer.source }) },
+        basemapVisible ? kind : null,
+      );
       if (visible !== undefined) {
         map.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
       }
     }
-  }, [map, basemapVisible, basemapKind]);
+  }, [map, basemapVisible, kind]);
+
+  // Подложка не отвечает — сообщение с названием источника: ни одного тайла за три секунды.
+  useEffect(() => {
+    if (map === null || !basemapSwitch) return;
+    const option = choice.options.find((candidate) => candidate.kind === kind);
+    if (option === undefined) return;
+    return watchBasemap(map, option.sourceIds, (status) => {
+      if (status !== 'unavailable') return;
+      notifications.show({
+        color: 'clay',
+        message: `Подложка «${option.title}» не загрузилась: ${option.source} не отвечает. Проверьте сеть или выберите другую подложку.`,
+      });
+    });
+  }, [map, basemapSwitch, choice.options, kind]);
 
   useEffect(() => {
     map?.getCanvas().setAttribute('aria-label', label);
@@ -197,44 +212,61 @@ export function MapView({
         </Text>
       ) : (
         basemap === 'missing' &&
-        basemapKind === 'scheme' && (
+        kind === 'scheme' && (
           <Text size="xs" className={classes.note}>
             Подложка не загружена
           </Text>
         )
       )}
       {!snapshot && (
-        <ActionIcon.Group orientation="vertical" className={classes.zoom}>
-          <ActionIcon
-            variant="default"
-            size="lg"
-            aria-label="Приблизить"
-            disabled={map === null}
-            onClick={() => map?.zoomIn()}
-          >
-            <Icon icon={IconPlus} />
-          </ActionIcon>
-          <ActionIcon
-            variant="default"
-            size="lg"
-            aria-label="Отдалить"
-            disabled={map === null}
-            onClick={() => map?.zoomOut()}
-          >
-            <Icon icon={IconMinus} />
-          </ActionIcon>
-          <ActionIcon
-            variant="default"
-            size="lg"
-            aria-label="Показать весь участок"
-            disabled={map === null}
-            onClick={() => {
-              if (map !== null) fit(map, true);
-            }}
-          >
-            <Icon icon={IconFocusCentered} />
-          </ActionIcon>
-        </ActionIcon.Group>
+        <div className={classes.controls}>
+          {/* Без WebGL карты нет — и переключать нечего. */}
+          {map !== null && basemapSwitch && basemapVisible && options.length > 1 && (
+            <SegmentedControl
+              orientation="vertical"
+              size="xs"
+              aria-label="Подложка"
+              className={classes.basemaps}
+              value={kind}
+              onChange={(value) => {
+                const option = options.find((candidate) => candidate.kind === value);
+                if (option !== undefined) choice.choose(option.kind);
+              }}
+              data={options.map((option) => ({ value: option.kind, label: option.title }))}
+            />
+          )}
+          <ActionIcon.Group orientation="vertical" className={classes.zoom}>
+            <ActionIcon
+              variant="default"
+              size="lg"
+              aria-label="Приблизить"
+              disabled={map === null}
+              onClick={() => map?.zoomIn()}
+            >
+              <Icon icon={IconPlus} />
+            </ActionIcon>
+            <ActionIcon
+              variant="default"
+              size="lg"
+              aria-label="Отдалить"
+              disabled={map === null}
+              onClick={() => map?.zoomOut()}
+            >
+              <Icon icon={IconMinus} />
+            </ActionIcon>
+            <ActionIcon
+              variant="default"
+              size="lg"
+              aria-label="Показать весь участок"
+              disabled={map === null}
+              onClick={() => {
+                if (map !== null) fit(map, true);
+              }}
+            >
+              <Icon icon={IconFocusCentered} />
+            </ActionIcon>
+          </ActionIcon.Group>
+        </div>
       )}
     </div>
   );

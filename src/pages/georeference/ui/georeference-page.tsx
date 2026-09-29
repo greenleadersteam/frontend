@@ -4,7 +4,6 @@ import {
   Drawer,
   Group,
   Modal,
-  SegmentedControl,
   Stack,
   Text,
   VisuallyHidden,
@@ -31,16 +30,10 @@ import {
 } from '@/entities/georeference';
 import { isProjectId, usePutGeoreferenceMutation } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
-import { getRuntimeConfig, PRODUCT_NAME, projectPath } from '@/shared/config';
+import { PRODUCT_NAME, projectPath } from '@/shared/config';
 import { isLocked, isOutlier, stats as gcpStats } from '@/shared/lib/georeference';
 import { useAppDispatch, useAppSelector } from '@/shared/lib/store';
-import {
-  type BasemapKind,
-  basemapOptions,
-  IMAGERY_MAX_ZOOM,
-  MapView,
-  watchBasemap,
-} from '@/shared/map';
+import { IMAGERY_MAX_ZOOM, MapView } from '@/shared/map';
 import { PANELS_BREAKPOINT } from '@/shared/theme';
 import { Icon, NotFoundScreen } from '@/shared/ui';
 
@@ -97,15 +90,12 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
   // видит: иначе «Применить к проекту» и выгрузка взяли бы чужой контур.
   const session = current.projectId === (project?.project.id ?? null) ? current : EMPTY_SESSION;
   const placement = placementOf(session);
-  const { imagery } = getRuntimeConfig();
-  const options = basemapOptions(imagery);
 
   const [map, setMap] = useState<MapLibreMap | null>(null);
   // Без WebGL карты нет, а без карты совмещать не с чем: экран объясняет это вместо подсказки.
   const [mapUnavailable, setMapUnavailable] = useState(false);
   // Контур ставится на карту: пока её нет или она перестала отвечать, открывать файлы некуда.
   const canOpen = map !== null && !mapUnavailable;
-  const [basemap, setBasemap] = useState<BasemapKind>('scheme');
   const [fillOpacity, setFillOpacity] = useState(DEFAULT_FILL_OPACITY);
   const [contourVisible, setContourVisible] = useState(true);
   const [drawer, setDrawer] = useState<Drawer>(null);
@@ -239,20 +229,6 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
     void navigate(projectPath(project.project.id));
   };
 
-  // Подложка не отвечает — сообщение с названием источника: ни одного тайла за три секунды.
-  useEffect(() => {
-    if (map === null) return;
-    const option = basemapOptions(getRuntimeConfig().imagery).find(({ kind }) => kind === basemap);
-    if (option === undefined) return;
-    return watchBasemap(map, option.sourceIds, (status) => {
-      if (status !== 'unavailable') return;
-      notifications.show({
-        color: 'clay',
-        message: `Подложка «${option.title}» не загрузилась: ${option.source} не отвечает. Проверьте сеть или выберите другую подложку.`,
-      });
-    });
-  }, [map, basemap]);
-
   const contourPanel = (
     <ContourPanel
       project={
@@ -360,17 +336,6 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
               </Button>
             </>
           )}
-          {options.length > 1 && (
-            <SegmentedControl
-              aria-label="Подложка"
-              value={basemap}
-              onChange={(value) => {
-                const option = options.find(({ kind }) => kind === value);
-                if (option !== undefined) setBasemap(option.kind);
-              }}
-              data={options.map(({ kind, title }) => ({ value: kind, label: title }))}
-            />
-          )}
           <span className={classes.spacer} />
           <ActionIcon.Group>
             <ActionIcon
@@ -405,8 +370,7 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
             }
             basemap
             basemapVisible
-            basemapKind={basemap}
-            imagery={imagery}
+            basemapSwitch
             maxZoom={IMAGERY_MAX_ZOOM}
             onReady={setMap}
             onBasemapResolved={() => undefined}

@@ -7,7 +7,11 @@ export const IMAGERY_SOURCE = 'imagery';
 export const IMAGERY_LABELS_SOURCE = 'imagery-labels';
 export const IMAGERY_SOURCES = [IMAGERY_SOURCE, IMAGERY_LABELS_SOURCE] as const;
 
-export type BasemapKind = 'scheme' | 'imagery';
+export const BASEMAP_KINDS = ['scheme', 'light', 'imagery', 'imagery-labels'] as const;
+export type BasemapKind = (typeof BASEMAP_KINDS)[number];
+
+// Слои «Светлой» — второй набор слоёв того же архива; по префиксу id их отличают от «Схемы».
+export const LIGHT_LAYER_PREFIX = 'light:';
 
 export type BasemapOption = {
   kind: BasemapKind;
@@ -26,27 +30,64 @@ export const SCHEME_ATTRIBUTION = '© участники OpenStreetMap, Protomap
 export const IMAGERY_NATIVE_ZOOM = 19;
 export const IMAGERY_MAX_ZOOM = 21;
 
-// «Схема» — своя подложка, есть всегда; «Снимок» — только если контур его разрешил в конфиге.
+// «Схема» и «Светлая» — своя подложка из одного архива, есть всегда; «Снимок» и «Снимок с
+// подписями» — только если контур разрешил снимок в конфиге.
 export function basemapOptions(imagery: ImageryConfig | null): BasemapOption[] {
-  const scheme: BasemapOption = {
-    kind: 'scheme',
-    title: 'Схема',
-    source: 'схема OpenStreetMap',
-    attribution: SCHEME_ATTRIBUTION,
-    sourceIds: [BASEMAP_SOURCE],
-  };
-  if (imagery === null) return [scheme];
+  const own: BasemapOption[] = [
+    {
+      kind: 'scheme',
+      title: 'Схема',
+      source: 'схема OpenStreetMap',
+      attribution: SCHEME_ATTRIBUTION,
+      sourceIds: [BASEMAP_SOURCE],
+    },
+    {
+      kind: 'light',
+      title: 'Светлая',
+      source: 'схема OpenStreetMap',
+      attribution: SCHEME_ATTRIBUTION,
+      sourceIds: [BASEMAP_SOURCE],
+    },
+  ];
+  if (imagery === null) return own;
+  // Источник снимка задаёт конфиг контура: в сообщении — его сервер, а не зашитое имя.
+  const source = `космоснимок ${new URL(imagery.tilesUrl).host}`;
   return [
-    scheme,
+    ...own,
     {
       kind: 'imagery',
       title: 'Снимок',
-      // Источник снимка задаёт конфиг контура: в сообщении — его сервер, а не зашитое имя.
-      source: `космоснимок ${new URL(imagery.tilesUrl).host}`,
+      source,
+      attribution: imagery.attribution,
+      sourceIds: [IMAGERY_SOURCE],
+    },
+    {
+      kind: 'imagery-labels',
+      title: 'Снимок с подписями',
+      source,
       attribution: imagery.attribution,
       sourceIds: IMAGERY_SOURCES,
     },
   ];
+}
+
+// Виден ли слой стиля при выбранной подложке; null — подложка скрыта. Слои проекта подложке не
+// принадлежат (undefined): переключение их не трогает, и порядок слоёв остаётся прежним.
+export function basemapLayerShown(
+  layer: { id: string; source?: string },
+  kind: BasemapKind | null,
+): boolean | undefined {
+  if (layer.id.startsWith(LIGHT_LAYER_PREFIX)) return kind === 'light';
+  switch (layer.source) {
+    case BASEMAP_SOURCE:
+      return kind === 'scheme';
+    case IMAGERY_SOURCE:
+      return kind === 'imagery' || kind === 'imagery-labels';
+    case IMAGERY_LABELS_SOURCE:
+      return kind === 'imagery-labels';
+    default:
+      return undefined;
+  }
 }
 
 export type TileCounts = { requested: number; loaded: number; failed: number };

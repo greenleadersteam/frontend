@@ -119,6 +119,7 @@ export function SiteStep({ initial, onBack, onSubmit }: SiteStepProps): JSX.Elem
                 label="Карта для выбора области участка"
                 basemap
                 basemapVisible
+                basemapSwitch
                 onReady={track}
                 onBasemapResolved={(available) => {
                   if (!available) setInput('no-basemap');

@@ -696,53 +696,6 @@ describe('карта недоступна', () => {
   });
 });
 
-describe('подложки', () => {
-  test('без снимка в конфиге переключателя нет', async () => {
-    renderPage();
-    await screen.findByRole('region', { name: 'Карта' });
-
-    expect(screen.queryByRole('radio', { name: 'Снимок' })).not.toBeInTheDocument();
-  });
-
-  test('со снимком — «Схема» и «Снимок», по умолчанию «Схема»', async () => {
-    configMock.imagery = {
-      tilesUrl: 'https://tiles.example.org/{z}/{y}/{x}',
-      labelsUrl: 'https://tiles.example.org/labels/{z}/{y}/{x}',
-      attribution: 'Источник',
-    };
-    renderPage();
-
-    expect(await screen.findByRole('radio', { name: 'Схема' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Снимок' })).not.toBeChecked();
-  });
-
-  test('снимок не прислал ни одного тайла за три секунды — уведомление с источником', async () => {
-    configMock.imagery = {
-      tilesUrl: 'https://tiles.example.org/{z}/{y}/{x}',
-      labelsUrl: 'https://tiles.example.org/labels/{z}/{y}/{x}',
-      attribution: 'Источник',
-    };
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      renderPage();
-      const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-      await user.click(await screen.findByRole('radio', { name: 'Снимок' }));
-      act(() => {
-        fakeMap.emit('dataloading', { sourceId: 'imagery', tile: {}, dataType: 'source' });
-        vi.advanceTimersByTime(3000);
-      });
-
-      expect(
-        await screen.findByText(
-          /^Подложка «Снимок» не загрузилась: космоснимок tiles\.example\.org не отвечает/,
-        ),
-      ).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
 describe('режим проекта', () => {
   // «Улица Шаболовка, 37» из моков: готова, без геопривязки; граница участка — 60 × 23 м,
   // центр габарита — (30; 8,5) м чертежа.

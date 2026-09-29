@@ -5,7 +5,9 @@ import devConfig from '../../../config.dev.json';
 import buildConfig from '../../../public/config.json';
 import { basemapStyle } from './basemap-style';
 import {
+  BASEMAP_SOURCE,
   BASEMAP_STATUS_DELAY_MS,
+  basemapLayerShown,
   basemapOptions,
   basemapStatus,
   IMAGERY_LABELS_SOURCE,
@@ -25,16 +27,30 @@ const IMAGERY = {
 };
 
 describe('состав подложек', () => {
-  test('подложек две, в заданном порядке: «Схема», затем «Снимок»', () => {
-    expect(basemapOptions(IMAGERY).map(({ title }) => title)).toEqual(['Схема', 'Снимок']);
+  test('со снимком подложек четыре, в заданном порядке', () => {
+    expect(basemapOptions(IMAGERY).map(({ title }) => title)).toEqual([
+      'Схема',
+      'Светлая',
+      'Снимок',
+      'Снимок с подписями',
+    ]);
   });
 
   test('по умолчанию — «Схема»: своя подложка, работает без интернета', () => {
     expect(basemapOptions(IMAGERY)[0]?.kind).toBe('scheme');
   });
 
-  test('imagery: null убирает «Снимок»', () => {
-    expect(basemapOptions(null).map(({ kind }) => kind)).toEqual(['scheme']);
+  test('imagery: null убирает оба снимка: остаются свои «Схема» и «Светлая»', () => {
+    expect(basemapOptions(null).map(({ kind }) => kind)).toEqual(['scheme', 'light']);
+  });
+
+  test('по источникам подложки видно, загрузилась ли она: подписи — только у второго снимка', () => {
+    expect(basemapOptions(IMAGERY).map(({ sourceIds }) => sourceIds)).toEqual([
+      [BASEMAP_SOURCE],
+      [BASEMAP_SOURCE],
+      [IMAGERY_SOURCE],
+      [IMAGERY_SOURCE, IMAGERY_LABELS_SOURCE],
+    ]);
   });
 
   test('у каждой подложки названы источник и атрибуция', () => {
@@ -42,7 +58,12 @@ describe('состав подложек', () => {
       expect(option.source, option.title).not.toBe('');
       expect(option.attribution, option.title).not.toBe('');
     }
-    expect(basemapOptions(IMAGERY)[1]?.attribution).toBe(IMAGERY.attribution);
+    expect(basemapOptions(IMAGERY).map(({ attribution }) => attribution)).toEqual([
+      '© участники OpenStreetMap, Protomaps',
+      '© участники OpenStreetMap, Protomaps',
+      IMAGERY.attribution,
+      IMAGERY.attribution,
+    ]);
   });
 
   test('снимок тянется до 21-го масштаба, тайлы — до 19-го', () => {
@@ -85,9 +106,10 @@ describe('стиль со снимком', () => {
     expect(ids.indexOf(IMAGERY_LABELS_SOURCE)).toBe(ids.indexOf(IMAGERY_SOURCE) + 1);
   });
 
-  test('снимок — над фоном схемы, под её остальными слоями', () => {
-    expect(ids.indexOf(IMAGERY_SOURCE)).toBe(1);
-    expect(ids.length).toBeGreaterThan(3);
+  test('снимок — над фонами схем, под их остальными слоями', () => {
+    expect(ids.slice(0, 2)).toEqual(['background', 'light:background']);
+    expect(ids.indexOf(IMAGERY_SOURCE)).toBe(2);
+    expect(ids.length).toBeGreaterThan(5);
   });
 
   test('атрибуция из конфига — текстом: MapLibre вставляет её как HTML', () => {
@@ -104,6 +126,46 @@ describe('стиль со снимком', () => {
       IMAGERY_SOURCE,
       IMAGERY_LABELS_SOURCE,
     ]);
+  });
+});
+
+describe('видимость слоёв при выборе подложки', () => {
+  const layers = {
+    scheme: { id: 'roads_major', source: BASEMAP_SOURCE },
+    light: { id: 'light:roads_major', source: BASEMAP_SOURCE },
+    lightBackground: { id: 'light:background' },
+    imagery: { id: IMAGERY_SOURCE, source: IMAGERY_SOURCE },
+    labels: { id: IMAGERY_LABELS_SOURCE, source: IMAGERY_LABELS_SOURCE },
+  };
+  const shown = (kind: Parameters<typeof basemapLayerShown>[1]) =>
+    Object.fromEntries(
+      Object.entries(layers).map(([name, layer]) => [name, basemapLayerShown(layer, kind)]),
+    );
+
+  test.each([
+    [
+      'scheme',
+      { scheme: true, light: false, lightBackground: false, imagery: false, labels: false },
+    ],
+    ['light', { scheme: false, light: true, lightBackground: true, imagery: false, labels: false }],
+    [
+      'imagery',
+      { scheme: false, light: false, lightBackground: false, imagery: true, labels: false },
+    ],
+    [
+      'imagery-labels',
+      { scheme: false, light: false, lightBackground: false, imagery: true, labels: true },
+    ],
+    [null, { scheme: false, light: false, lightBackground: false, imagery: false, labels: false }],
+  ] as const)('%s', (kind, expected) => {
+    expect(shown(kind)).toEqual(expected);
+  });
+
+  test('слои проекта и фон «Земля» подложке не принадлежат: переключение их не трогает', () => {
+    expect(
+      basemapLayerShown({ id: 'planting-trees', source: 'planting' }, 'light'),
+    ).toBeUndefined();
+    expect(basemapLayerShown({ id: 'background' }, null)).toBeUndefined();
   });
 });
 

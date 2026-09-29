@@ -1,4 +1,4 @@
-import { type Flavor, layers } from '@protomaps/basemaps';
+import { type Flavor, layers, namedFlavor } from '@protomaps/basemaps';
 import type { LayerSpecification, SourceSpecification, StyleSpecification } from 'maplibre-gl';
 
 import type { ImageryConfig } from '@/shared/config';
@@ -10,6 +10,7 @@ import {
   IMAGERY_NATIVE_ZOOM,
   IMAGERY_SOURCE,
   IMAGERY_SOURCES,
+  LIGHT_LAYER_PREFIX,
   SCHEME_ATTRIBUTION,
 } from './basemaps';
 
@@ -114,6 +115,17 @@ const FLAVOR: Flavor = {
   // pois и landcover не заданы: слои POI и растительного покрова тогда не создаются.
 };
 
+// «Светлая» — готовая белая палитра Protomaps: нейтральный фон, на котором читается только план.
+// Шрифты — те же, что у «Схемы»; POI и растительного покрова нет, как и там.
+const LIGHT_FLAVOR: Flavor = {
+  ...namedFlavor('white'),
+  pois: undefined,
+  landcover: undefined,
+  regular: FONT,
+  bold: FONT,
+  italic: FONT,
+};
+
 const STREET_LABELS = new Set(['roads_labels_minor', 'roads_labels_major']);
 
 // Из подписей остаются только улицы, границы не показываются (design.md, «Карта»).
@@ -128,6 +140,10 @@ function refine(layer: LayerSpecification): LayerSpecification {
       paint: { ...layer.paint, 'fill-opacity': 1, 'fill-outline-color': colors.buildingsOutline },
     };
   }
+  return refineLabels(layer);
+}
+
+function refineLabels(layer: LayerSpecification): LayerSpecification {
   if (STREET_LABELS.has(layer.id) && layer.type === 'symbol') {
     return {
       ...layer,
@@ -145,6 +161,17 @@ function refine(layer: LayerSpecification): LayerSpecification {
 
 export const basemapLayers = (): LayerSpecification[] =>
   layers(BASEMAP_SOURCE, FLAVOR, { lang: 'ru' }).filter(isKept).map(refine);
+
+// Скрыты по умолчанию: какую подложку показать, решает MapView.
+export const lightLayers = (): LayerSpecification[] =>
+  layers(BASEMAP_SOURCE, LIGHT_FLAVOR, { lang: 'ru' })
+    .filter(isKept)
+    .map(refineLabels)
+    .map((layer) => ({
+      ...layer,
+      id: `${LIGHT_LAYER_PREFIX}${layer.id}`,
+      layout: { ...layer.layout, visibility: 'none' },
+    }));
 
 // AttributionControl MapLibre вставляет атрибуцию как HTML, а строка снимка приходит из конфига
 // контура — недоверенные данные (security.md): выводится только текстом.
@@ -206,6 +233,7 @@ export function basemapStyle(
     };
   }
   const [base, ...rest] = basemapLayers();
+  const [lightBase, ...lightRest] = lightLayers();
   return {
     version: 8,
     sources: {
@@ -216,7 +244,13 @@ export function basemapStyle(
       },
       ...imageryPart.sources,
     },
-    // Снимок — над фоном схемы, под её остальными слоями: схема и снимок видны порознь.
-    layers: base === undefined ? imageryPart.layers : [base, ...imageryPart.layers, ...rest],
+    // Снимок — над фонами схем, под их остальными слоями: схемы и снимок видны порознь, слои
+    // проекта ложатся поверх всех.
+    layers: [
+      ...[base, lightBase].filter((layer) => layer !== undefined),
+      ...imageryPart.layers,
+      ...rest,
+      ...lightRest,
+    ],
   };
 }

@@ -799,6 +799,9 @@ export function ResultMap({
             label={resultLabel(data)}
             basemap={basemap}
             basemapVisible={visibility.basemap}
+            // План без геопривязки — в условных координатах: подложка и снимок под ним были бы
+            // чужим местом, выбирать нечего.
+            basemapSwitch={basemap}
             note={note}
             onReady={addResult}
             onBasemapResolved={setBasemapAvailable}

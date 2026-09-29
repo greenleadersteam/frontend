@@ -44,12 +44,25 @@
   }
 }
 
-.zoom {
+/* Подложка и масштаб — одним столбцом в правом нижнем углу. */
+.controls {
   position: absolute;
   right: var(--mantine-spacing-md);
   bottom: var(--mantine-spacing-md);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--mantine-spacing-sm);
+}
+
+.basemaps,
+.zoom {
   border-radius: var(--mantine-radius-md);
   box-shadow: var(--mantine-shadow-md);
+}
+
+.basemaps {
+  background: var(--app-surface);
 }
 
 /* Подпись и тихая кнопка при ней — в одну строку. */

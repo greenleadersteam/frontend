@@ -1,3 +1,2 @@
-export type { BasemapKind } from './basemaps';
-export { basemapOptions, IMAGERY_MAX_ZOOM, watchBasemap } from './basemaps';
+export { IMAGERY_MAX_ZOOM } from './basemaps';
 export { MapView } from './map-view';

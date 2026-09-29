@@ -1,9 +1,9 @@
 import type { LayerSpecification } from 'maplibre-gl';
 import { describe, expect, test, vi } from 'vitest';
 
-import { basemapColors } from '@/shared/theme';
+import { basemapColors, MAP_LABEL_FONT } from '@/shared/theme';
 
-import { basemapLayers, basemapStyle, loadLabelFont } from './basemap-style';
+import { basemapLayers, basemapStyle, lightLayers, loadLabelFont } from './basemap-style';
 import { BASEMAP_SOURCE } from './basemaps';
 
 const COLOR = /^(#|rgba?\(|hsla?\()/i;
@@ -89,6 +89,43 @@ describe('basemapStyle', () => {
     expect(style.layers).toEqual([
       { id: 'background', type: 'background', paint: { 'background-color': basemapColors.earth } },
     ]);
+  });
+});
+
+describe('«Светлая»', () => {
+  test('слои из того же архива, с префиксом и скрыты, пока её не выбрали', () => {
+    const light = lightLayers();
+
+    expect(light.length).toBeGreaterThan(10);
+    for (const layer of light) {
+      expect(layer.id).toMatch(/^light:/);
+      expect(layer.layout).toMatchObject({ visibility: 'none' });
+      if ('source' in layer) expect(layer.source).toBe(BASEMAP_SOURCE);
+    }
+  });
+
+  test('как и в «Схеме»: без POI и границ, из подписей — только улицы шрифтом интерфейса', () => {
+    const light = lightLayers();
+    const symbols = light.filter((layer) => layer.type === 'symbol');
+
+    expect(
+      light.map(({ id }) => id).filter((id) => /^light:(pois|boundaries|places)/.test(id)),
+    ).toEqual([]);
+    expect(symbols.map(({ id }) => id).sort()).toEqual([
+      'light:roads_labels_major',
+      'light:roads_labels_minor',
+    ]);
+    for (const layer of symbols) {
+      expect(layer.layout).toMatchObject({ 'text-font': MAP_LABEL_FONT });
+    }
+  });
+
+  test('в стиле — над фонами и снимком, после слоёв «Схемы»', () => {
+    const ids = basemapStyle('http://localhost/basemap/moscow.pmtiles').layers.map(({ id }) => id);
+    const firstLight = ids.findIndex((id) => id.startsWith('light:') && id !== 'light:background');
+
+    expect(ids.slice(firstLight).every((id) => id.startsWith('light:'))).toBe(true);
+    expect(ids.slice(2, firstLight).some((id) => id.startsWith('light:'))).toBe(false);
   });
 });
 
