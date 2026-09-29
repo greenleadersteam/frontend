@@ -29,7 +29,10 @@ export function AppHeader(): JSX.Element {
         <div className={classes.start}>
           <Link to={paths.projects} className={classes.brand}>
             <Logo />
-            <span className={classes.brandName}>{PRODUCT_NAME}</span>
+            {/* Имя ссылки даёт alt знака: видимое название читалке не повторяется. */}
+            <span className={classes.brandName} aria-hidden>
+              {PRODUCT_NAME}
+            </span>
             {teamCaption && <span className={classes.team}>{`by ${PRODUCT_TEAM}`}</span>}
           </Link>
           {demoAvailable && <DataSourceSwitch />}

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -54,7 +54,9 @@ describe('AppHeader: название продукта', () => {
   test('на узком экране подписи команды нет', async () => {
     renderHeader();
 
-    expect(await screen.findByRole('link', { name: 'Московские посадки' })).toBeInTheDocument();
+    // Имя ссылки — alt знака, видимое название читалке не повторяется.
+    const brand = await screen.findByRole('link', { name: 'Московские посадки' });
+    expect(within(brand).getByRole('img', { name: 'Московские посадки' })).toBeInTheDocument();
     expect(screen.queryByText('by Green Leaders')).not.toBeInTheDocument();
   });
 });
