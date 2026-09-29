@@ -8,11 +8,12 @@ import {
   Stack,
   Switch,
   Text,
+  TextInput,
   Title,
 } from '@mantine/core';
 import { Dropzone } from '@mantine/dropzone';
-import { IconFileUpload, IconFocusCentered, IconTrash } from '@tabler/icons-react';
-import type { JSX } from 'react';
+import { IconFileUpload, IconFocusCentered, IconSearch, IconTrash } from '@tabler/icons-react';
+import { type JSX, useState } from 'react';
 
 import { georeferenceActions, type Session } from '@/entities/georeference';
 import { diagnose, millimetreHint, UNITS } from '@/shared/lib/contour';
@@ -82,6 +83,11 @@ export function ContourPanel({
   withTitle = true,
 }: ContourPanelProps): JSX.Element {
   const dispatch = useAppDispatch();
+  // Эталонов бывает десяток: поиск по имени файла, без учёта регистра и «ё».
+  const [referenceQuery, setReferenceQuery] = useState('');
+  const normalize = (text: string) => text.toLocaleLowerCase('ru-RU').replaceAll('ё', 'е');
+  const query = normalize(referenceQuery.trim());
+  const references = session.references.filter(({ name }) => normalize(name).includes(query));
   const { source, scale } = session;
   // Подсказка про миллиметры — вопрос, пока пользователь сам не выбирал единицы.
   const hint =
@@ -279,7 +285,34 @@ export function ContourPanel({
           <Title order={3} size="h5">
             Эталоны
           </Title>
-          {session.references.map((reference) => (
+          {session.references.length > 1 && (
+            <TextInput
+              aria-label="Поиск эталона по названию"
+              placeholder="Название файла"
+              leftSection={<Icon icon={IconSearch} />}
+              value={referenceQuery}
+              onChange={(event) => {
+                setReferenceQuery(event.currentTarget.value);
+              }}
+            />
+          )}
+          {references.length === 0 && (
+            <Group justify="space-between" gap="xs">
+              <Text size="sm" c="dimmed">
+                Нет эталонов с таким названием
+              </Text>
+              <Button
+                variant="subtle"
+                size="compact-sm"
+                onClick={() => {
+                  setReferenceQuery('');
+                }}
+              >
+                Сбросить поиск
+              </Button>
+            </Group>
+          )}
+          {references.map((reference) => (
             <Group key={reference.id} justify="space-between" wrap="nowrap" gap="xs">
               <Switch
                 classNames={{

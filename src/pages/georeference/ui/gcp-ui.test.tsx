@@ -3,12 +3,13 @@ import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { StoredReference } from '@/entities/georeference';
+import { georeferenceReducer, type StoredReference } from '@/entities/georeference';
 import { enuFrame } from '@/shared/lib/geodesy';
 import { type GcpPair, type Placement, stats, vertexLatLon } from '@/shared/lib/georeference';
 import { renderWithProviders, sampleContour } from '@/shared/lib/test';
 
 import { CompareSection } from './compare-section';
+import { ContourPanel } from './contour-panel';
 import { ExportMenu } from './export-menu';
 import { GcpSection } from './gcp-section';
 import { ResidualsTable } from './residuals-table';
@@ -71,6 +72,10 @@ describe('невязки и оценка', () => {
     // Сверху — наибольшая невязка: виновная точка.
     expect(within(rows[0] ?? document.body).getByText('4, выброс')).toBeInTheDocument();
     expect(rows[0]).toHaveAttribute('data-outlier', 'true');
+    // Допуск 1:500 — 0,15 м: 5 м выше, и это видно не только цветом.
+    expect(
+      within(rows[0] ?? document.body).getByRole('img', { name: 'выше допуска' }),
+    ).toBeVisible();
     expect(screen.getAllByRole('columnheader').map((th) => th.getAttribute('scope'))).toEqual(
       Array(11).fill('col'),
     );
@@ -178,6 +183,76 @@ describe('сравнение с эталоном', () => {
     );
     expect(screen.getByText('Разброс по повороту').nextSibling).toHaveTextContent('22,000°');
     expect(screen.getByText(/между 3 привязками, включая текущую/)).toBeInTheDocument();
+  });
+});
+
+describe('невязка выше допуска', () => {
+  test('значок «выше допуска» — только у точек с невязкой больше допуска масштаба работ', () => {
+    // Допуск 1:500 — 0,15 м; ошибка 0,5 м у одной точки поднимает невязку выше него.
+    const summary = stats(TRUTH, [pair(0), pair(1), pair(3, 0.5), pair(5), pair(7)], 500);
+    render(<ResidualsTable stats={summary} hot={null} onHot={vi.fn()} />);
+
+    const over = screen
+      .getAllByRole('row')
+      .slice(1)
+      .filter((row) => within(row).queryByRole('img', { name: 'выше допуска' }) !== null);
+    expect(over.length).toBeGreaterThan(0);
+    for (const row of over) {
+      const ds = Number(within(row).getAllByRole('cell')[8]?.textContent.replace(',', '.'));
+      expect(ds).toBeGreaterThan(summary.tolerance);
+    }
+    expect(over.length).toBeLessThan(5);
+  });
+});
+
+describe('поиск эталонов', () => {
+  const stored = (id: string, name: string): StoredReference => ({
+    id,
+    seq: 1,
+    name,
+    origin: null,
+    created: '2026-09-23T14:05:00 UTC+03:00',
+    kind: 'json',
+    anchor: TRUTH.anchor,
+    rotation: 0,
+    scale: 1,
+    polygons: [],
+    counts: { polygons: 0, rings: 0, vertices: 0 },
+    visible: true,
+  });
+
+  test('по названию, без учёта регистра и «ё»; пусто — «Сбросить поиск»', async () => {
+    const session = {
+      ...georeferenceReducer(undefined, { type: 'test/empty' }),
+      references: [stored('a', 'Берёзовая аллея.json'), stored('b', 'Сквер.json')],
+    };
+    render(
+      <ContourPanel
+        project={null}
+        onPlanVisible={vi.fn()}
+        session={session}
+        fillOpacity={0.2}
+        onFillOpacity={vi.fn()}
+        contourVisible
+        onContourVisible={vi.fn()}
+        onFiles={vi.fn()}
+        onExample={vi.fn()}
+        onFit={vi.fn()}
+        disabled={false}
+        locked={false}
+      />,
+    );
+    const field = screen.getByRole('textbox', { name: 'Поиск эталона по названию' });
+
+    await userEvent.type(field, 'БЕРЕЗ');
+    expect(screen.getByText('Берёзовая аллея.json')).toBeInTheDocument();
+    expect(screen.queryByText('Сквер.json')).not.toBeInTheDocument();
+
+    await userEvent.type(field, 'x');
+    expect(screen.getByText('Нет эталонов с таким названием')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Сбросить поиск' }));
+    expect(screen.getByText('Сквер.json')).toBeInTheDocument();
+    expect(field).toHaveValue('');
   });
 });
 

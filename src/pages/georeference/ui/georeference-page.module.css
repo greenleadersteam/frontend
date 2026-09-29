@@ -215,6 +215,17 @@
 
 .residualDs {
   font-weight: 600;
+  white-space: nowrap;
+
+  /* Выше допуска — цветом ошибки и значком рядом с числом. */
+  &[data-over] {
+    color: var(--app-error);
+  }
+
+  & svg {
+    margin-inline-start: var(--mantine-spacing-xs);
+    vertical-align: text-bottom;
+  }
 }
 
 .outlierHint {

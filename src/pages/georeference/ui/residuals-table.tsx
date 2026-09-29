@@ -1,5 +1,5 @@
 import { ActionIcon, Checkbox, Table, Tooltip, VisuallyHidden } from '@mantine/core';
-import { IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconTrash } from '@tabler/icons-react';
 import type { JSX } from 'react';
 
 import { georeferenceActions } from '@/entities/georeference';
@@ -19,8 +19,9 @@ const OUTLIER_HINT =
   'Выброс: невязка больше трёх стандартных отклонений, вдвое больше медианной и не меньше пятой ' +
   'части допуска. Проверьте, что точки пары соответствуют друг другу, или выключите точку.';
 
-// Таблица невязок. Сверху — наибольшие по модулю: сомнительные точки видны сразу. Строка
-// и точка на карте подсвечивают друг друга — и мышью, и фокусом с клавиатуры.
+// Таблица невязок. Сверху — наибольшие по модулю: сомнительные точки видны сразу; невязка выше
+// допуска масштаба работ — цветом ошибки и значком. Строка и точка на карте подсвечивают друг
+// друга — и мышью, и фокусом с клавиатуры.
 export function ResidualsTable({ stats, hot, onHot }: ResidualsTableProps): JSX.Element {
   const dispatch = useAppDispatch();
   const rows = [...stats.rows].sort((a, b) => b.dS - a.dS);
@@ -48,6 +49,7 @@ export function ResidualsTable({ stats, hot, onHot }: ResidualsTableProps): JSX.
         {rows.map((row) => {
           const { pair } = row;
           const outlier = isOutlier(row, stats);
+          const overTolerance = row.dS > stats.tolerance;
           const n = String(pair.n);
           // Строка всегда в Tooltip, выключенном у обычных: иначе при смене статуса «выброс»
           // React пересоздал бы строку, и фокус с флажка ушёл бы на body.
@@ -99,7 +101,12 @@ export function ResidualsTable({ stats, hot, onHot }: ResidualsTableProps): JSX.
                 <Table.Td>{formatDecimal(pair.lat, 6)}</Table.Td>
                 <Table.Td>{formatDecimal(row.dN, 3)}</Table.Td>
                 <Table.Td>{formatDecimal(row.dE, 3)}</Table.Td>
-                <Table.Td className={classes.residualDs}>{formatDecimal(row.dS, 3)}</Table.Td>
+                <Table.Td className={classes.residualDs} data-over={overTolerance || undefined}>
+                  {formatDecimal(row.dS, 3)}
+                  {overTolerance && (
+                    <Icon icon={IconAlertTriangle} tone="error" label="выше допуска" />
+                  )}
+                </Table.Td>
                 <Table.Td>
                   <Checkbox
                     aria-label={`Контрольная точка ${n}`}

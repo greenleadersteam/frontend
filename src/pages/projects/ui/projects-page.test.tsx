@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { type ReactNode, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
-import type { RouteObject } from 'react-router';
+import { type RouteObject, useLocation } from 'react-router';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { baseApi } from '@/shared/api';
@@ -437,5 +437,82 @@ describe('меню карточки', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Действия с проектом' }));
 
     expect(await screen.findByRole('menuitem', { name: 'Удалить проект' })).toBeDisabled();
+  });
+});
+
+describe('фильтры списка', () => {
+  const withStatus = (id: string, name: string, status: 'ready' | 'failed' | 'parsing') => ({
+    ...project(id, name, '2026-09-20T10:00:00Z'),
+    status,
+    job: { stage: status, progress_pct: status === 'parsing' ? 40 : 100 },
+  });
+
+  // Адрес страницы — рядом со списком: по нему видно, что фильтр записан в URL.
+  function PageWithAddress(): ReactNode {
+    const { search } = useLocation();
+    return (
+      <>
+        <ProjectsPage />
+        <output aria-label="Адрес">{decodeURIComponent(search)}</output>
+      </>
+    );
+  }
+
+  const renderFiltered = (entry = '/') => {
+    server.use(
+      http.get('/api/projects', () =>
+        HttpResponse.json([
+          withStatus('a', 'Сквер на Покровке', 'ready'),
+          withStatus('b', 'Берёзовая аллея', 'failed'),
+          withStatus('c', 'Улица Бахрушина, 11', 'parsing'),
+          withStatus('d', 'Парк Горького', 'ready'),
+        ]),
+      ),
+    );
+    renderWithProviders([{ path: '/', Component: PageWithAddress }, ...routes.slice(1)], entry);
+  };
+  const address = () => screen.getByRole('status', { name: 'Адрес' });
+  const cardNames = () =>
+    screen.getAllByRole('article').map((card) => within(card).getByRole('heading').textContent);
+
+  test('сегменты со счётчиками; выбор сегмента фильтрует и пишется в адрес', async () => {
+    renderFiltered();
+    await screen.findAllByRole('article');
+
+    expect(screen.getByRole('radio', { name: 'Все 4' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Готово 2' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Обработка 1' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Ошибка 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /^Без архива/ })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Готово 2' }));
+
+    expect(cardNames().sort()).toEqual(['Парк Горького', 'Сквер на Покровке']);
+    expect(address()).toHaveTextContent('?state=ready');
+  });
+
+  test('фильтр из адреса применяется при открытии; сортировка — «Сначала проблемные»', async () => {
+    renderFiltered('/?sort=problems');
+
+    await screen.findAllByRole('article');
+    expect(cardNames()[0]).toBe('Берёзовая аллея');
+    expect(screen.getByDisplayValue('Сначала проблемные')).toBeInTheDocument();
+  });
+
+  test('поиск по названию — в адресе; пустой результат — «Сбросить фильтры»', async () => {
+    renderFiltered('/?state=failed');
+    await screen.findAllByRole('article');
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Поиск по названию' }), 'сквер');
+
+    expect(address()).toHaveTextContent('?state=failed&q=сквер');
+    expect(screen.queryAllByRole('article')).toHaveLength(0);
+    expect(screen.getByText('Ничего не нашлось')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+
+    expect(screen.getAllByRole('article')).toHaveLength(4);
+    expect(address()).toBeEmptyDOMElement();
+    expect(screen.getByRole('textbox', { name: 'Поиск по названию' })).toHaveValue('');
   });
 });

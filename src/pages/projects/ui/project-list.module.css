@@ -11,6 +11,31 @@
   align-items: start;
 }
 
+/* Поиск, состояние и сортировка — одной строкой над карточками; на узком экране переносятся. */
+.filters {
+  row-gap: var(--mantine-spacing-sm);
+}
+
+.search {
+  flex: 1 1 auto;
+  max-inline-size: calc(var(--app-card-min-width) * 1.5);
+}
+
+.sort {
+  inline-size: calc(var(--app-card-min-width) * 0.75);
+}
+
+.segment {
+  display: inline-flex;
+  gap: var(--mantine-spacing-xs);
+  align-items: baseline;
+}
+
+.segmentCount {
+  color: var(--app-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .skeletonPreview {
   width: auto;
   height: auto;
