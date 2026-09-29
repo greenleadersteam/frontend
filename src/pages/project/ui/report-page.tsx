@@ -1,5 +1,16 @@
-import { Alert, Button, Group, Stack, Switch, Table, Text, Title } from '@mantine/core';
-import { type JSX, useEffect, useState, useTransition } from 'react';
+import {
+  Alert,
+  Button,
+  Group,
+  Skeleton,
+  Stack,
+  Switch,
+  Table,
+  Text,
+  Title,
+  VisuallyHidden,
+} from '@mantine/core';
+import { type JSX, useDeferredValue, useEffect, useState, useTransition } from 'react';
 import { Link, useParams } from 'react-router';
 
 import {
@@ -101,7 +112,7 @@ function ReportData({ project }: ReportDataProps): JSX.Element {
   const state = useResultData(project);
   switch (state.kind) {
     case 'loading':
-      return <PageLoader />;
+      return <ReportSkeleton />;
     case 'error':
       return (
         <Stack gap="md" align="flex-start">
@@ -127,14 +138,17 @@ function Report({ project, result }: ReportProps): JSX.Element {
   const edits = usePlantingEdits(project.id, result.data.planting);
   const versions = usePlantingVersions(project.id);
   const version = versions.list?.find(({ id }) => id === edits.version);
+  // Первый кадр — скелет листа, расчёт проверок (у «Олимпийского» — секунды) — следующим
+  // рендером: страница сразу показывает раскладку отчёта, а не пустоту.
+  const started = useDeferredValue(true, false);
   // Отчёт считается один раз, по загруженным правкам: до них расстановка была бы без правок.
   // Если правки с сервера не загрузились — плашка с «Повторить», а не вечная загрузка.
-  if (!edits.loaded) {
+  if (!edits.loaded || !started) {
     return (
-      <Stack gap="md" align="flex-start">
+      <>
         <EditsLoadAlert projectId={project.id} />
-        <PageLoader />
-      </Stack>
+        <ReportSkeleton />
+      </>
     );
   }
   return (
@@ -315,7 +329,7 @@ function ReportBody({
         </Text>
         <Stack gap="xs" className={classes.actions}>
           <Switch
-            label="Все посадки"
+            label="Показать проверки всех посадок"
             checked={allPlantings}
             onChange={(event) => {
               const checked = event.currentTarget.checked;
@@ -412,7 +426,7 @@ function NormsTable({ norms }: NormsTableProps): JSX.Element {
         <Table.Tr>
           <Table.Th>Объект</Table.Th>
           <Table.Th>Тип посадки</Table.Th>
-          <Table.Th>Отступ</Table.Th>
+          <Table.Th className={classes.numbers}>Отступ</Table.Th>
           <Table.Th>Основание</Table.Th>
           <Table.Th>Источник</Table.Th>
         </Table.Tr>
@@ -479,8 +493,8 @@ function ChecksTable({ plantings }: ChecksTableProps): JSX.Element {
         <Table.Tr>
           <Table.Th>Посадка</Table.Th>
           <Table.Th>Объект</Table.Th>
-          <Table.Th>Фактически</Table.Th>
-          <Table.Th>Требуется</Table.Th>
+          <Table.Th className={classes.numbers}>Фактически</Table.Th>
+          <Table.Th className={classes.numbers}>Требуется</Table.Th>
           <Table.Th>Основание</Table.Th>
           <Table.Th>Итог</Table.Th>
         </Table.Tr>
@@ -625,5 +639,39 @@ function Georeference({ project }: GeoreferenceProps): JSX.Element {
         </>
       )}
     </section>
+  );
+}
+
+// Скелет листа в раскладке отчёта: кнопки, титул, план и таблицы — на своих местах, пока
+// загружается результат и считаются проверки. Раскладка не прыгает, когда приходят данные.
+function ReportSkeleton(): JSX.Element {
+  return (
+    <article className={classes.report} aria-busy="true">
+      <Group gap="sm" className={classes.actions}>
+        <Skeleton className={classes.skeletonAction} radius="md" />
+        <Skeleton className={classes.skeletonAction} radius="md" />
+      </Group>
+      <div className={classes.section}>
+        <Skeleton className={classes.skeletonLine} />
+        <Skeleton className={classes.skeletonTitle} />
+        <Skeleton className={classes.skeletonLine} />
+        <Skeleton className={classes.skeletonLine} />
+      </div>
+      <div className={classes.section}>
+        <Skeleton className={classes.skeletonHeading} />
+        <Skeleton className={classes.plan} />
+      </div>
+      {['species', 'norms', 'checks'].map((section) => (
+        <div key={section} className={classes.section}>
+          <Skeleton className={classes.skeletonHeading} />
+          {['1', '2', '3', '4', '5'].map((row) => (
+            <Skeleton key={row} className={classes.skeletonRow} />
+          ))}
+        </div>
+      ))}
+      <VisuallyHidden role="status" aria-live="polite">
+        Загружаем отчёт…
+      </VisuallyHidden>
+    </article>
   );
 }

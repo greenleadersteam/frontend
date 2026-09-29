@@ -1,13 +1,19 @@
-/* Отчёт для согласования: экран — предпросмотр листа A4, печать — сам документ. */
+/* Отчёт для согласования: экран — предпросмотр листа A4, печать — сам документ. Лист альбомный
+   целиком: Chromium раскладывает весь документ по ширине первой страницы, поэтому именованная
+   альбомная страница для широких таблиц давала только короткие страницы с книжной шириной
+   таблиц. */
 @page {
-  size: A4;
-  margin: 20mm;
+  size: A4 landscape;
+  margin: 15mm;
 }
 
+/* На экране лист — как A4 в альбомной ориентации, до 70rem: таблицы помещаются без прокрутки. */
 .report {
   display: grid;
   gap: var(--mantine-spacing-xl);
-  max-width: 170mm;
+  width: 100%;
+  max-width: var(--app-report-width);
+  box-sizing: border-box;
   margin-inline: auto;
   padding: var(--mantine-spacing-xl);
   border-radius: var(--mantine-radius-lg);
@@ -55,9 +61,19 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Таблицы отчёта плотнее экрана: на листе A4 их читают, а не сканируют. */
+/* Таблицы отчёта плотнее экрана: на листе A4 их читают, а не сканируют. Заголовки колонок не
+   переносятся посреди слова, числа — вправо, табличными цифрами. */
 .table {
   font-size: var(--mantine-font-size-sm);
+
+  & th {
+    white-space: nowrap;
+  }
+
+  & .numbers {
+    text-align: end;
+    white-space: nowrap;
+  }
 }
 
 .source {
@@ -87,7 +103,7 @@
   border-radius: var(--mantine-radius-md);
 }
 
-/* Снимок на листе — ровно 170 мм шириной (A4 минус поля 20 мм): под него посчитан масштаб в
+/* Снимок на листе — ровно 170 мм шириной, помещается и на книжный A4: под него посчитан масштаб в
    подписи (SHEET_WIDTH_CM в report-plan.tsx). Высота — по соотношению сторон карты. */
 .snapshot {
   display: block;
@@ -117,7 +133,51 @@
   align-items: center;
 }
 
+/* Скелет листа — те же поля и блоки, что у отчёта: высоты — по строкам текста и кнопкам. */
+.skeletonAction {
+  inline-size: calc(var(--app-card-min-width) * 0.75);
+  block-size: var(--mantine-spacing-xl);
+}
+
+.skeletonTitle {
+  inline-size: 60%;
+  block-size: var(--mantine-h1-font-size);
+}
+
+.skeletonHeading {
+  inline-size: 30%;
+  block-size: var(--mantine-h2-font-size);
+}
+
+.skeletonLine {
+  inline-size: 45%;
+  block-size: var(--mantine-font-size-sm);
+}
+
+.skeletonRow {
+  block-size: var(--mantine-font-size-md);
+}
+
+/* Chrome при печати разбивает grid с таблицами на страницы с наложением: заголовок раздела
+   ложится поверх конца предыдущей таблицы. На бумаге лист и разделы — обычный поток блоков. */
 @media print {
+  .report,
+  .section {
+    display: block;
+  }
+
+  .report > * + * {
+    margin-block-start: var(--mantine-spacing-xl);
+  }
+
+  .section > * + * {
+    margin-block-start: var(--mantine-spacing-sm);
+  }
+
+  .table {
+    width: 100%;
+  }
+
   .report {
     max-width: none;
     padding: 0;
@@ -127,5 +187,9 @@
 
   .actions {
     display: none;
+  }
+
+  .report h2 {
+    break-after: avoid;
   }
 }

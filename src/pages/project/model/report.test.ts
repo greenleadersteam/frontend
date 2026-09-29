@@ -80,7 +80,7 @@ describe('проверки по посадкам в отчёте', () => {
   });
 
   test('оценка страниц — по числу строк проверок', () => {
-    const many = Array.from({ length: 90 }, (_, index) =>
+    const many = Array.from({ length: 11 }, (_, index) =>
       planting(String(index), [check('gas', 1)]),
     );
 

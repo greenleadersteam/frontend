@@ -2510,7 +2510,9 @@ describe('отчёт для согласования', () => {
     const byDefault = new Set(
       plantingRows().map((row) => /(TREE|SHRUB)_[A-Z_]+-\d{5}/.exec(row.textContent)?.[0]),
     );
-    await userEvent.click(within(section).getByRole('switch', { name: 'Все посадки' }));
+    await userEvent.click(
+      within(section).getByRole('switch', { name: 'Показать проверки всех посадок' }),
+    );
     const all = new Set(
       plantingRows().map((row) => /(TREE|SHRUB)_[A-Z_]+-\d{5}/.exec(row.textContent)?.[0]),
     );
@@ -2548,7 +2550,9 @@ describe('отчёт для согласования', () => {
       'section',
     );
     if (section === null) throw new Error('нет раздела');
-    await userEvent.click(within(section).getByRole('switch', { name: 'Все посадки' }));
+    await userEvent.click(
+      within(section).getByRole('switch', { name: 'Показать проверки всех посадок' }),
+    );
 
     expect(section).toHaveTextContent('до границы зоны');
     expect(section).not.toHaveTextContent('внутри зоны запрета');

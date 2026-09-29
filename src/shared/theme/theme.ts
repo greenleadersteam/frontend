@@ -163,6 +163,8 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
     '--app-card-lift': '0.125rem',
     '--app-card-min-width': '17.5rem',
     '--app-narrow-width': '45rem',
+    // Лист отчёта на экране — как A4 в альбомной ориентации.
+    '--app-report-width': '70rem',
     // Модуль геопривязки: панели «Контур» и «Привязка» по сторонам карты (300 и 320 px).
     // Ручка поворота — те же роли, что опорная точка на карте (georeferenceColors).
     '--app-georeference-handle': georeferenceColors.anchorHalo,
