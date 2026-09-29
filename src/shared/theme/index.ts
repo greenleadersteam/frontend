@@ -3,6 +3,7 @@ export {
   basemapColors,
   georeferenceColors,
   MAP_LABEL_FONT,
+  plan3dColors,
   resultLayerColors,
   utilityStyles,
 } from './map';

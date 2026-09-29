@@ -63,6 +63,7 @@ import { useCapability } from '@/shared/config';
 import { useAppDispatch } from '@/shared/lib/store';
 import { Icon } from '@/shared/ui';
 
+import { hidesFlatPlanting, type Stage } from '../lib/plan-3d-stage';
 import { type MapObstacles, plantingChecks } from '../model/result';
 import { LawnPanel } from './lawn-panel';
 import { type EditMark, LayersPanel, type LayerVisibility } from './layers-panel';
@@ -76,6 +77,8 @@ import { ZonePanel } from './zone-panel';
 
 // maplibre-gl, его стили, pmtiles и стиль подложки грузятся, только когда карта показывается.
 const MapView = lazy(async () => ({ default: (await import('@/shared/map')).MapView }));
+// Режим 3D — отдельный чанк: план без него не тянет ни геометрию, ни снимки.
+const Plan3d = lazy(async () => ({ default: (await import('./plan-3d')).Plan3d }));
 
 // Узкий экран — панель «Слои» сворачивается в кнопку, панель «Посадка» уходит под карту.
 const NARROW_QUERY = '(max-width: 56.25em)';
@@ -135,6 +138,13 @@ type ResultMapProps = {
   centerRequest: CenterRequest | null;
   // План на экране, а не скрыт ведомостью.
   visible: boolean;
+  // Схематичная 3D-сцена поверх плана; null — режим выключен. Подпись — для снимков.
+  plan3d: {
+    title: string;
+    version: string;
+    fileName: string;
+    onBusy: (busy: boolean) => void;
+  } | null;
   onUnavailable: () => void;
 };
 
@@ -159,6 +169,7 @@ export function ResultMap({
   onSelect,
   centerRequest,
   visible,
+  plan3d,
   onUnavailable,
 }: ResultMapProps): JSX.Element {
   const geographic = frame.geographic;
@@ -278,15 +289,22 @@ export function ResultMap({
     { capture: true },
   );
 
+  // Стадия 3D: «до» прячет посадки плана поверх выбора в панели «Слои», выход из 3D — снимает.
+  const [plan3dStage, setPlan3dStage] = useState<Stage>('after');
+  // Новый вход в 3D начинается с «после»: стадия прошлого входа не переживает выход.
+  if (plan3d === null && plan3dStage !== 'after') setPlan3dStage('after');
+  const hideFlatPlanting = plan3d !== null && hidesFlatPlanting(plan3dStage);
   useEffect(() => {
     if (map === null) return;
     const shown: Record<string, boolean> = visibility;
     for (const [group, layers] of Object.entries(RESULT_LAYER_GROUPS)) {
+      const planting = group === 'trees' || group === 'shrubs';
+      const visible = shown[group] === true && !(planting && hideFlatPlanting);
       for (const layer of layers) {
-        map.setLayoutProperty(layer, 'visibility', shown[group] === true ? 'visible' : 'none');
+        map.setLayoutProperty(layer, 'visibility', visible ? 'visible' : 'none');
       }
     }
-  }, [map, visibility]);
+  }, [map, visibility, hideFlatPlanting]);
 
   useEffect(() => {
     if (map === null) return;
@@ -806,6 +824,20 @@ export function ResultMap({
             onBasemapResolved={setBasemapAvailable}
             onUnavailable={onUnavailable}
           >
+            {plan3d !== null && map !== null && (
+              <Suspense fallback={null}>
+                <Plan3d
+                  map={map}
+                  planting={data.planting}
+                  species={species}
+                  title={plan3d.title}
+                  version={plan3d.version}
+                  fileName={plan3d.fileName}
+                  onStage={setPlan3dStage}
+                  onBusy={plan3d.onBusy}
+                />
+              </Suspense>
+            )}
             {mode.editing && mode.tool !== 'select' && (
               // Куда встанет посадка по Enter: видно, пока карта в фокусе.
               <div className={classes.crosshair} aria-hidden />

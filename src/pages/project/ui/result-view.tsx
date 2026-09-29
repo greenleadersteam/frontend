@@ -15,6 +15,7 @@ import { Link, useBlocker, useSearchParams } from 'react-router';
 import {
   PlanCanvas,
   type Project,
+  projectFileName,
   resultExtent,
   toMapPlanting,
   toMapZones,
@@ -25,6 +26,7 @@ import {
   StaleDraftAlert,
   useEditsLoader,
   usePlantingEdits,
+  usePlantingVersions,
 } from '@/features/edit-plantings';
 import { describeAppError } from '@/shared/api';
 import { BASEMAP_BOUNDS, georeferenceProjectPath, useCapability } from '@/shared/config';
@@ -201,6 +203,10 @@ function ResultBody({
   const [selection, setSelection] = useState<Selection>(null);
   const [centerRequest, setCenterRequest] = useState<CenterRequest | null>(null);
   const [mapUnavailable, setMapUnavailable] = useState(false);
+  const [plan3d, setPlan3d] = useState(false);
+  // Идёт съёмка визуализаций: выход из 3D и смена вида сорвали бы её посреди кадра.
+  const [plan3dBusy, setPlan3dBusy] = useState(false);
+  const { target: versionTarget } = usePlantingVersions(project.id);
   // Карта создаётся при первом показе плана: в скрытом контейнере нулевого размера MapLibre
   // не может вписать участок и остаётся на камере по умолчанию.
   const [planShown, setPlanShown] = useState(view === 'plan');
@@ -254,15 +260,31 @@ function ResultBody({
 
   return (
     <Stack gap="md" className={classes.result}>
-      <SegmentedControl
-        data={VIEWS}
-        value={view}
-        onChange={(value) => {
-          changeView(parseView(value));
-        }}
-        aria-label="Вид результата"
-        className={classes.switch}
-      />
+      <Group gap="sm" className={classes.switch}>
+        <SegmentedControl
+          data={VIEWS}
+          value={view}
+          onChange={(value) => {
+            changeView(parseView(value));
+          }}
+          aria-label="Вид результата"
+          disabled={plan3dBusy}
+        />
+        {/* 3D — только на карте с геопривязкой: в условных координатах чертежа сцене не на чем
+            стоять. Без WebGL карты нет — нет и кнопки. */}
+        {geographic && !mapUnavailable && view === 'plan' && (
+          <Button
+            variant={plan3d ? 'light' : 'default'}
+            aria-pressed={plan3d}
+            disabled={plan3dBusy}
+            onClick={() => {
+              setPlan3d(!plan3d);
+            }}
+          >
+            3D
+          </Button>
+        )}
+      </Group>
       <EditsLoadAlert projectId={project.id} />
       <StaleDraftAlert projectId={project.id} />
       {/* План в ведомости скрыт, а не размонтирован: камера и выбор сохраняются. */}
@@ -306,6 +328,21 @@ function ResultBody({
               onSelect={setSelection}
               centerRequest={centerRequest}
               visible={view === 'plan'}
+              plan3d={
+                plan3d && geographic
+                  ? {
+                      title: project.name,
+                      version:
+                        versionTarget === null
+                          ? edits.counts.total > 0
+                            ? 'Расстановка с правками'
+                            : 'Расстановка сервиса'
+                          : `Версия ${String(versionTarget)} плана посадок`,
+                      fileName: projectFileName(project.name, ' — визуализации.zip'),
+                      onBusy: setPlan3dBusy,
+                    }
+                  : null
+              }
               onUnavailable={() => {
                 setMapUnavailable(true);
               }}

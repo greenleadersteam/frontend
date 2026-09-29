@@ -18,6 +18,17 @@ export const basemapColors = {
   streetLabelHalo: '#EFEAE2',
 } as const;
 
+// Схематичная 3D-визуализация: спокойные зелёные крона и кустарник разных оттенков, ствол —
+// тёплый серый, здания подложки — приглушённые.
+export const plan3dColors = {
+  trunk: stone[7],
+  crown: sage[6],
+  shrub: sage[4],
+  buildings: stone[3],
+  plate: WHITE,
+  plateText: stone[9],
+} as const;
+
 // Слои результата — те же оттенки палитры, что в превью (draw-plan.ts).
 export const resultLayerColors = {
   tree: sage[7],

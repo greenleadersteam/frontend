@@ -574,6 +574,15 @@ describe('готовый проект', () => {
       await screen.findByText('Карта недоступна в этом браузере. Показан план посадок.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('img', { name: MAP_LABEL })).toBeInTheDocument();
+    // 3D стоит на карте: без WebGL режима нет.
+    expect(screen.queryByRole('button', { name: '3D' })).not.toBeInTheDocument();
+  });
+
+  test('план с геопривязкой — кнопка «3D» рядом с «План» / «Ведомость»', async () => {
+    renderProject(READY_ID);
+
+    await screen.findByRole('region', { name: MAP_LABEL });
+    expect(screen.getByRole('button', { name: '3D' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('участок за пределами карты Москвы — та же карта без подложки', async () => {
@@ -612,6 +621,8 @@ describe('готовый проект', () => {
     expect(map).toHaveTextContent('Координаты чертежа, без привязки к городу');
     expect(screen.queryByRole('switch', { name: 'Подложка' })).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // В условных координатах чертежа 3D-сцене не на чем стоять.
+    expect(screen.queryByRole('button', { name: '3D' })).not.toBeInTheDocument();
   });
 });
 
