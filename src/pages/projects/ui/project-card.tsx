@@ -17,6 +17,7 @@ import { projectPath, projectUploadPath, useCapability } from '@/shared/config';
 import { formatDate, formatDuration } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
+import { ClampedText } from './clamped-text';
 import classes from './project-card.module.css';
 
 type ProjectCardProps = {
@@ -104,26 +105,40 @@ export function ProjectCard({
           )}
         </div>
 
-        <Text component="h2" lineClamp={2} className={classes.title}>
+        <ClampedText
+          component="h2"
+          lineClamp={1}
+          full={project.name}
+          focusableInside
+          className={classes.title}
+        >
           <Link to={projectPath(project.id)} className={classes.link}>
             {project.name}
           </Link>
-        </Text>
+        </ClampedText>
 
         {state.kind === 'failed' ? (
-          // Без обрезки: вторая половина — что делать (copy.md), её нельзя терять.
-          <Text size="sm" className={classes.error}>
+          // Обрезанная ошибка целиком — в подсказке: вторая половина говорит, что делать (copy.md).
+          <ClampedText
+            size="sm"
+            lineClamp={2}
+            full={JOB_ERROR_LABELS[state.error?.code ?? 'other']}
+            className={classes.error}
+          >
             {JOB_ERROR_LABELS[state.error?.code ?? 'other']}
-          </Text>
+          </ClampedText>
         ) : (
           project.description !== null && (
-            <Text size="sm" c="dimmed" lineClamp={2}>
+            <ClampedText size="sm" c="dimmed" lineClamp={2} full={project.description}>
               {project.description}
-            </Text>
+            </ClampedText>
           )
         )}
 
-        <Text size="xs" c="dimmed">{`изменён ${formatDate(project.updated_at)}`}</Text>
+        {/* Дата — внизу карточки: карточки ряда одной высоты, даты на одной линии. */}
+        <Text size="xs" c="dimmed" className={classes.date}>
+          {`изменён ${formatDate(project.updated_at)}`}
+        </Text>
       </div>
 
       <DeleteProjectModal

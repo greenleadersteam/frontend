@@ -1,8 +1,8 @@
 /* design.md, «Карточка проекта»: белая, радиус lg, тень sm; при наведении подъём и тень md. */
 .card {
   position: relative;
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   transition:
     transform var(--app-duration) ease,
     box-shadow var(--app-duration) ease;
@@ -49,9 +49,19 @@
 }
 
 .body {
-  display: grid;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: var(--mantine-spacing-sm);
   padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-lg);
+}
+
+.date {
+  margin-top: auto;
+}
+
+.tooltip {
+  max-width: var(--app-card-min-width);
 }
 
 .status {
@@ -67,6 +77,7 @@
 
 .title {
   margin: 0;
+  overflow-wrap: anywhere;
   font-size: var(--mantine-font-size-lg);
   font-weight: 600;
   line-height: var(--mantine-h3-line-height);
