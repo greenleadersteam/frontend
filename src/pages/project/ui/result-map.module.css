@@ -51,6 +51,15 @@
   bottom: calc(var(--mantine-spacing-xl) * 4);
 }
 
+/* Пока справа открыта карточка, переключатель подложки уходит левее неё: ширина карточки,
+   её отступ от края минус отступ столбца кнопок и зазор. */
+.area:has(.topRight .panel) {
+  --map-basemaps-shift: calc(
+    var(--app-card-min-width) + var(--mantine-spacing-lg) - var(--mantine-spacing-md) +
+      var(--mantine-spacing-sm)
+  );
+}
+
 /* Панели поверх карты: белые, радиус lg, тень md, поля 12–16px (design.md, «Карта»). */
 .panel {
   width: var(--app-card-min-width);
