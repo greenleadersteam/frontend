@@ -1890,6 +1890,11 @@ describe('правка расстановки', () => {
     ]);
 
     expect(movedActions()).toHaveLength(1);
+    // Есть что сохранить — главное действие панели с заливкой.
+    expect(screen.getByRole('button', { name: 'Сохранить' })).toHaveAttribute(
+      'data-variant',
+      'filled',
+    );
     expect(preventDefault).toHaveBeenCalled();
     expect(fakeMap.dragPan.disable).toHaveBeenCalledTimes(1);
     expect(fakeMap.dragPan.enable).toHaveBeenCalledTimes(1);
@@ -2875,6 +2880,42 @@ describe('проверка чертежа', () => {
       'href',
       `/projects/${READY_ID}/dxf-check`,
     );
+  });
+
+  test('пока нет списка версий, проверка ждёт; ошибка списка — «Повторить»', async () => {
+    let failing = true;
+    let release: () => void = () => undefined;
+    const answered = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.get('/api/projects/:projectId/plantings', async () => {
+        await answered;
+        if (failing) return HttpResponse.json({ detail: 'Сбой' }, { status: 500 });
+        return undefined;
+      }),
+    );
+    renderWithProviders(routes, `/projects/${READY_ID}/dxf-check`, reducers);
+    await screen.findByRole('heading', { level: 1, name: 'Сквер на Покровке' });
+    await chooseSource();
+
+    // Без списка /dxf отдал бы последнюю версию под видом выбранной.
+    expect(screen.getByRole('button', { name: 'Проверить' })).toBeDisabled();
+    expect(screen.getByText('Загружается список версий плана посадок')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument();
+
+    release();
+    // Ошибка объявляется, проверять по-прежнему нельзя.
+    expect(await screen.findByRole('alert')).not.toHaveTextContent('Загружается');
+    expect(screen.getByRole('button', { name: 'Проверить' })).toBeDisabled();
+
+    failing = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Проверить' })).toBeEnabled();
+    });
+    expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument();
   });
 
   test('отмена: сравнение остановлено, фокус на «Проверить», результата нет', async () => {

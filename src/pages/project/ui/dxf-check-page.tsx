@@ -57,7 +57,7 @@ type VersionedFormProps = { project: Project };
 // последнюю под видом выбранной — проверка ждёт список.
 function VersionedForm({ project }: VersionedFormProps): JSX.Element {
   const withVersions = useCapability('plantingEdits');
-  const { target, error } = usePlantingVersions(project.id);
+  const { target, error, fetching, retry } = usePlantingVersions(project.id);
   const blocked =
     !withVersions || target !== null
       ? null
@@ -65,6 +65,15 @@ function VersionedForm({ project }: VersionedFormProps): JSX.Element {
         ? 'Загружается список версий плана посадок'
         : describeAppError(toAppError(error));
   return (
-    <DxfCheckForm project={project} version={withVersions ? target : null} blocked={blocked} />
+    <DxfCheckForm
+      project={project}
+      version={withVersions ? target : null}
+      blocked={blocked}
+      retry={
+        withVersions && target === null && error !== undefined
+          ? { run: retry, pending: fetching }
+          : null
+      }
+    />
   );
 }

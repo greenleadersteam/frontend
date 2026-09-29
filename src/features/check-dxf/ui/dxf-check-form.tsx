@@ -40,13 +40,16 @@ type DxfCheckFormProps = {
   version: number | null;
   // Почему проверять пока нельзя: список версий грузится или не загрузился.
   blocked: string | null;
+  // Повтор загрузки списка версий после ошибки; null — повторять нечего. pending — повтор идёт:
+  // ошибка RTK Query держится до успешного ответа, и без загрузки кнопка казалась бы мёртвой.
+  retry: { run: () => void; pending: boolean } | null;
 };
 
 const versionFile = (version: number | null) =>
   version === null ? '.dxf' : ` — версия ${String(version)}.dxf`;
 
 // Исходный чертёж пользователя против DXF сервиса: скачивание, сравнение в воркере, отмена.
-export function DxfCheckForm({ project, version, blocked }: DxfCheckFormProps): JSX.Element {
+export function DxfCheckForm({ project, version, blocked, retry }: DxfCheckFormProps): JSX.Element {
   const dispatch = useAppDispatch();
   const check = useAppSelector((state) => selectDxfCheck(state, project.id));
   const [source, setSource] = useState<File | null>(null);
@@ -157,9 +160,15 @@ export function DxfCheckForm({ project, version, blocked }: DxfCheckFormProps): 
           </Button>
         )}
         {!busy && hint !== null && (
-          <Text size="sm" c="dimmed">
+          // Ошибку списка версий объявляет читалка: у неё есть действие «Повторить».
+          <Text size="sm" c="dimmed" role={retry === null ? undefined : 'alert'}>
             {hint}
           </Text>
+        )}
+        {retry !== null && (
+          <Button variant="default" loading={retry.pending} onClick={retry.run}>
+            Повторить
+          </Button>
         )}
       </Group>
       {busy && <RunProgress run={run} />}
