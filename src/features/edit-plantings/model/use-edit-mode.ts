@@ -10,6 +10,8 @@ import {
 export type EditMode = {
   // Правки загружены, и черновик не устарел: править можно.
   available: boolean;
+  // Правки ещё не загружены: кнопка видна сразу, но недоступна.
+  loading: boolean;
   editing: boolean;
   tool: EditTool;
   // Есть правки, которых нет на сервере: выход и уход со страницы спрашивают подтверждение.
@@ -24,6 +26,7 @@ export function useEditMode(projectId: string): EditMode {
   const entry = useAppSelector((state) => selectProjectEdits(state, projectId));
   return {
     available: entry !== undefined && !entry.readOnly && entry.stale === null,
+    loading: entry === undefined,
     editing: entry?.editing ?? false,
     tool: entry?.tool ?? 'select',
     unsaved: entry !== undefined && isUnsaved(entry),

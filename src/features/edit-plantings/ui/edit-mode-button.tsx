@@ -2,6 +2,7 @@ import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { type JSX, useState } from 'react';
 
 import { useEditMode } from '../model/use-edit-mode';
+import { usePlantingVersions } from '../model/use-planting-edits';
 
 type EditModeButtonProps = { projectId: string };
 
@@ -9,7 +10,17 @@ type EditModeButtonProps = { projectId: string };
 // на сервере правки при выходе остаются, но выход спрашивает подтверждение.
 export function EditModeButton({ projectId }: EditModeButtonProps): JSX.Element | null {
   const mode = useEditMode(projectId);
+  const { error } = usePlantingVersions(projectId);
   const [confirming, setConfirming] = useState(false);
+  // Пока правки грузятся, кнопка на своём месте, но недоступна: не появляется из ниоткуда.
+  // Не загрузились — её нет, а плашка предлагает повторить.
+  if (mode.loading && error === undefined) {
+    return (
+      <Button variant="default" loading>
+        Править расстановку
+      </Button>
+    );
+  }
   if (!mode.available) return null;
 
   return (

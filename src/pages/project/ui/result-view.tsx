@@ -21,6 +21,7 @@ import {
 } from '@/entities/project';
 import {
   EditsLoadAlert,
+  type FinalPlanting,
   StaleDraftAlert,
   useEditsLoader,
   usePlantingEdits,
@@ -28,7 +29,14 @@ import {
 import { describeAppError } from '@/shared/api';
 import { BASEMAP_BOUNDS, georeferenceProjectPath, useCapability } from '@/shared/config';
 
-import { editedResult, type LoadedResult, resultBase, useResultData } from '../model/result';
+import {
+  type EditedResult,
+  editedResult,
+  type LoadedResult,
+  type ResultBase,
+  resultBase,
+  useResultData,
+} from '../model/result';
 import { PlantingRegister } from './planting-register';
 import { resultLabel } from './result-label';
 import { type CenterRequest, ResultMap, type Selection } from './result-map';
@@ -73,7 +81,7 @@ export function ResultView({ project }: ResultViewProps): JSX.Element {
         />
       );
     case 'ready':
-      return <ResultScreen project={project} result={state.result} />;
+      return <LoadedScreen project={project} result={state.result} />;
     default: {
       const unexpected: never = state;
       return unexpected;
@@ -81,17 +89,103 @@ export function ResultView({ project }: ResultViewProps): JSX.Element {
   }
 }
 
-type ResultScreenProps = { project: Project; result: LoadedResult };
+type PreparedResultProps = { project: Project; result: LoadedResult };
 
-function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
+// Правки грузятся, как только есть расстановка сервиса, — и при пустом результате: иначе кнопка
+// «Править расстановку» в шапке ждала бы их вечно.
+function LoadedScreen({ project, result }: PreparedResultProps): JSX.Element {
+  useEditsLoader(project, result.data.planting);
+  return <PreparedResult project={project} result={result} />;
+}
+
+// Экран результата — три уровня, чтобы тяжёлое не считалось на каждый щелчок. React Compiler
+// кеширует вычисление по его зависимостям, но в компоненте с хуками и состоянием выбора сливает
+// их в одну область, и выбор посадки пересчитывал бы всё. Поэтому:
+// - PreparedResult — зоны и объекты участка (у «Олимпийского» 1,1 млн вершин), зоны на карте
+//   и охват плана: один раз на результат;
+// - EditedScreen и EditedData — итоговая расстановка со статусами и посадки на карте: только
+//   при смене итоговой расстановки, а не режима правки или инструмента;
+// - ResultBody — вид, выбор и режимы: на каждый щелчок, без пересчёта данных.
+function PreparedResult({ project, result }: PreparedResultProps): JSX.Element {
+  const base = resultBase(result);
+  if (base === null) {
+    return <Text className={classes.area}>В результате обработки нет посадок и зон запрета.</Text>;
+  }
+  const mapZones = toMapZones(base.zones, base.frame);
+  // Охват плана — по расстановке сервиса и зонам: он задаёт камеру и подложку, а правка
+  // посадки их не меняет.
+  const mapExtent =
+    resultExtent({ planting: toMapPlanting(result.data.planting, base.frame), zones: mapZones }) ??
+    base.extent;
+  return (
+    <EditedScreen
+      project={project}
+      result={result}
+      base={base}
+      mapZones={mapZones}
+      mapExtent={mapExtent}
+    />
+  );
+}
+
+type EditedScreenProps = PreparedResultProps & {
+  base: ResultBase;
+  mapZones: ReturnType<typeof toMapZones>;
+  mapExtent: NonNullable<ReturnType<typeof resultExtent>>;
+};
+
+// Хуки правок — отдельно от расчёта: их объект новый на каждое изменение записи (режим,
+// инструмент), а расчёту нужна только итоговая расстановка из селектора с кешем.
+function EditedScreen(props: EditedScreenProps): JSX.Element {
+  const { final } = usePlantingEdits(props.project.id, props.result.data.planting);
+  return <EditedData {...props} final={final} />;
+}
+
+type EditedDataProps = EditedScreenProps & { final: FinalPlanting };
+
+function EditedData({
+  project,
+  result,
+  base,
+  mapZones,
+  mapExtent,
+  final,
+}: EditedDataProps): JSX.Element {
+  const edited = editedResult(base, { final });
+  return (
+    <ResultBody
+      project={project}
+      result={result}
+      edited={edited}
+      mapData={{
+        ...edited.edited,
+        planting: toMapPlanting(edited.edited.planting, edited.frame),
+        zones: mapZones,
+      }}
+      mapExtent={mapExtent}
+    />
+  );
+}
+
+type ResultBodyProps = PreparedResultProps & {
+  edited: EditedResult;
+  mapData: EditedResult['edited'];
+  mapExtent: NonNullable<ReturnType<typeof resultExtent>>;
+};
+
+function ResultBody({
+  project,
+  result,
+  edited: editedData,
+  mapData,
+  mapExtent,
+}: ResultBodyProps): JSX.Element {
+  const edits = usePlantingEdits(project.id, result.data.planting);
   const { data, failed, species, rejected } = result;
   const speciesById = new Map(species.map((item) => [item.id, item]));
   const notice = failureNotice(failed);
-  useEditsLoader(project, data.planting);
-  const edits = usePlantingEdits(project.id, data.planting);
   // Привязать проект к карте из модуля может только сервер (следующая версия; в «Демо» — как цель).
   const bindable = useCapability('manualGeoreference');
-  const base = resultBase(result);
   // Уход со страницы с правками, которых нет на сервере, спрашивает подтверждение. Смена вида
   // «План» / «Ведомость» меняет только параметры адреса и уходом не считается.
   const blocker = useBlocker(
@@ -115,24 +209,7 @@ function ResultScreen({ project, result }: ResultScreenProps): JSX.Element {
   // переживают переход на план и обратно.
   const [registerShown, setRegisterShown] = useState(view === 'register');
   if (view === 'register' && !registerShown) setRegisterShown(true);
-
-  if (base === null) {
-    return <Text className={classes.area}>В результате обработки нет посадок и зон запрета.</Text>;
-  }
-  const {
-    extent,
-    geographic,
-    frame,
-    edited,
-    prepared,
-    obstacles: objects,
-    entries,
-    statuses,
-  } = editedResult(base, edits);
-  // Зоны переводятся на карту один раз на результат и привязку, посадки — на каждую правку.
-  const mapZones = toMapZones(base.zones, frame);
-  const mapData = { ...edited, planting: toMapPlanting(edited.planting, frame), zones: mapZones };
-  const mapExtent = resultExtent(mapData) ?? extent;
+  const { geographic, frame, edited, prepared, obstacles: objects, entries, statuses } = editedData;
   const [west, south, east, north] = BASEMAP_BOUNDS;
   const withinBasemap =
     frame.onCity &&

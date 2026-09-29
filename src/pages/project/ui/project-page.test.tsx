@@ -1,7 +1,7 @@
 import type { UnknownAction } from '@reduxjs/toolkit';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { type ReactNode, useEffect } from 'react';
 import { type RouteObject, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -424,8 +424,34 @@ describe('готовый проект', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/Сервер не смог обработать запрос/);
     expect(screen.getByRole('button', { name: 'Скачать DXF' })).toBeEnabled();
+    // Править нечего: кнопки нет, а не вечная загрузка.
+    expect(screen.queryByRole('button', { name: 'Править расстановку' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
     expect(await screen.findByRole('region', { name: MAP_LABEL })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Править расстановку' })).toBeEnabled();
+  });
+
+  test('пустой результат — текст вместо плана, кнопки правки нет', async () => {
+    // Ответы мока без посадок и зон: метаданные — настоящие, из того же мока.
+    serverMock.plantingEdits = false;
+    const emptied = async (part: string) => {
+      const response = await fetch(new URL(`/api/projects/${READY_ID}/${part}`, location.origin));
+      const body: unknown = await response.json();
+      if (typeof body !== 'object' || body === null) throw new Error(`нет ${part} в моке`);
+      return { ...body, features: [] };
+    };
+    const planting = await emptied('planting');
+    const zones = await emptied('zones');
+    server.use(
+      http.get('/api/projects/:projectId/planting', () => HttpResponse.json(planting)),
+      http.get('/api/projects/:projectId/zones', () => HttpResponse.json(zones)),
+    );
+    renderProject(READY_ID);
+
+    expect(
+      await screen.findByText('В результате обработки нет посадок и зон запрета.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Править расстановку' })).not.toBeInTheDocument();
   });
 
   test('нет WebGL — запасной план', async () => {
@@ -1592,7 +1618,12 @@ const lngLatAt = (east: number, north: number) => ({
 });
 
 const startEditing = async () => {
-  await userEvent.click(await screen.findByRole('button', { name: 'Править расстановку' }));
+  // Пока правки грузятся, кнопка видна, но недоступна.
+  const button = await screen.findByRole('button', { name: 'Править расстановку' });
+  await waitFor(() => {
+    expect(button).toBeEnabled();
+  });
+  await userEvent.click(button);
   return screen.findByRole('group', { name: 'Правка расстановки' });
 };
 
@@ -1648,6 +1679,20 @@ const captureVersionEdits = () => {
 };
 
 describe('правка расстановки', () => {
+  test('пока правки грузятся, «Править расстановку» видна, но недоступна', async () => {
+    server.use(
+      http.get('/api/projects/:projectId/plantings', async () => {
+        await delay('infinite');
+        return HttpResponse.json([]);
+      }),
+    );
+    renderProject(READY_ID);
+
+    const button = await screen.findByRole('button', { name: 'Править расстановку' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('data-loading', 'true');
+  });
+
   test('«Править расстановку» открывает панель правки, «Готово» закрывает', async () => {
     renderProject(READY_ID);
 

@@ -12,6 +12,7 @@ import {
   isProcessing,
   type Project,
   ProjectStatusBadge,
+  resultExtent,
   SERVICE_VERSION,
 } from '@/entities/project';
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
@@ -28,6 +29,7 @@ import {
 import { formatCount, formatDuration, formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
+import { useResultData } from '../model/result';
 import { DownloadDxf } from './download-dxf';
 import { serverManualMethod } from './manual-georeference';
 import classes from './project-header.module.css';
@@ -72,13 +74,25 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
         </Stack>
         <Group gap="sm" wrap="nowrap">
           {/* Кнопка правки есть, только когда правки загружены и не устарели. */}
-          {state.kind === 'ready' && <EditModeButton projectId={project.id} />}
+          {state.kind === 'ready' && <EditModeSlot project={project} />}
           {state.kind === 'ready' && <DownloadDxf project={project} />}
           <ProjectMenu project={project} polling={polling} />
         </Group>
       </Group>
     </header>
   );
+}
+
+type EditModeSlotProps = { project: Project };
+
+// Результат не загрузился или в нём нет ни посадок, ни зон — править нечего: кнопки нет.
+// Запросы те же, что у плана, — из кеша RTK Query.
+function EditModeSlot({ project }: EditModeSlotProps): JSX.Element | null {
+  const result = useResultData(project);
+  const nothing =
+    result.kind === 'error' ||
+    (result.kind === 'ready' && resultExtent(result.result.data) === null);
+  return nothing ? null : <EditModeButton projectId={project.id} />;
 }
 
 type GeoreferenceButtonProps = { project: Project };

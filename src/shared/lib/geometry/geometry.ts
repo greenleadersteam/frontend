@@ -22,12 +22,16 @@ export function nearestOnSegment(p: LocalPoint, a: LocalPoint, b: LocalPoint): N
   return { point, distance: Math.hypot(px - point[0], py - point[1]) };
 }
 
-function* ringSegments(ring: readonly LocalPoint[]): Generator<[LocalPoint, LocalPoint]> {
-  let previous: LocalPoint | null = null;
-  for (const point of ring) {
-    if (previous !== null) yield [previous, point];
-    previous = point;
+// Массив, а не генератор: индексы крупного участка перебирают миллион отрезков, и накладные
+// расходы генератора на каждый шаг заметны.
+function ringSegments(ring: readonly LocalPoint[]): [LocalPoint, LocalPoint][] {
+  const segments: [LocalPoint, LocalPoint][] = [];
+  for (let index = 1; index < ring.length; index += 1) {
+    const a = ring[index - 1];
+    const b = ring[index];
+    if (a !== undefined && b !== undefined) segments.push([a, b]);
   }
+  return segments;
 }
 
 // Правило чёт-нечет по всем кольцам: точка в дыре лежит вне полигона. Точка на границе
@@ -98,26 +102,32 @@ type Segment = [LocalPoint, LocalPoint];
 // проходят. Отрезок заносится точками с шагом в ячейку — любая его точка не дальше половины
 // ячейки от занесённой, поэтому запросу хватает соседних ячеек. Один отрезок — один объект во
 // всех ячейках: так запрос отбрасывает повторы.
-function segmentGrid(polygons: readonly LocalPolygon[], cellSize: number) {
-  const cells = new Map<string, Segment[]>();
+// Ключ ячейки — число, а не строка: запросы по тысячам посадок строили бы миллионы строк.
+// Номера ячеек по каждой оси — в пределах ±2^20: на метровой ячейке это ±1000 км от центра
+// участка, а координаты плана локальные.
+const CELL_SPAN = 2 ** 21;
+const CELL_OFFSET = 2 ** 20;
+
+const segmentsOf = (polygons: readonly LocalPolygon[]): Segment[] =>
+  polygons.flatMap((polygon) => polygon.flatMap(ringSegments));
+
+function segmentGrid(segments: readonly Segment[], cellSize: number) {
+  const cells = new Map<number, Segment[]>();
   const keyOf = (x: number, y: number, dx = 0, dy = 0) =>
-    `${String(Math.floor(x / cellSize) + dx)}:${String(Math.floor(y / cellSize) + dy)}`;
-  for (const polygon of polygons) {
-    for (const ring of polygon) {
-      for (const segment of ringSegments(ring)) {
-        const [a, b] = segment;
-        const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / cellSize));
-        const keys = new Set<string>();
-        for (let step = 0; step <= steps; step += 1) {
-          const t = step / steps;
-          keys.add(keyOf(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])));
-        }
-        for (const key of keys) {
-          const segments = cells.get(key);
-          if (segments === undefined) cells.set(key, [segment]);
-          else segments.push(segment);
-        }
-      }
+    (Math.floor(x / cellSize) + dx + CELL_OFFSET) * CELL_SPAN +
+    (Math.floor(y / cellSize) + dy + CELL_OFFSET);
+  for (const segment of segments) {
+    const [a, b] = segment;
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / cellSize));
+    const keys = new Set<number>();
+    for (let step = 0; step <= steps; step += 1) {
+      const t = step / steps;
+      keys.add(keyOf(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])));
+    }
+    for (const key of keys) {
+      const cell = cells.get(key);
+      if (cell === undefined) cells.set(key, [segment]);
+      else cell.push(segment);
     }
   }
   return { cells, keyOf };
@@ -130,7 +140,7 @@ export function boundaryIndex(
   polygons: readonly LocalPolygon[],
   cellSize: number,
 ): (point: LocalPoint, tolerance: number) => boolean {
-  const { cells, keyOf } = segmentGrid(polygons, cellSize);
+  const { cells, keyOf } = segmentGrid(segmentsOf(polygons), cellSize);
   return (point, tolerance) => {
     for (let dx = -1; dx <= 1; dx += 1) {
       for (let dy = -1; dy <= 1; dy += 1) {
@@ -151,7 +161,7 @@ export function boundaryDistance(
   polygons: readonly LocalPolygon[],
   cellSize: number,
 ): (point: LocalPoint, limit: number) => number {
-  const { cells, keyOf } = segmentGrid(polygons, cellSize);
+  const { cells, keyOf } = segmentGrid(segmentsOf(polygons), cellSize);
   return (point, limit) => {
     const reach = Math.ceil(limit / cellSize);
     let best = limit;
@@ -187,12 +197,22 @@ export type PolygonIndex = {
 // точки и двум соседним (отрезок, пересекающий луч, занесён в одну из них). Ответы те же,
 // что у перебора: каждый отрезок проверяется точной формулой.
 export function polygonIndex(polygons: readonly LocalPolygon[], cellSize: number): PolygonIndex {
-  const { cells, keyOf } = segmentGrid(polygons, cellSize);
-  let maxX = Number.NEGATIVE_INFINITY;
-  for (const polygon of polygons) {
-    for (const ring of polygon) for (const [x] of ring) maxX = Math.max(maxX, x);
+  const segments = segmentsOf(polygons);
+  const { cells, keyOf } = segmentGrid(segments, cellSize);
+  // Для «внутри» — отрезки по строкам сетки: каждый заносится во все строки своего диапазона y,
+  // поэтому отрезок, который пересекает горизаль точки, лежит в строке точки. Луч вправо
+  // проверяет одну строку, без повторов. Перебор ячеек всей строки по строковым ключам на
+  // участке в 2 км стоил секунды на тысячи посадок.
+  const rows = new Map<number, Segment[]>();
+  for (const segment of segments) {
+    const [[, ay], [, by]] = segment;
+    const last = Math.floor(Math.max(ay, by) / cellSize);
+    for (let row = Math.floor(Math.min(ay, by) / cellSize); row <= last; row += 1) {
+      const inRow = rows.get(row);
+      if (inRow === undefined) rows.set(row, [segment]);
+      else inRow.push(segment);
+    }
   }
-  const columnsTo = (x: number) => Math.floor(maxX / cellSize) - Math.floor(x / cellSize) + 1;
 
   return {
     nearest: ([px, py], limit, skip) => {
@@ -218,17 +238,9 @@ export function polygonIndex(polygons: readonly LocalPolygon[], cellSize: number
     },
     contains: ([px, py]) => {
       let inside = false;
-      const seen = new Set<Segment>();
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= columnsTo(px); dx += 1) {
-          for (const segment of cells.get(keyOf(px, py, dx, dy)) ?? []) {
-            if (seen.has(segment)) continue;
-            seen.add(segment);
-            const [[ax, ay], [bx, by]] = segment;
-            if (ay > py !== by > py && px < ((bx - ax) * (py - ay)) / (by - ay) + ax) {
-              inside = !inside;
-            }
-          }
+      for (const [[ax, ay], [bx, by]] of rows.get(Math.floor(py / cellSize)) ?? []) {
+        if (ay > py !== by > py && px < ((bx - ax) * (py - ay)) / (by - ay) + ax) {
+          inside = !inside;
         }
       }
       return inside;

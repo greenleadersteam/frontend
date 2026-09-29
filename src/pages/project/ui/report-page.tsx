@@ -1,5 +1,5 @@
 import { Alert, Button, Group, Loader, Stack, Switch, Table, Text, Title } from '@mantine/core';
-import { type JSX, useEffect, useState } from 'react';
+import { type JSX, useEffect, useState, useTransition } from 'react';
 import { Link, useParams } from 'react-router';
 
 import {
@@ -9,9 +9,11 @@ import {
   lawnArea,
   obstacleLabel,
   PLANT_TYPE_LABELS,
+  type PlantingVersion,
   prohibitedArea,
   type Project,
   RESULT_COUNT_FORMS,
+  type Species,
   useProjectWithPolling,
 } from '@/entities/project';
 import {
@@ -125,8 +127,86 @@ function Report({ project, result }: ReportProps): JSX.Element {
   const edits = usePlantingEdits(project.id, result.data.planting);
   const versions = usePlantingVersions(project.id);
   const version = versions.list?.find(({ id }) => id === edits.version);
+  // Отчёт считается один раз, по загруженным правкам: до них расстановка была бы без правок.
+  // Если правки с сервера не загрузились — плашка с «Повторить», а не вечная загрузка.
+  if (!edits.loaded) {
+    return (
+      <Stack gap="md" align="flex-start">
+        <EditsLoadAlert projectId={project.id} />
+        <Loader size="sm" aria-label="Загрузка правок" />
+      </Stack>
+    );
+  }
+  return (
+    <ReportComputed
+      project={project}
+      result={result}
+      final={edits.final}
+      counts={edits.counts}
+      version={version ?? null}
+    />
+  );
+}
+
+type ReportComputedProps = ReportProps & {
+  final: ReturnType<typeof usePlantingEdits>['final'];
+  counts: ReturnType<typeof usePlantingEdits>['counts'];
+  version: PlantingVersion | null;
+};
+
+// Проверки по всем посадкам (у «Олимпийского» 7 784) — один раз на результат и правки.
+// Компонент без хуков и состояния: React Compiler кеширует расчёт по его входам, а переключатель
+// «Все посадки» и готовность плана живут ниже и пересчёта не вызывают.
+function ReportComputed({ project, result, final, counts, version }: ReportComputedProps) {
   const base = resultBase(result);
+  if (base === null) {
+    return <Text>В результате обработки нет посадок и зон запрета.</Text>;
+  }
+  const computed = editedResult(base, { final });
+  const species = new Map(result.species.map((item) => [item.id, item]));
+  const plantings = reportPlantings({
+    planting: computed.edited.planting,
+    statuses: computed.statuses,
+    entries: computed.entries,
+    species,
+    checksOf: (feature) =>
+      plantingChecks(feature, computed.entries.get(feature.properties.id), computed),
+  });
+  return (
+    <ReportBody
+      project={project}
+      computed={computed}
+      species={species}
+      plantings={plantings}
+      selection={defaultReportSelection(plantings)}
+      counts={counts}
+      version={version}
+    />
+  );
+}
+
+type ReportBodyProps = {
+  project: Project;
+  computed: EditedResult;
+  species: ReadonlyMap<string, Species>;
+  plantings: ReportPlanting[];
+  selection: ReportPlanting[];
+  counts: ReturnType<typeof usePlantingEdits>['counts'];
+  version: PlantingVersion | null;
+};
+
+function ReportBody({
+  project,
+  computed,
+  species,
+  plantings,
+  selection,
+  counts,
+  version,
+}: ReportBodyProps): JSX.Element {
   const [allPlantings, setAllPlantings] = useState(false);
+  // Переключатель откликается сразу, а таблица на тысячи строк догоняет в переходе.
+  const [switching, startSwitch] = useTransition();
   const demo = currentDataSource() === 'demo';
   const [generatedAt] = useState(() => new Date().toISOString());
   // Снимок плана готов (или вместо карты — запасной план): печатать можно.
@@ -139,30 +219,7 @@ function Report({ project, result }: ReportProps): JSX.Element {
       delete document.documentElement.dataset.print;
     };
   }, []);
-  // Отчёт считается один раз, по загруженным правкам: до них расстановка была бы без правок.
-  // Если правки с сервера не загрузились — плашка с «Повторить», а не вечная загрузка.
-  if (!edits.loaded) {
-    return (
-      <Stack gap="md" align="flex-start">
-        <EditsLoadAlert projectId={project.id} />
-        <Loader size="sm" aria-label="Загрузка правок" />
-      </Stack>
-    );
-  }
-  if (base === null) {
-    return <Text>В результате обработки нет посадок и зон запрета.</Text>;
-  }
-  const computed = editedResult(base, edits);
-  const species = new Map(result.species.map((item) => [item.id, item]));
-  const plantings = reportPlantings({
-    planting: computed.edited.planting,
-    statuses: computed.statuses,
-    entries: computed.entries,
-    species,
-    checksOf: (feature) =>
-      plantingChecks(feature, computed.entries.get(feature.properties.id), computed),
-  });
-  const shown = allPlantings ? plantings : defaultReportSelection(plantings);
+  const shown = allPlantings ? plantings : selection;
   const pages = estimatedPages(plantings);
 
   return (
@@ -206,7 +263,7 @@ function Report({ project, result }: ReportProps): JSX.Element {
               ? 'нет данных'
               : formatDateTime(project.job.finished_at)}
           </dd>
-          {version !== undefined && (
+          {version !== null && (
             <>
               <dt>Версия плана посадок</dt>
               <dd>{versionLabel(version)}</dd>
@@ -221,14 +278,14 @@ function Report({ project, result }: ReportProps): JSX.Element {
         </Title>
         <ReportPlan
           result={computed}
-          editMarks={edits.counts.total > 0}
+          editMarks={counts.total > 0}
           onReady={() => {
             setPlanReady(true);
           }}
         />
       </section>
 
-      <Summary result={computed} counts={edits.counts} />
+      <Summary result={computed} counts={counts} />
 
       <section className={classes.section} aria-labelledby="report-species">
         <Title order={2} id="report-species">
@@ -261,7 +318,10 @@ function Report({ project, result }: ReportProps): JSX.Element {
             label="Все посадки"
             checked={allPlantings}
             onChange={(event) => {
-              setAllPlantings(event.currentTarget.checked);
+              const checked = event.currentTarget.checked;
+              startSwitch(() => {
+                setAllPlantings(checked);
+              });
             }}
           />
           <Text size="sm" c="dimmed">
@@ -271,7 +331,9 @@ function Report({ project, result }: ReportProps): JSX.Element {
         <Text size="sm" c="dimmed">
           Акт, пункт и причина каждого основания — в разделе «Применённые нормы».
         </Text>
-        <ChecksTable plantings={shown} />
+        <div aria-busy={switching}>
+          <ChecksTable plantings={shown} />
+        </div>
       </section>
 
       <NotChecked uncovered={computed.edited.zones.metadata.uncovered_categories} />
