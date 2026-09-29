@@ -1,10 +1,20 @@
-.numbers {
+/* Номер — узкая колонка по содержимому. */
+.index {
+  width: 1%;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .count {
   font-variant-numeric: tabular-nums;
   text-align: right;
+  white-space: nowrap;
+}
+
+/* Граница групп — деревья, кустарники, итоги — одной линией темнее разделителей строк. */
+.row[data-group-start] > td,
+.totals > tr:first-child > * {
+  border-top: 1px solid var(--app-table-group-border);
 }
 
 /* В печати шапка повторяется на каждой странице, строка не рвётся между страницами. */

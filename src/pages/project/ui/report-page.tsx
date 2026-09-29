@@ -323,6 +323,7 @@ function ReportBody({
         </Title>
         <SpeciesTable
           rows={speciesRows(computed.edited.planting, species, computed.entries)}
+          report
           className={classes.table}
         />
       </section>

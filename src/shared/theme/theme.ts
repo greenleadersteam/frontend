@@ -143,6 +143,8 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
     '--app-text': stone[9],
     '--app-text-muted': stone[7],
     '--app-border-control': stone[5],
+    // Граница групп строк в таблице (деревья, кустарники, итоги) — темнее разделителей строк.
+    '--app-table-group-border': stone[5],
     '--app-icon': stone[6],
     '--app-accent': sage[7],
     '--app-error': clay[6],
