@@ -68,6 +68,27 @@
   box-shadow: var(--mantine-shadow-md);
 }
 
+/* Стартовая подсказка — в левом нижнем углу над атрибуцией: карта остаётся видна, по ней
+   можно двигаться и искать адрес. На телефоне — нижней полосой. */
+.start {
+  position: absolute;
+  bottom: calc(var(--mantine-spacing-xl) * 3);
+  left: var(--mantine-spacing-md);
+  width: min(var(--app-binding-panel-width), calc(100% - 2 * var(--mantine-spacing-md)));
+  padding: var(--mantine-spacing-md);
+  border-radius: var(--mantine-radius-lg);
+  background-color: var(--app-surface);
+  box-shadow: var(--mantine-shadow-md);
+
+  @media (max-width: $mantine-breakpoint-xs) {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    border-radius: var(--mantine-radius-lg) var(--mantine-radius-lg) 0 0;
+  }
+}
+
 .status {
   display: flex;
   flex-wrap: wrap;

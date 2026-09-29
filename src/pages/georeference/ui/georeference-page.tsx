@@ -400,9 +400,9 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
             ) : (
               placement === null &&
               project?.contour == null && (
-                <div className={classes.empty}>
-                  <Stack gap="sm">
-                    <Text fw={600}>
+                <div className={classes.start}>
+                  <Stack gap="xs">
+                    <Text fw={600} size="sm">
                       Загрузите границу участка в координатах чертежа — GeoJSON с полигоном
                     </Text>
                     <Text size="sm" c="dimmed">
@@ -411,9 +411,15 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
                         : `${isFileOrigin(project.origin) ? `${FILE_REASON[project.origin]} ` : ''}Нужен файл в метрах, в тех же координатах, что DXF. Перетащите его в окно или выберите в панели «Контур».`}
                     </Text>
                     {project === null && (
-                      <Button disabled={!canOpen} onClick={() => void files.openExample()}>
-                        Открыть пример
-                      </Button>
+                      <Group>
+                        <Button
+                          size="compact-md"
+                          disabled={!canOpen}
+                          onClick={() => void files.openExample()}
+                        >
+                          Открыть пример
+                        </Button>
+                      </Group>
                     )}
                   </Stack>
                 </div>
