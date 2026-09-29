@@ -2,10 +2,12 @@ import { ActionIcon, Group, Stack, Text, Title } from '@mantine/core';
 import { IconX } from '@tabler/icons-react';
 import { type JSX, type Ref, useId } from 'react';
 
-import { obstacleLabel, type ProhibitedZone, zoneArea } from '@/entities/project';
+import { normBasis, obstacleLabel, type ProhibitedZone, zoneArea } from '@/entities/project';
 import { formatMeters, formatSquareMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
+import { VerifiedClauseNote } from './check-item';
+import { basisReference } from './norm-reference';
 import classes from './planting-panel.module.css';
 
 type ZonePanelProps = {
@@ -23,6 +25,17 @@ export function ZonePanel({ ref, zone, onClose }: ZonePanelProps): JSX.Element {
   const { properties } = zone;
   const citation = properties.citation.trim();
   const reason = properties.reason.trim();
+  const reference = basisReference(
+    normBasis(
+      null,
+      properties.obstacle_category,
+      properties.obstacle_subtype,
+      properties.plant_type,
+      properties.distance_m,
+    ),
+    null,
+    citation,
+  );
 
   return (
     <Stack
@@ -50,8 +63,9 @@ export function ZonePanel({ ref, zone, onClose }: ZonePanelProps): JSX.Element {
         {`Отступ ${FOR_PLANT_TYPE[properties.plant_type]} не менее ${formatMeters(properties.distance_m)}`}
       </Text>
       <Text size="sm" c="dimmed">
-        {citation === '' ? 'Норма не указана сервером' : citation}
+        {reference.text}
       </Text>
+      {reference.verified && <VerifiedClauseNote />}
       {reason !== '' && reason !== citation && (
         <Text size="sm" c="dimmed">
           {reason}

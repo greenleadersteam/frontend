@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { ReportCheck, ReportPlanting } from '../model/report';
 import { CROWN_NOTE } from './check-item';
-import { checksSheet } from './report-checks';
+import { checksSheet, shortBasis } from './report-checks';
 
 type Common = Omit<ReportCheck, 'kind' | 'actual'>;
 
@@ -14,7 +14,7 @@ const COMMON: Common = {
   margin: 8.3123,
   violated: false,
   withinTolerance: false,
-  basis: { basis: 'regulation' },
+  basis: { basis: 'regulation', verified: null },
   citation: '743-ПП — газопровод',
   norm: null,
 };
@@ -93,6 +93,44 @@ describe('все проверки для Excel', () => {
       ['743-ПП — газопровод', 'Выполнено', CROWN_NOTE],
       ['значение сервиса', 'Значение сервиса', null],
     ]);
+  });
+
+  test('пункт акта на «Сервере»: сверенная норма — полный пункт, значение сервиса — без пункта, чужой citation — как есть', () => {
+    const verified = {
+      act: 'ПП Москвы №\u00A0743-ПП',
+      clause: 'прил. 1, п. 3.6.3, табл. 3.6.1',
+      actMark: '743-ПП',
+      table: 'табл. 3.6.1',
+      source: 'https://base.garant.ru/378956/53f89421bbdaf741eb2d1ecc4ddb4c33/',
+    };
+    const cable = {
+      object: 'Силовой кабель',
+      basis: { basis: 'regulation' as const, verified },
+      citation: '743-ПП, табл. 3.6.1 — силовой кабель',
+    };
+    const sheet = checksSheet([
+      planting('TREE-1', [
+        check(cable),
+        check({
+          basis: { basis: 'service_default', reason: 'нормы нет' },
+          citation: cable.citation,
+        }),
+        check({ ...cable, citation: 'МГСН 1.02-02, табл. 9.1 — проезды' }),
+        check({
+          ...cable,
+          citation: '743-ПП, табл. 3.6.1; СП 42.13330.2016, табл. 9.1 — край тротуара',
+        }),
+      ]),
+    ]);
+
+    expect(sheet.rows.map((row) => row[5])).toEqual([
+      'ПП Москвы №\u00A0743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1 (пункт — по сверке с текстом акта)',
+      'значение сервиса',
+      'МГСН 1.02-02, табл. 9.1 — проезды',
+      'ПП Москвы №\u00A0743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1; СП 42.13330.2016, табл. 9.1 (пункт — по сверке с текстом акта)',
+    ]);
+    // В таблице отчёта основание короткое: пункт, акт — в «Применённых нормах».
+    expect(shortBasis(check(cable))).toBe('прил. 1, п. 3.6.3, табл. 3.6.1 (по сверке)');
   });
 
   test('посадка без проверок — строкой; итоги — посадки, проверки, нарушения', () => {

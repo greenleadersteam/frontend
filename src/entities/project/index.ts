@@ -55,8 +55,14 @@ export {
   toMapRejected,
   toMapZones,
 } from './lib/map-data';
-export type { NormBasis } from './lib/norm-basis';
-export { checkBasis, normBasis, NOTE_1_CROWN_LIMIT_M } from './lib/norm-basis';
+export type { NormBasis, VerifiedClause } from './lib/norm-basis';
+export {
+  checkBasis,
+  normBasis,
+  NOTE_1_CROWN_LIMIT_M,
+  VERIFIED_CLAUSE_NOTE,
+  verifiedReference,
+} from './lib/norm-basis';
 export type { PreparedObstacle, PreparedObstacles } from './lib/obstacle-checks';
 export { checksAgainstObstacles, checksFromServer, prepareObstacles } from './lib/obstacle-checks';
 export { CROWN_RADIUS_M, isGeographic, pixelsPerMeterAtZoom } from './lib/plan-projection';

@@ -15,11 +15,12 @@ import {
   type PlantType,
   type PreparedObstacle,
   TOLERANCE_M,
+  VERIFIED_CLAUSE_NOTE,
 } from '@/entities/project';
 import { formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
-import { normReference } from './norm-reference';
+import { basisReference, VERIFIED_CLAUSE_HINT } from './norm-reference';
 import classes from './planting-panel.module.css';
 import { SourceLink, sourceUrl } from './source-link';
 
@@ -45,6 +46,8 @@ type CheckView = {
   // читалась бы как ошибка.
   withinTolerance: boolean;
   reference: string;
+  // Пункт в ссылке — из сверки с текстом акта, а не от сервера.
+  verified: boolean;
   basis: NormBasis | null;
   // Пояснение зоны сервера (reason) — видно сразу; текст нормы из /norms — по кнопке.
   note: string;
@@ -71,6 +74,7 @@ function viewOf(
   const basis = checkBasis(check, plantType);
   const serviceDefault = basis?.basis === 'service_default' ? basis : null;
   if (check.kind === 'object') {
+    const reference = basisReference(basis, check.norm, check.citation);
     const { obstacle } = check;
     return {
       obstacle: obstacleLabel(check.category, check.subtype),
@@ -80,8 +84,9 @@ function viewOf(
       withinTolerance: !check.violated && check.actual < check.required,
       reference:
         serviceDefault === null
-          ? normReference(check.norm, check.citation)
+          ? reference.text
           : serviceDefaultText(check.required, serviceDefault.reason),
+      verified: serviceDefault === null && reference.verified,
       basis,
       note: '',
       // У значения сервиса текст нормы и есть причина: он уже в строке основания.
@@ -101,6 +106,7 @@ function viewOf(
   const { properties, index } = check.zone;
   const citation = properties.citation.trim();
   const reason = properties.reason.trim();
+  const reference = basisReference(basis, null, citation);
   return {
     obstacle: obstacleLabel(properties.obstacle_category, properties.obstacle_subtype),
     distance:
@@ -113,8 +119,9 @@ function viewOf(
     withinTolerance: false,
     reference:
       serviceDefault === null
-        ? normReference(null, citation)
+        ? reference.text
         : serviceDefaultText(properties.distance_m, serviceDefault.reason),
+    verified: serviceDefault === null && reference.verified,
     basis,
     note: reason === citation ? '' : reason,
     normText: null,
@@ -189,6 +196,7 @@ export function CheckItem({
         <Text size="sm" c="dimmed">
           {view.reference}
         </Text>
+        {view.verified && <VerifiedClauseNote />}
         {crownOverNote && view.basis?.basis === 'regulation' && <Text size="sm">{CROWN_NOTE}</Text>}
         {view.note !== '' && (
           <Text size="sm" c="dimmed">
@@ -232,5 +240,15 @@ export function CheckItem({
         )}
       </Stack>
     </li>
+  );
+}
+
+// Пометка «пункт — по сверке с текстом акта» и где искать сверку — текстом: подсказка при
+// наведении не видна с клавиатуры.
+export function VerifiedClauseNote(): JSX.Element {
+  return (
+    <Text size="xs" c="dimmed">
+      {`${VERIFIED_CLAUSE_NOTE}: ${VERIFIED_CLAUSE_HINT}`}
+    </Text>
   );
 }

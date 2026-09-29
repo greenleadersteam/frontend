@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
 import type { Norm } from '../api/project-result-api';
-import { normBasis } from './norm-basis';
+import { normBasis, verifiedReference } from './norm-basis';
+
+const regulation = (basis: ReturnType<typeof normBasis>) =>
+  basis?.basis === 'regulation' && basis.verified !== null
+    ? verifiedReference(basis.verified)
+    : null;
+const ACT_743_CLAUSE = 'ПП Москвы №\u00A0743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1';
 
 const norm = (basis: Norm['basis'], text: string): Norm => ({
   id: '743-pp-gas-shrub',
@@ -23,9 +29,9 @@ describe('normBasis', () => {
       basis: 'service_default',
       reason: 'Для кустарника у газопровода норма в ПП №\u00A0743-ПП, табл. 3.6.1, не установлена',
     });
-    expect(normBasis(null, 'underground_utilities', 'gas', 'tree', 1.5)).toEqual({
-      basis: 'regulation',
-    });
+    expect(regulation(normBasis(null, 'underground_utilities', 'gas', 'tree', 1.5))).toBe(
+      ACT_743_CLAUSE,
+    );
   });
 
   test('неопознанная сеть и существующее дерево — значение сервиса для обоих типов', () => {
@@ -40,16 +46,22 @@ describe('normBasis', () => {
   });
 
   test('бортовой камень — край проезжей части, норма акта', () => {
-    expect(normBasis(null, 'road_edge', null, 'tree', 2)).toEqual({ basis: 'regulation' });
-    expect(normBasis(null, 'road_edge', null, 'shrub', 1)).toEqual({ basis: 'regulation' });
+    expect(regulation(normBasis(null, 'road_edge', null, 'tree', 2))).toBe(ACT_743_CLAUSE);
+    expect(regulation(normBasis(null, 'road_edge', null, 'shrub', 1))).toBe(ACT_743_CLAUSE);
   });
 
   test('здание — норма акта; у школы и детского сада своя строка', () => {
-    expect(normBasis(null, 'buildings', null, 'tree', 5)).toEqual({ basis: 'regulation' });
-    expect(normBasis(null, 'buildings', null, 'shrub', 1.5)).toEqual({ basis: 'regulation' });
-    expect(normBasis(null, 'buildings', 'school_kindergarten', 'tree', 10)).toEqual({
-      basis: 'regulation',
-    });
+    expect(regulation(normBasis(null, 'buildings', null, 'tree', 5))).toBe(ACT_743_CLAUSE);
+    expect(regulation(normBasis(null, 'buildings', null, 'shrub', 1.5))).toBe(ACT_743_CLAUSE);
+    expect(regulation(normBasis(null, 'buildings', 'school_kindergarten', 'tree', 10))).toBe(
+      ACT_743_CLAUSE,
+    );
+  });
+
+  test('край трамвайного полотна — пункт СП 42, а не 743-ПП', () => {
+    expect(regulation(normBasis(null, 'tram_tracks', 'bed_edge', 'tree', 5))).toBe(
+      'СП 42.13330.2016, п. 9.6, табл. 9.1',
+    );
   });
 
   test('другое значение сервиса таблица не подтверждает: основание неизвестно', () => {
@@ -63,8 +75,10 @@ describe('normBasis', () => {
       basis: 'service_default',
       reason: 'Причина сервера',
     });
+    // Пункт даёт сервер (clause), сверка фронтенда не нужна.
     expect(normBasis(norm('regulation', 'Текст'), 'x', null, 'shrub', 9)).toEqual({
       basis: 'regulation',
+      verified: null,
     });
   });
 });

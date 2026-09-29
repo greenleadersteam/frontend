@@ -1,16 +1,30 @@
-import { PLANT_TYPE_LABELS } from '@/entities/project';
+import { PLANT_TYPE_LABELS, VERIFIED_CLAUSE_NOTE, type VerifiedClause } from '@/entities/project';
 import { formatMeters } from '@/shared/lib/format';
 import type { XlsxCell, XlsxSheet } from '@/shared/lib/xlsx';
 
 import type { ReportCheck, ReportPlanting } from '../model/report';
 import { CROWN_NOTE } from './check-item';
+import { basisReference, verifiedClauseFor } from './norm-reference';
 
 export const NO_CHECKS_TEXT = 'Рядом нет ограничений из проверяемых сервисом';
 
 // В таблице проверок основание короткое: пункт или «значение сервиса». Акт, текст причины
 // и источник — один раз, в «Применённых нормах»: иначе каждая строка повторяла бы абзац.
 export const shortBasis = ({ basis, norm, citation }: ReportCheck): string =>
-  basis?.basis === 'service_default' ? 'значение сервиса' : (norm?.clause ?? citation);
+  basis?.basis === 'service_default'
+    ? 'значение сервиса'
+    : (shortClause(verifiedClauseFor(basis, citation)) ?? norm?.clause ?? citation);
+
+// Пункт из сверки помечен и в короткой ссылке: сервер его не присылал.
+const shortClause = (verified: VerifiedClause | null): string | null =>
+  verified === null ? null : `${verified.clause} (по сверке)`;
+
+// В Excel строка читается без раздела «Применённые нормы»: у сверенного пункта — ссылка как в
+// карточке, со всеми актами citation, и пометка.
+const sheetBasis = (check: ReportCheck): string => {
+  const reference = basisReference(check.basis, check.norm, check.citation);
+  return reference.verified ? `${reference.text} (${VERIFIED_CLAUSE_NOTE})` : shortBasis(check);
+};
 
 export const resultText = (check: ReportCheck): string =>
   check.violated
@@ -66,7 +80,7 @@ export function checksSheet(plantings: readonly ReportPlanting[]): XlsxSheet {
       check.object,
       measured(check),
       check.required,
-      shortBasis(check),
+      sheetBasis(check),
       resultText(check),
       measuredNote(check) ?? (check.basis?.basis === 'regulation' ? crown : null),
     ]);

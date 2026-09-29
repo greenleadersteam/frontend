@@ -2,13 +2,46 @@ import type { Norm } from '../api/project-result-api';
 import type { PlantType } from '../model/project';
 import type { PlantingCheck } from './planting-checks';
 
+// Акт и пункт нормы по сверке с текстом акта и адрес текста, который сверялся
+// (contracts/norms-verified.md).
+// actMark и table — как акт и таблицу называет citation сервера: по ним ссылка сервера
+// сопоставляется со сверкой.
+export type VerifiedClause = {
+  act: string;
+  clause: string;
+  actMark: string;
+  table: string;
+  source: string;
+};
+
 // Основание отступа: требование акта или консервативное значение сервиса, которого в акте нет.
+// У regulation из сверенной таблицы — пункт по сверке: в citation сервера есть таблица, но нет
+// «прил. 1, п. 3.6.3», а ТЗ (п. 2.8, 7.2.6) требует конкретный пункт. С /norms пункт даёт сервер.
 // У service_default — фраза, почему нормы нет; она идёт в карточку и в отчёт.
-export type NormBasis = { basis: 'regulation' } | { basis: 'service_default'; reason: string };
+export type NormBasis =
+  | { basis: 'regulation'; verified: VerifiedClause | null }
+  | { basis: 'service_default'; reason: string };
 
 type VerifiedNorm = { distance: number; basis: NormBasis };
 
-const REGULATION = { basis: 'regulation' } as const;
+// Пункт 3.6.3 приложения 1 содержит таблицу 3.6.1 «Расстояние от сооружений до посадок растений».
+const ACT_743 = {
+  act: 'ПП Москвы №\u00A0743-ПП',
+  clause: 'прил. 1, п. 3.6.3, табл. 3.6.1',
+  actMark: '743-ПП',
+  table: 'табл. 3.6.1',
+  source: 'https://base.garant.ru/378956/53f89421bbdaf741eb2d1ecc4ddb4c33/',
+};
+// Край трамвайного полотна сверен по СП 42, в табл. 3.6.1 743-ПП такой строки нет.
+const SP_42 = {
+  act: 'СП 42.13330.2016',
+  clause: 'п. 9.6, табл. 9.1',
+  actMark: 'СП 42',
+  table: 'табл. 9.1',
+  source: 'https://tiflocentre.ru/documents/sp42-13330-2016.php',
+};
+const REGULATION = { basis: 'regulation', verified: ACT_743 } as const;
+const SERVER_REGULATION = { basis: 'regulation', verified: null } as const;
 const noNorm = (reason: string) => ({ basis: 'service_default', reason }) as const;
 
 // Основание норм сервиса на фронте: без возможности norms у сервера нет поля basis. Таблица —
@@ -124,8 +157,8 @@ const VERIFIED: Record<string, Record<PlantType, VerifiedNorm>> = {
     shrub: { distance: 3, basis: REGULATION },
   },
   'tram_tracks|bed_edge': {
-    tree: { distance: 5, basis: REGULATION },
-    shrub: { distance: 3, basis: REGULATION },
+    tree: { distance: 5, basis: { basis: 'regulation', verified: SP_42 } },
+    shrub: { distance: 3, basis: { basis: 'regulation', verified: SP_42 } },
   },
   'green_existing|existing_tree': {
     tree: {
@@ -154,7 +187,7 @@ export function normBasis(
   distance: number,
 ): NormBasis | null {
   if (norm !== null) {
-    return norm.basis === 'regulation' ? REGULATION : noNorm(norm.text);
+    return norm.basis === 'regulation' ? SERVER_REGULATION : noNorm(norm.text);
   }
   const verified = VERIFIED[`${category}|${subtype ?? ''}`]?.[plantType];
   return verified !== undefined && Math.abs(verified.distance - distance) < 1e-9
@@ -181,3 +214,8 @@ export function checkBasis(check: PlantingCheck, plantType: PlantType): NormBasi
 // Примечание 1 к табл. 3.6.1 743-ПП: нормы даны для деревьев с кроной не больше 5 м, для
 // более крупных их увеличивают. Насколько — акт не говорит, поэтому своё число не выдумываем.
 export const NOTE_1_CROWN_LIMIT_M = 5;
+
+// Пометка источника пункта: его прислал не сервер, а даёт сверка фронтенда с текстом акта.
+export const VERIFIED_CLAUSE_NOTE = 'пункт — по сверке с текстом акта';
+
+export const verifiedReference = ({ act, clause }: VerifiedClause): string => `${act}, ${clause}`;

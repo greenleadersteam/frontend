@@ -26,6 +26,7 @@ import {
   RESULT_COUNT_FORMS,
   type Species,
   useProjectWithPolling,
+  VERIFIED_CLAUSE_NOTE,
 } from '@/entities/project';
 import {
   EditsLoadAlert,
@@ -66,7 +67,7 @@ import {
 } from '../model/result';
 import { CROWN_NOTE } from './check-item';
 import { serverManualMethod } from './manual-georeference';
-import { normReference } from './norm-reference';
+import { basisReference, verifiedClauseFor } from './norm-reference';
 import { editsLine } from './planting-register';
 import { checksSheet, hasCrownNote, NO_CHECKS_TEXT, resultText, shortBasis } from './report-checks';
 import classes from './report-page.module.css';
@@ -419,12 +420,16 @@ function Summary({ result, counts }: SummaryProps): JSX.Element {
   );
 }
 
-// Основание нормы: акт и пункт или «значение сервиса» с причиной.
+// Основание нормы: акт и пункт или «значение сервиса» с причиной. Пункт из сверки помечен:
+// сервер его не присылал.
 function basisText({ basis, norm, citation }: Pick<ReportCheck, 'basis' | 'norm' | 'citation'>) {
-  return basis?.basis === 'service_default'
-    ? `Значение сервиса. ${basis.reason}.`
-    : normReference(norm, citation);
+  if (basis?.basis === 'service_default') return `Значение сервиса. ${basis.reason}.`;
+  const reference = basisReference(basis, norm, citation);
+  return reference.verified ? `${reference.text} (${VERIFIED_CLAUSE_NOTE})` : reference.text;
 }
+
+const verifiedSource = ({ basis, citation }: AppliedNorm): string | null =>
+  verifiedClauseFor(basis, citation)?.source ?? null;
 
 type NormsTableProps = { norms: AppliedNorm[] };
 
@@ -449,7 +454,7 @@ function NormsTable({ norms }: NormsTableProps): JSX.Element {
             <Table.Td className={classes.numbers}>{formatMeters(norm.required)}</Table.Td>
             <Table.Td>{basisText(norm)}</Table.Td>
             <Table.Td className={classes.source}>
-              {sourceUrl(norm.norm?.source_url ?? null) ?? '—'}
+              {sourceUrl(norm.norm?.source_url ?? null) ?? verifiedSource(norm) ?? '—'}
             </Table.Td>
           </Table.Tr>
         ))}

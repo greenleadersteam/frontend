@@ -20,7 +20,7 @@ const check = (subtype: string, margin: number, extra: CheckExtra = {}): ReportC
   margin,
   violated: false,
   withinTolerance: false,
-  basis: { basis: 'regulation' },
+  basis: { basis: 'regulation', verified: null },
   citation: `743-ПП — ${subtype}`,
   norm: null,
   ...extra,

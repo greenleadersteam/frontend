@@ -695,7 +695,9 @@ describe('панель «Посадка»', () => {
     ]);
     expect(checks[0]).toHaveTextContent('2,2 м при норме не менее 2 м');
     expect(checks[1]).toHaveTextContent('2,3 м при норме не менее 2 м');
-    expect(checks[1]).toHaveTextContent('743-ПП, табл. 3.6.1 — силовой кабель');
+    // Сервер присылает «743-ПП, табл. 3.6.1 — силовой кабель»: пункт — по сверке с текстом акта.
+    expect(checks[1]).toHaveTextContent('ПП Москвы № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1');
+    expect(checks[1]).toHaveTextContent('пункт — по сверке с текстом акта');
     expect(within(checks[1] ?? panel).getByRole('img', { name: 'Норма выполнена' })).toBeVisible();
     // До газопровода ближе край участка, чем его зона: точное расстояние неизвестно.
     expect(checks[2]).toHaveTextContent(/до границы зоны 8,\d м/);
@@ -814,7 +816,10 @@ describe('панель «Посадка»', () => {
     const panel = await screen.findByRole('region', { name: 'Силовой кабель' });
     expect(within(panel).getByText('Зона запрета')).toBeInTheDocument();
     expect(within(panel).getByText('Отступ для деревьев не менее 2 м')).toBeInTheDocument();
-    expect(within(panel).getByText('743-ПП, табл. 3.6.1 — силовой кабель')).toBeInTheDocument();
+    expect(
+      within(panel).getByText('ПП Москвы № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1'),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(/^пункт — по сверке с текстом акта: /)).toBeInTheDocument();
     // Полоса 60 × 4 м.
     expect(within(panel).getByText(/^Площадь по данным карты: 24\d м²$/)).toBeInTheDocument();
     expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
