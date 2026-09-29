@@ -723,6 +723,13 @@ export function ResultMap({
       <ZonePanel
         ref={openedPanelRef}
         zone={selectedZone}
+        norm={
+          obstacles?.prepared.norm(
+            selectedZone.properties.plant_type,
+            selectedZone.properties.obstacle_category,
+            selectedZone.properties.obstacle_subtype,
+          )?.norm ?? null
+        }
         onClose={() => {
           closePanel(true);
         }}

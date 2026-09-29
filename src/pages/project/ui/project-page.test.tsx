@@ -872,16 +872,41 @@ describe('панель «Посадка»', () => {
     const panel = await screen.findByRole('region', { name: 'Силовой кабель' });
     expect(within(panel).getByText('Зона запрета')).toBeInTheDocument();
     expect(within(panel).getByText('Отступ для деревьев не менее 2 м')).toBeInTheDocument();
+    // Норма /norms — как у проверок карточки посадки: акт, пункт, текст нормы, источник.
     expect(
-      within(panel).getByText('ПП Москвы № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1'),
+      within(panel).getByText(
+        'ПП Москвы от 10.09.2002 № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1, строка «силовой кабель и кабель связи»',
+      ),
     ).toBeInTheDocument();
-    expect(within(panel).getByText(/^пункт — по сверке с текстом акта: /)).toBeInTheDocument();
+    expect(
+      within(panel).getByText('Силовой кабель и кабель связи: дерево 2 м'),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByRole('link', { name: /^Источник нормы: Силовой кабель/ }),
+    ).toHaveAttribute('href', 'https://base.garant.ru/378956/53f89421bbdaf741eb2d1ecc4ddb4c33/');
+    // Машинная строка сервера («< 2.0 м от объекта типа …») в панель не попадает.
+    expect(within(panel).queryByText(/от объекта типа/)).not.toBeInTheDocument();
     // Полоса 60 × 4 м.
     expect(within(panel).getByText(/^Площадь по данным карты: 24\d м²$/)).toBeInTheDocument();
     expect(fakeMap.setFeatureState).toHaveBeenLastCalledWith(
       { source: 'result-prohibited-zones', id: 1 },
       { selected: true },
     );
+  });
+
+  test('без /norms панель зоны — пункт по сверке с текстом акта', async () => {
+    serverMock.obstacles = false;
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+
+    clickMap(null, 1);
+
+    const panel = await screen.findByRole('region', { name: 'Силовой кабель' });
+    expect(
+      within(panel).getByText('ПП Москвы № 743-ПП, прил. 1, п. 3.6.3, табл. 3.6.1'),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(/^пункт — по сверке с текстом акта: /)).toBeInTheDocument();
+    expect(within(panel).queryByText(/от объекта типа/)).not.toBeInTheDocument();
   });
 
   test('закрывается по Esc, когда фокус в панели, и снимает выделение', async () => {
