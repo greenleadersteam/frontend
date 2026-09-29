@@ -110,6 +110,11 @@ export default defineConfig(({ mode }) => {
       include: ['src/**/*.test.{ts,tsx}', 'vite-plugins/**/*.test.ts'],
       environment: 'jsdom',
       setupFiles: ['./src/shared/lib/test/setup.ts'],
+      // Страховка на CI: машина медленнее и нагружена параллельными файлами. Повтор не заменяет
+      // ожиданий в тестах, а защищает деплой от случайного таймаута.
+      ...(process.env.CI === undefined
+        ? {}
+        : { retry: 2, testTimeout: 20_000, hookTimeout: 20_000 }),
     },
   };
 });

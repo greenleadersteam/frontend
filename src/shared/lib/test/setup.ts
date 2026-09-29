@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
 
 import { notifications } from '@mantine/notifications';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 
@@ -11,6 +11,11 @@ import { resetMockDb, server } from '@/shared/api/mocks/node';
 import { CAPABILITIES, loadRuntimeConfig } from '@/shared/config';
 
 import { installIntersectionObserver } from './intersection-observer';
+
+// findBy* и waitFor ждут по умолчанию 1 с. Сценарии экрана проекта проходят цепочку «действие →
+// запрос к MSW → ответ → перерисовка», и на медленной машине CI она дольше секунды: тесты падали
+// не от ошибки, а от таймаута ожидания.
+configure({ asyncUtilTimeout: 5000 });
 
 // Тесты ходят в API через те же обработчики MSW, что и режим dev:mock.
 // Запрос, для которого нет обработчика, — ошибка теста, а не выход в сеть.
