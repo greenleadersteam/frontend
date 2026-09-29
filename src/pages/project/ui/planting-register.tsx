@@ -2,6 +2,7 @@ import {
   Button,
   Card,
   Group,
+  Menu,
   Pagination,
   SegmentedControl,
   Select,
@@ -17,6 +18,7 @@ import {
   IconAlertTriangle,
   IconArrowDown,
   IconArrowUp,
+  IconChevronDown,
   IconCircleCheck,
   IconCircleX,
   IconSelector,
@@ -44,6 +46,7 @@ import {
   formatSquareMeters,
 } from '@/shared/lib/format';
 import { saveFile } from '@/shared/lib/save-file';
+import { XLSX_MIME, xlsxWorkbook } from '@/shared/lib/xlsx';
 import { Icon } from '@/shared/ui';
 
 import classes from './planting-register.module.css';
@@ -54,6 +57,7 @@ import {
   SOURCE_LABELS,
   STATUS_LABELS,
 } from './register-csv';
+import { registerSheet, speciesSheet } from './register-xlsx';
 import { RejectedTable } from './rejected-table';
 import type { CenterRequest } from './result-map';
 import { speciesCsv, speciesRows } from './species-register';
@@ -191,17 +195,17 @@ export function PlantingRegister({
     }));
     resetPage();
   };
-  const download = () => {
+  const speciesList = speciesRows(planting, species, explanation);
+  const saveCsv = (csv: string, suffix: string) => {
     saveFile(
-      new Blob([registerCsv(rows, edited)], { type: 'text/csv;charset=utf-8' }),
-      projectFileName(project.name, ' — ведомость посадок.csv'),
+      new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+      projectFileName(project.name, `${suffix}.csv`),
     );
   };
-  const speciesList = speciesRows(planting, species, explanation);
-  const downloadSpecies = () => {
+  const saveXlsx = (bytes: Uint8Array<ArrayBuffer>, suffix: string) => {
     saveFile(
-      new Blob([speciesCsv(speciesList)], { type: 'text/csv;charset=utf-8' }),
-      projectFileName(project.name, ' — ведомость озеленения.csv'),
+      new Blob([bytes], { type: XLSX_MIME }),
+      projectFileName(project.name, `${suffix}.xlsx`),
     );
   };
 
@@ -268,9 +272,16 @@ export function PlantingRegister({
               {edited && <li className={classes.numbers}>{editsLine(counts)}</li>}
             </ul>
           </Stack>
-          <Button variant="default" onClick={download}>
-            Скачать ведомость (CSV)
-          </Button>
+          <DownloadMenu
+            title="Скачать ведомость"
+            name="Ведомость"
+            onXlsx={() => {
+              saveXlsx(xlsxWorkbook(registerSheet(rows, edited)), ' — ведомость посадок');
+            }}
+            onCsv={() => {
+              saveCsv(registerCsv(rows, edited), ' — ведомость посадок');
+            }}
+          />
         </Group>
       </Card>
 
@@ -288,9 +299,16 @@ export function PlantingRegister({
           {list === 'species' ? (
             <Stack gap="md" align="flex-start">
               <SpeciesTable rows={speciesList} />
-              <Button variant="default" onClick={downloadSpecies}>
-                Скачать ведомость озеленения (CSV)
-              </Button>
+              <DownloadMenu
+                title="Скачать ведомость озеленения"
+                name="Ведомость озеленения"
+                onXlsx={() => {
+                  saveXlsx(xlsxWorkbook(speciesSheet(speciesList)), ' — ведомость озеленения');
+                }}
+                onCsv={() => {
+                  saveCsv(speciesCsv(speciesList), ' — ведомость озеленения');
+                }}
+              />
             </Stack>
           ) : list === 'rejected' && rejected !== null ? (
             <RejectedTable
@@ -485,4 +503,34 @@ function countBy<T>(values: T[]): Map<T, number> {
   const counts = new Map<T, number>();
   for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
   return counts;
+}
+
+type DownloadMenuProps = {
+  title: string;
+  name: string;
+  onXlsx: () => void;
+  onCsv: () => void;
+};
+
+// Excel — главный пункт: CSV с кириллицей Excel часто открывает одной колонкой или
+// «кракозябрами». CSV остаётся для других программ.
+function DownloadMenu({ title, name, onXlsx, onCsv }: DownloadMenuProps): JSX.Element {
+  return (
+    <Menu position="bottom-end">
+      <Menu.Target>
+        <Button
+          variant="default"
+          rightSection={<IconChevronDown size={20} stroke={1.5} aria-hidden />}
+        >
+          {title}
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item fw={600} onClick={onXlsx}>
+          {`${name} (Excel, .xlsx)`}
+        </Menu.Item>
+        <Menu.Item onClick={onCsv}>{`${name} (CSV)`}</Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
 }

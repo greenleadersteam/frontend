@@ -1,6 +1,7 @@
 import type { UnknownAction } from '@reduxjs/toolkit';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { strFromU8, unzipSync } from 'fflate';
 import { delay, http, HttpResponse } from 'msw';
 import { type ReactNode, useEffect } from 'react';
 import { type RouteObject, useLocation, useNavigate } from 'react-router';
@@ -1514,7 +1515,7 @@ describe('ведомость', () => {
     expect(screen.getByRole('cell', { name: FIRST_TREE })).toBeInTheDocument();
   });
 
-  test('«Скачать ведомость (CSV)» — все посадки, имя по проекту', async () => {
+  test('«Ведомость (CSV)» — все посадки, имя по проекту', async () => {
     const blobs: Blob[] = [];
     URL.createObjectURL = vi.fn((blob: Blob) => {
       blobs.push(blob);
@@ -1527,7 +1528,8 @@ describe('ведомость', () => {
     await renderRegister();
     await userEvent.click(screen.getByRole('radio', { name: 'Кустарники' }));
 
-    await userEvent.click(screen.getByRole('button', { name: 'Скачать ведомость (CSV)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать ведомость' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Ведомость (CSV)' }));
 
     const link = click.mock.contexts[0];
     if (!(link instanceof HTMLAnchorElement)) throw new Error('ожидалась ссылка');
@@ -1544,6 +1546,42 @@ describe('ведомость', () => {
     );
     // Фильтр на выгрузку не влияет: 37 посадок, заголовок и пустая строка после CRLF.
     expect(lines).toHaveLength(39);
+  });
+
+  test('«Ведомость (Excel, .xlsx)» — главный пункт: книга с листом ведомости, числа числами', async () => {
+    const blobs: Blob[] = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      blobs.push(blob);
+      return 'blob:xlsx';
+    });
+    URL.revokeObjectURL = vi.fn();
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    await renderRegister();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать ведомость' }));
+    const items = await screen.findAllByRole('menuitem');
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Ведомость (Excel, .xlsx)',
+      'Ведомость (CSV)',
+    ]);
+    await userEvent.click(items[0] ?? document.body);
+
+    const link = click.mock.contexts[0];
+    if (!(link instanceof HTMLAnchorElement)) throw new Error('ожидалась ссылка');
+    expect(link.download).toBe('Сквер на Покровке — ведомость посадок.xlsx');
+    expect(blobs[0]?.type).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    const files = unzipSync(new Uint8Array((await blobs[0]?.arrayBuffer()) ?? new ArrayBuffer(0)));
+    const sheet = strFromU8(files['xl/worksheets/sheet1.xml'] ?? new Uint8Array());
+    expect(sheet).toContain(
+      '<c r="B2" t="inlineStr"><is><t xml:space="preserve">TREE_ROW_CURB-00001</t></is></c>',
+    );
+    expect(sheet).toMatch(/<c r="E2"><v>55\.759\d+<\/v><\/c>/);
+    // 37 посадок, заголовок и две строки итогов.
+    expect(sheet.match(/<row /g)).toHaveLength(40);
   });
 });
 
@@ -2441,8 +2479,9 @@ describe('ведомость озеленения', () => {
     expect(
       within(table).getByRole('rowheader', { name: 'Итого деревьев' }).closest('tr'),
     ).toHaveTextContent('18');
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать ведомость озеленения' }));
     await userEvent.click(
-      screen.getByRole('button', { name: 'Скачать ведомость озеленения (CSV)' }),
+      await screen.findByRole('menuitem', { name: 'Ведомость озеленения (CSV)' }),
     );
     await waitFor(() => {
       expect(files).toHaveLength(1);
