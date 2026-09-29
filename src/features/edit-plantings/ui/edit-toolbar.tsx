@@ -144,6 +144,9 @@ export function EditToolbar({
       storage = (
         <Button
           size="compact-md"
+          // Сохранять нечего — тихая недоступная кнопка без заливки, как у всех недоступных
+          // тихих кнопок темы; filled — только когда правки есть.
+          variant={(edits.unsaved && !edits.switching) || saving ? 'filled' : 'subtle'}
           loading={saving}
           disabled={!edits.unsaved || edits.switching}
           onClick={() => {

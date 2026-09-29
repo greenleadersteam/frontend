@@ -1814,6 +1814,11 @@ describe('правка расстановки', () => {
     }
     expect(within(toolbar).getByText('Правок нет')).toBeInTheDocument();
     expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    // Недоступная — тихая, без заливки filled (правило темы для недоступных кнопок).
+    expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toHaveAttribute(
+      'data-variant',
+      'subtle',
+    );
     expect(fakeMap.container.style.touchAction).toBe('none');
 
     await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
