@@ -1,4 +1,4 @@
-import { Button, Group, Loader, Stack, Text, Title } from '@mantine/core';
+import { Button, Group, Stack, Text, Title } from '@mantine/core';
 import { type JSX, type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
 
@@ -14,7 +14,7 @@ import {
 import { describeAppError, toAppError } from '@/shared/api';
 import { PRODUCT_NAME, projectPath, useCapability } from '@/shared/config';
 import type { Contour } from '@/shared/lib/contour';
-import { NotFoundScreen } from '@/shared/ui';
+import { NotFoundScreen, PageLoader } from '@/shared/ui';
 
 import { type ContourOrigin, obstaclesContour, projectContour } from '../lib/project-contour';
 import { prepareOverlay, type ProjectOverlay } from '../lib/project-overlay';
@@ -44,7 +44,7 @@ export function ProjectGeoreference({ id, children }: ProjectGeoreferenceProps):
   if (notFound) return <NotFoundScreen />;
   if (project === undefined) {
     return error === undefined ? (
-      <Loader size="sm" aria-label="Загрузка проекта" />
+      <PageLoader />
     ) : (
       <Unavailable
         text={describeAppError(toAppError(error))}
@@ -120,7 +120,7 @@ function ProjectResult({ project, children }: ProjectResultProps): JSX.Element {
     );
   }
   if (zones.data === undefined || planting.data === undefined) {
-    return <Loader size="sm" aria-label="Загрузка результата проекта" />;
+    return <PageLoader />;
   }
   if (isGeographic(zones.data.metadata.crs)) {
     return <Unavailable project={project} text={SERVER_GEOREFERENCE} />;
@@ -156,7 +156,7 @@ function FailedProject({ project, children }: FailedProjectProps): JSX.Element {
   const obstacles = useGetObstaclesQuery(project.id, { skip: !withObstacles });
   // Сбой /obstacles — повторить или загрузить границу файлом: решает пользователь.
   const [fileInstead, setFileInstead] = useState(false);
-  if (obstacles.isLoading) return <Loader size="sm" aria-label="Загрузка подосновы проекта" />;
+  if (obstacles.isLoading) return <PageLoader />;
   // 404 — подосновы у сервера для этого проекта нет: это не сбой, а случай «загрузите файлом».
   const error = obstacles.error;
   const absent = error !== undefined && 'status' in error && error.status === 404;

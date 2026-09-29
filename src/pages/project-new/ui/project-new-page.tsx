@@ -1,10 +1,11 @@
-import { Anchor, Button, Loader, Stack, Text, Title } from '@mantine/core';
+import { Anchor, Button, Stack, Text, Title } from '@mantine/core';
 import { type JSX, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 
 import { isProjectId, useProjectWithPolling } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
 import { paths, PRODUCT_NAME } from '@/shared/config';
+import { PageLoader } from '@/shared/ui';
 
 import type { WizardEntry } from '../model/wizard';
 import { UploadWizard } from './upload-wizard';
@@ -66,7 +67,7 @@ function ExistingProjectWizard({ id }: ExistingProjectWizardProps): JSX.Element 
       </Stack>
     );
   }
-  return <Loader size="sm" aria-label="Загрузка проекта" />;
+  return <PageLoader />;
 }
 
 type UnavailableProps = { message: string };

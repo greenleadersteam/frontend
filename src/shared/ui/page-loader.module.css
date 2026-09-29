@@ -1,0 +1,18 @@
+/* Заполняет свободное место области содержимого (main — колонка flex) и центрирует лоадер. */
+.root {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-block-size: 50vh;
+  animation: appear 0ms var(--app-loader-delay) both;
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}

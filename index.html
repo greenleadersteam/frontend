@@ -7,8 +7,8 @@
     <link rel="icon" href="data:," />
     <title>Озеленение</title>
     <!--
-      Экран ошибки старта (src/main.tsx, showStartupError) показывается до загрузки темы и CSS
-      приложения. Это единственное место вне темы: цвета — литералы палитры «Лён и шалфей»
+      Экран загрузки и экран ошибки старта (src/main.tsx, showStartupError) показываются до
+      загрузки темы и CSS приложения. Это единственное место вне темы: цвета — литералы палитры «Лён и шалфей»
       (.claude/rules/design.md): фон stone.1, текст stone.9, вторичный stone.7, кнопка sage.7.
       Шрифт системный: Mulish ещё не загружен. style-src 'unsafe-inline' в CSP уже разрешён.
     -->
@@ -51,11 +51,56 @@
         outline: 2px solid #5f6b55;
         outline-offset: 2px;
       }
+      /* Загрузка до старта React (конфиг и чанки приложения): по центру экрана, через 200 мс —
+         быстрые загрузки не мигают. Кольцо — дорожка stone.2 и заполнение sage.7, как у Loader. */
+      .startup-loader {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #f4f2ee;
+        animation: startup-appear 0ms 200ms both;
+      }
+      .startup-loader span {
+        width: 36px;
+        height: 36px;
+        box-sizing: border-box;
+        border: 3px solid #ece6dd;
+        border-top-color: #5f6b55;
+        border-radius: 50%;
+        animation: startup-spin 0.8s linear infinite;
+      }
+      .startup-loader small {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+      }
+      @keyframes startup-appear {
+        from {
+          opacity: 0;
+        }
+      }
+      @keyframes startup-spin {
+        to {
+          transform: rotate(1turn);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .startup-loader span {
+          animation: none;
+        }
+      }
     </style>
   </head>
   <body>
     <noscript>Для работы приложения нужен JavaScript. Включите его в настройках браузера.</noscript>
-    <div id="root"></div>
+    <div id="root">
+      <div class="startup-loader" role="status" aria-live="polite">
+        <span></span><small>Загружаем…</small>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-import { Button, Group, Loader, Stack, Text, VisuallyHidden } from '@mantine/core';
+import { Button, Group, Stack, Text, VisuallyHidden } from '@mantine/core';
 import { IconCircleCheck } from '@tabler/icons-react';
 import type { JSX } from 'react';
 import { Link } from 'react-router';
@@ -16,6 +16,7 @@ import { ChooseRootDxf } from '@/features/choose-root-dxf';
 import { describeAppError, toAppError } from '@/shared/api';
 import { paths, projectPath } from '@/shared/config';
 import { formatDuration } from '@/shared/lib/format';
+import { PageLoader } from '@/shared/ui';
 
 import classes from './processing-step.module.css';
 
@@ -70,7 +71,7 @@ export function ProcessingStep({
     fulfilledTimeStamp === undefined ||
     fulfilledTimeStamp < acceptedAt
   ) {
-    return <Loader size="sm" aria-label="Загрузка состояния проекта" />;
+    return <PageLoader />;
   }
 
   return (

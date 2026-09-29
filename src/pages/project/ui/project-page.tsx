@@ -1,4 +1,4 @@
-import { Button, Loader, Stack, Text, VisuallyHidden } from '@mantine/core';
+import { Button, Stack, Text, VisuallyHidden } from '@mantine/core';
 import { type JSX, useState } from 'react';
 import { useParams } from 'react-router';
 
@@ -12,7 +12,7 @@ import {
 } from '@/entities/project';
 import { describeAppError, toAppError } from '@/shared/api';
 import { PRODUCT_NAME } from '@/shared/config';
-import { NotFoundScreen } from '@/shared/ui';
+import { NotFoundScreen, PageLoader } from '@/shared/ui';
 
 import { ProjectBody } from './project-body';
 import { ProjectHeader } from './project-header';
@@ -49,19 +49,21 @@ function ProjectScreen({ id }: ProjectScreenProps): JSX.Element {
 
   if (notFound) return <NotFoundScreen />;
   if (project === undefined) {
-    return (
+    // Лоадер — прямо в области содержимого: так он встаёт по центру свободного места.
+    return error === undefined ? (
+      <>
+        <title>{`Проект — ${PRODUCT_NAME}`}</title>
+        <PageLoader />
+      </>
+    ) : (
       <div className={classes.content}>
         <title>{`Проект — ${PRODUCT_NAME}`}</title>
-        {error === undefined ? (
-          <Loader size="sm" aria-label="Загрузка проекта" />
-        ) : (
-          <Stack gap="md" align="flex-start">
-            <Text role="alert">{describeAppError(toAppError(error))}</Text>
-            <Button variant="default" loading={isFetching} onClick={() => void refetch()}>
-              Повторить
-            </Button>
-          </Stack>
-        )}
+        <Stack gap="md" align="flex-start">
+          <Text role="alert">{describeAppError(toAppError(error))}</Text>
+          <Button variant="default" loading={isFetching} onClick={() => void refetch()}>
+            Повторить
+          </Button>
+        </Stack>
       </div>
     );
   }

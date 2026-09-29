@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Loader, Stack, Switch, Table, Text, Title } from '@mantine/core';
+import { Alert, Button, Group, Stack, Switch, Table, Text, Title } from '@mantine/core';
 import { type JSX, useEffect, useState, useTransition } from 'react';
 import { Link, useParams } from 'react-router';
 
@@ -32,7 +32,7 @@ import {
   formatNumber,
   formatSquareMeters,
 } from '@/shared/lib/format';
-import { NotFoundScreen } from '@/shared/ui';
+import { NotFoundScreen, PageLoader } from '@/shared/ui';
 
 import {
   type AppliedNorm,
@@ -76,7 +76,7 @@ function ReportScreen({ id }: ReportScreenProps): JSX.Element {
   if (notFound) return <NotFoundScreen />;
   if (project === undefined) {
     return error === undefined ? (
-      <Loader size="sm" aria-label="Загрузка проекта" />
+      <PageLoader />
     ) : (
       <Text role="alert">{describeAppError(toAppError(error))}</Text>
     );
@@ -101,7 +101,7 @@ function ReportData({ project }: ReportDataProps): JSX.Element {
   const state = useResultData(project);
   switch (state.kind) {
     case 'loading':
-      return <Loader size="sm" aria-label="Загрузка результата" />;
+      return <PageLoader />;
     case 'error':
       return (
         <Stack gap="md" align="flex-start">
@@ -133,7 +133,7 @@ function Report({ project, result }: ReportProps): JSX.Element {
     return (
       <Stack gap="md" align="flex-start">
         <EditsLoadAlert projectId={project.id} />
-        <Loader size="sm" aria-label="Загрузка правок" />
+        <PageLoader />
       </Stack>
     );
   }

@@ -156,6 +156,8 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
     '--app-status-failed-text': clay[6],
     '--app-duration-fast': '150ms',
     '--app-duration': '200ms',
+    // Загрузка страницы показывается не сразу: быстрые загрузки не мигают.
+    '--app-loader-delay': '200ms',
     '--app-content-width': '80rem',
     '--app-preview-inset': '0.625rem',
     '--app-card-lift': '0.125rem',

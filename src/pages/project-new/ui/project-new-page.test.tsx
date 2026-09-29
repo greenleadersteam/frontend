@@ -346,7 +346,7 @@ describe('загрузка и обработка', () => {
       }),
     );
     await userEvent.click(await screen.findByRole('button', { name: 'Загрузить и обработать' }));
-    expect(await screen.findByLabelText('Загрузка состояния проекта')).toBeInTheDocument();
+    expect(await screen.findByText('Загружаем…')).toBeInTheDocument();
     expect(screen.queryByText(/^В архиве нет файлов DXF\./)).not.toBeInTheDocument();
 
     act(() => {
@@ -637,7 +637,7 @@ describe('существующий проект', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить и обработать' }));
 
-    expect(await screen.findByLabelText('Загрузка состояния проекта')).toBeInTheDocument();
+    expect(await screen.findByText('Загружаем…')).toBeInTheDocument();
     expect(screen.queryByText(/^Архив повреждён или это не ZIP/)).not.toBeInTheDocument();
     act(() => {
       release();
