@@ -1,4 +1,4 @@
-import { Button, Group, Menu, SegmentedControl, Stack, Text } from '@mantine/core';
+import { Button, Menu, SegmentedControl, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconChevronDown, IconCopy } from '@tabler/icons-react';
 import { type JSX, useState } from 'react';
@@ -184,16 +184,19 @@ export function ExportMenu({ placement, gcp, workScale }: ExportMenuProps): JSX.
           </Stack>
         </Menu.Dropdown>
       </Menu>
-      <Group>
-        <Button
-          variant="subtle"
-          disabled={disabled}
-          leftSection={<Icon icon={IconCopy} />}
-          onClick={() => void copyGcp()}
-        >
-          Скопировать строку GCP
-        </Button>
-      </Group>
+      <Button
+        variant="default"
+        disabled={disabled}
+        leftSection={<Icon icon={IconCopy} />}
+        onClick={() => void copyGcp()}
+      >
+        Скопировать строку GCP
+      </Button>
+      {disabled && (
+        <Text size="xs" c="dimmed">
+          Выгрузка и строка GCP — после загрузки контура.
+        </Text>
+      )}
     </Stack>
   );
 }

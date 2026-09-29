@@ -4,6 +4,21 @@
   font-weight: 600;
 }
 
+/* Недоступная тихая кнопка (subtle, transparent) остаётся без заливки: заливка Mantine для
+   недоступных делала из неё бледную плашку, похожую на другую кнопку. Иконка светлее, чем у
+   доступной (stone.6): иначе без заливки их не различить. Icon задаёт цвет атрибутом stroke. */
+.button,
+.actionIcon {
+  &:where([data-variant='subtle'], [data-variant='transparent']):where(:disabled, [data-disabled]) {
+    border-color: transparent;
+    background: transparent;
+
+    & svg {
+      stroke: var(--mantine-color-gray-4);
+    }
+  }
+}
+
 /* Одна строка всегда: многоточие даёт метка Mantine, бейдж не выходит за контейнер. */
 .badge {
   max-width: 100%;

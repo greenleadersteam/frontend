@@ -259,6 +259,14 @@ describe('пустое состояние', () => {
     expect(screen.getAllByRole('button', { name: 'Открыть пример' }).length).toBeGreaterThan(0);
     expect(screen.getByText(/перетащите его мышью на место/)).toBeInTheDocument();
   });
+
+  test('выгрузка недоступна до контура — и рядом сказано почему', async () => {
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: 'Выгрузить' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Скопировать строку GCP' })).toBeDisabled();
+    expect(screen.getByText('Выгрузка и строка GCP — после загрузки контура.')).toBeInTheDocument();
+  });
 });
 
 describe('загрузка', () => {

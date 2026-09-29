@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Badge,
   Button,
   Card,
@@ -82,6 +83,7 @@ export const theme = createTheme({
         },
       }),
     }),
+    ActionIcon: ActionIcon.extend({ classNames: { root: classes.actionIcon } }),
     // Размер lg даёт шрифт 13 и высоту под капсулу значения; радиус-капсула — умолчание Mantine.
     Badge: Badge.extend({
       defaultProps: { size: 'lg' },
