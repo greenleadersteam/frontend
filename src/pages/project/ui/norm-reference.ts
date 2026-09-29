@@ -10,8 +10,14 @@ import {
 // clause); без него — акт без пункта. Без записи /norms — строка citation сервера.
 export function normReference(norm: Norm | null, citation: string): string {
   if (norm?.act == null) return citation.trim() === '' ? 'Норма не указана сервером' : citation;
-  return norm.clause === null ? norm.act : `${norm.act}, ${norm.clause}`;
+  if (norm.clause === null) return norm.act;
+  // Пункт другого акта (у кустарника по МГСН — «743-ПП, п. 3.6.3…» при act «623-ПП») сам
+  // называет акт: приклеенный к act, он читался бы как пункт чужого документа.
+  return OWN_ACT.test(norm.clause) ? norm.clause : `${norm.act}, ${norm.clause}`;
 }
+
+// Пункт начинается с обозначения акта: «743-ПП, …», «СП 42…», «МГСН 1.02-02…», «ПУЭ…».
+const OWN_ACT = /^(\d+-ПП|СП\s|МГСН\s|ПУЭ)/;
 
 type BasisReference = { text: string; verified: boolean };
 

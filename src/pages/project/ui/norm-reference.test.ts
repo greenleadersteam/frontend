@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { normBasis } from '@/entities/project';
 
-import { basisReference } from './norm-reference';
+import { basisReference, normReference } from './norm-reference';
 
 const CABLE = '743-ПП, табл. 3.6.1 — силовой кабель';
 
@@ -67,5 +67,36 @@ describe('basisReference без /norms', () => {
       text: 'Норма не указана сервером',
       verified: false,
     });
+  });
+});
+
+describe('normReference с /norms', () => {
+  const norm = (act: string, clause: string | null) => ({
+    id: 'mgsn-shrub',
+    obstacle_category: 'road_edge',
+    obstacle_subtype: 'local',
+    plant_type: 'shrub' as const,
+    distance_m: 1,
+    basis: 'regulation' as const,
+    citation: '',
+    act,
+    clause,
+    text: '',
+    source_url: null,
+  });
+
+  test('пункт своего акта — к акту через запятую', () => {
+    expect(normReference(norm('ПП Москвы № 743-ПП, прил. 1', 'п. 3.6.3'), '')).toBe(
+      'ПП Москвы № 743-ПП, прил. 1, п. 3.6.3',
+    );
+  });
+
+  test('пункт, который сам называет акт, — без чужого act', () => {
+    expect(normReference(norm('623-ПП', '743-ПП, п. 3.6.3, табл. 3.6.1'), '')).toBe(
+      '743-ПП, п. 3.6.3, табл. 3.6.1',
+    );
+    expect(normReference(norm('623-ПП', 'СП 42.13330.2016, табл. 9.1'), '')).toBe(
+      'СП 42.13330.2016, табл. 9.1',
+    );
   });
 });
