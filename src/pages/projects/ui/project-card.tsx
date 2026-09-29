@@ -13,7 +13,7 @@ import {
   ProjectStatusBadge,
 } from '@/entities/project';
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
-import { projectPath, projectUploadPath } from '@/shared/config';
+import { projectPath, projectUploadPath, useCapability } from '@/shared/config';
 import { formatDate, formatDuration } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
@@ -46,6 +46,8 @@ export function ProjectCard({
   // чья обработка к моменту последнего ответа шла дольше порога.
   const deletion = deleteAvailability(project, { stalled, checkedAt });
   const archive = archiveAction(state);
+  // Без runs экран загрузки объясняет, что выбрать чертёж нельзя, и предлагает новый архив.
+  const chooseRoot = useCapability('runs');
   const duration = state.kind === 'ready' ? getProcessingDurationMs(job) : null;
 
   return (
@@ -66,7 +68,9 @@ export function ProjectCard({
           <Menu.Dropdown>
             {archive !== null && (
               <Menu.Item component={Link} to={projectUploadPath(project.id)}>
-                {archive === 'upload' ? 'Загрузить архив' : 'Выбрать главный чертёж'}
+                {archive === 'choose-root' && chooseRoot
+                  ? 'Выбрать главный чертёж'
+                  : 'Загрузить архив'}
               </Menu.Item>
             )}
             <Menu.Item

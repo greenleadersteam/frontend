@@ -7,10 +7,25 @@ import { type RouteObject, useLocation } from 'react-router';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { baseApi } from '@/shared/api';
+import type * as Config from '@/shared/config';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { enterViewport, renderWithProviders, resetMockDb, server } from '@/shared/lib/test';
 
 import { ProjectsPage } from './projects-page';
+
+// Сервер в тестах объявляет все возможности; выбор главного чертежа проверяется и без runs.
+const serverMock = vi.hoisted(() => ({ runs: true }));
+vi.mock('@/shared/config', async (importOriginal) => {
+  const actual = await importOriginal<typeof Config>();
+  return {
+    ...actual,
+    useCapability: (name: Config.Capability) =>
+      name === 'runs' ? serverMock.runs : actual.useCapability(name),
+  };
+});
+afterEach(() => {
+  serverMock.runs = true;
+});
 
 const routes: RouteObject[] = [
   { path: '/', Component: ProjectsPage },
@@ -368,6 +383,19 @@ describe('меню карточки', () => {
         expect(item).not.toBeInTheDocument();
       }
     }
+  });
+
+  test('без runs после ambiguous_root_dxf — «Загрузить архив»: выбрать чертёж сервер не умеет', async () => {
+    serverMock.runs = false;
+    renderPage();
+    const card = await cardOf('Сквер на Новослободской');
+
+    await userEvent.click(card.getByRole('button', { name: 'Действия с проектом' }));
+
+    expect(await screen.findByRole('menuitem', { name: 'Загрузить архив' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Выбрать главный чертёж' }),
+    ).not.toBeInTheDocument();
   });
 
   test.each([

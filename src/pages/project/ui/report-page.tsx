@@ -160,6 +160,7 @@ function Report({ project, result }: ReportProps): JSX.Element {
       result={result}
       final={edits.final}
       counts={edits.counts}
+      storage={edits.storage}
       version={version ?? null}
     />
   );
@@ -168,13 +169,14 @@ function Report({ project, result }: ReportProps): JSX.Element {
 type ReportComputedProps = ReportProps & {
   final: ReturnType<typeof usePlantingEdits>['final'];
   counts: ReturnType<typeof usePlantingEdits>['counts'];
+  storage: ReturnType<typeof usePlantingEdits>['storage'];
   version: PlantingVersion | null;
 };
 
 // Проверки по всем посадкам (у «Олимпийского» 7 784) — один раз на результат и правки.
 // Компонент без хуков и состояния: React Compiler кеширует расчёт по его входам, а переключатель
 // «Все посадки» и готовность плана живут ниже и пересчёта не вызывают.
-function ReportComputed({ project, result, final, counts, version }: ReportComputedProps) {
+function ReportComputed({ project, result, final, counts, storage, version }: ReportComputedProps) {
   const base = resultBase(result);
   if (base === null) {
     return <Text>В результате обработки нет посадок и зон запрета.</Text>;
@@ -197,10 +199,16 @@ function ReportComputed({ project, result, final, counts, version }: ReportCompu
       plantings={plantings}
       selection={defaultReportSelection(plantings)}
       counts={counts}
+      storage={storage}
       version={version}
     />
   );
 }
+
+const DRAFT_FACTS = {
+  draft: 'черновик в этом браузере, на сервере не сохранены',
+  memory: 'только в этой вкладке до перезагрузки, на сервере не сохранены',
+} as const;
 
 type ReportBodyProps = {
   project: Project;
@@ -209,6 +217,7 @@ type ReportBodyProps = {
   plantings: ReportPlanting[];
   selection: ReportPlanting[];
   counts: ReturnType<typeof usePlantingEdits>['counts'];
+  storage: ReturnType<typeof usePlantingEdits>['storage'];
   version: PlantingVersion | null;
 };
 
@@ -219,6 +228,7 @@ function ReportBody({
   plantings,
   selection,
   counts,
+  storage,
   version,
 }: ReportBodyProps): JSX.Element {
   const demo = currentDataSource() === 'demo';
@@ -298,6 +308,14 @@ function ReportBody({
             <>
               <dt>Версия плана посадок</dt>
               <dd>{versionLabel(version)}</dd>
+            </>
+          )}
+          {storage !== 'server' && counts.total > 0 && (
+            // Без версий на сервере правки живут только в браузере: читатель отчёта не должен
+            // принять их за результат сервера.
+            <>
+              <dt>Правки</dt>
+              <dd>{DRAFT_FACTS[storage]}</dd>
             </>
           )}
         </dl>

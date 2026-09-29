@@ -2640,6 +2640,9 @@ describe('отчёт для согласования', () => {
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Отчёт для согласования' }));
 
     expect(await screen.findByText('Правок: 1 (перемещено 1)')).toBeInTheDocument();
+    expect(
+      screen.getByText('черновик в этом браузере, на сервере не сохранены'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Условные знаки плана' })).toHaveTextContent(
       'Нарушает норму',
     );
