@@ -3,7 +3,6 @@ import { describe, expect, test } from 'vitest';
 import {
   appliedNorms,
   defaultReportSelection,
-  estimatedPages,
   type ReportCheck,
   type ReportPlanting,
 } from './report';
@@ -77,15 +76,6 @@ describe('проверки по посадкам в отчёте', () => {
       'b',
       'c',
     ]);
-  });
-
-  test('оценка страниц — по числу строк проверок', () => {
-    const many = Array.from({ length: 11 }, (_, index) =>
-      planting(String(index), [check('gas', 1)]),
-    );
-
-    expect(estimatedPages(many)).toBe(2);
-    expect(estimatedPages([])).toBe(1);
   });
 });
 

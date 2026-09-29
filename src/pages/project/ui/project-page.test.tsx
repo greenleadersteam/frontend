@@ -11,6 +11,7 @@ import { dimensionLabelsMinZoom } from '@/entities/project';
 import { plantingEditsActions, plantingEditsSlice } from '@/features/edit-plantings';
 import type * as Config from '@/shared/config';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
+import { formatCount } from '@/shared/lib/format';
 import { renderWithProviders, server } from '@/shared/lib/test';
 
 import { ProjectPage } from './project-page';
@@ -2332,6 +2333,12 @@ describe('черновик правок в браузере', () => {
 });
 
 // Скачанный файл: объектные URL в jsdom подменены, текст — из Blob.
+const checksSheetXml = async (blob: Blob | undefined) => {
+  if (blob === undefined) throw new Error('файл не скачан');
+  const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+  return strFromU8(files['xl/worksheets/sheet1.xml'] ?? new Uint8Array());
+};
+
 const captureDownloads = () => {
   const files: { name: string; blob: Blob }[] = [];
   const blobs: Blob[] = [];
@@ -2535,7 +2542,8 @@ describe('отчёт для согласования', () => {
     expect(screen.getAllByText('Демонстрационные данные')).toHaveLength(2);
   });
 
-  test('проверки: по умолчанию — отбор, «Все посадки» — вся расстановка', async () => {
+  test('проверки: в отчёте — отбор, все проверки — в Excel по кнопке', async () => {
+    const files = captureDownloads();
     renderReport();
     const section = (await screen.findByRole('heading', { name: 'Проверки по посадкам' })).closest(
       'section',
@@ -2549,17 +2557,25 @@ describe('отчёт для согласования', () => {
     const byDefault = new Set(
       plantingRows().map((row) => /(TREE|SHRUB)_[A-Z_]+-\d{5}/.exec(row.textContent)?.[0]),
     );
+    expect(byDefault.size).toBeGreaterThan(0);
+    expect(byDefault.size).toBeLessThan(37);
+    expect(within(section).queryByRole('switch')).not.toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        `В таблице — ${formatCount(byDefault.size, { one: 'посадка', few: 'посадки', many: 'посадок' })} из 37. Полная таблица проверок — в Excel.`,
+      ),
+    ).toBeInTheDocument();
+
     await userEvent.click(
-      within(section).getByRole('switch', { name: 'Показать проверки всех посадок' }),
-    );
-    const all = new Set(
-      plantingRows().map((row) => /(TREE|SHRUB)_[A-Z_]+-\d{5}/.exec(row.textContent)?.[0]),
+      within(section).getByRole('button', { name: 'Скачать все проверки (.xlsx)' }),
     );
 
-    expect(byDefault.size).toBeGreaterThan(0);
-    expect(byDefault.size).toBeLessThan(all.size);
-    expect(all.size).toBe(37);
-    expect(within(section).getByText(/^37 посадок — около \d+ страниц/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(files).toHaveLength(1);
+    });
+    expect(files[0]?.name).toBe('Сквер на Покровке — проверки по посадкам.xlsx');
+    const sheet = await checksSheetXml(files[0]?.blob);
+    expect(new Set(sheet.match(/(TREE|SHRUB)_[A-Z_]+-\d{5}/g)).size).toBe(37);
   });
 
   test('правка попадает в отчёт: сводка, отбор проверок, знаки правок под планом', async () => {
@@ -2589,12 +2605,17 @@ describe('отчёт для согласования', () => {
       'section',
     );
     if (section === null) throw new Error('нет раздела');
+    const files = captureDownloads();
     await userEvent.click(
-      within(section).getByRole('switch', { name: 'Показать проверки всех посадок' }),
+      within(section).getByRole('button', { name: 'Скачать все проверки (.xlsx)' }),
     );
 
-    expect(section).toHaveTextContent('до границы зоны');
-    expect(section).not.toHaveTextContent('внутри зоны запрета');
+    await waitFor(() => {
+      expect(files).toHaveLength(1);
+    });
+    const sheet = await checksSheetXml(files[0]?.blob);
+    expect(sheet).toContain('до границы зоны');
+    expect(sheet).not.toContain('внутри зоны запрета');
   });
 
   test('правки с сервера не загрузились — плашка с «Повторить», а не вечная загрузка', async () => {

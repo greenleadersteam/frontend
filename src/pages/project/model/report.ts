@@ -159,20 +159,6 @@ export function defaultReportSelection(plantings: readonly ReportPlanting[]): Re
   return plantings.filter(({ id }) => selected.has(id));
 }
 
-// Строк проверок на альбомном листе A4 — для предупреждения о размере. Замер по PDF
-// «Олимпийского»: 79 строк отобранных посадок заняли 8 страниц; строки посадки с объединённой
-// ячейкой не рвутся, поэтому лист заполнен не до конца.
-const CHECK_ROWS_PER_PAGE = 10;
-
-export const estimatedPages = (plantings: readonly ReportPlanting[]): number =>
-  Math.max(
-    1,
-    Math.ceil(
-      plantings.reduce((sum, { checks }) => sum + Math.max(1, checks.length), 0) /
-        CHECK_ROWS_PER_PAGE,
-    ),
-  );
-
 // Применённая норма: объект, тип посадки, отступ и основание.
 export type AppliedNorm = {
   key: string;

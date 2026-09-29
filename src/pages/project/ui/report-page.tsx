@@ -4,13 +4,12 @@ import {
   Group,
   Skeleton,
   Stack,
-  Switch,
   Table,
   Text,
   Title,
   VisuallyHidden,
 } from '@mantine/core';
-import { type JSX, useDeferredValue, useEffect, useState, useTransition } from 'react';
+import { type JSX, useDeferredValue, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
 import {
@@ -23,6 +22,7 @@ import {
   type PlantingVersion,
   prohibitedArea,
   type Project,
+  projectFileName,
   RESULT_COUNT_FORMS,
   type Species,
   useProjectWithPolling,
@@ -43,13 +43,14 @@ import {
   formatNumber,
   formatSquareMeters,
 } from '@/shared/lib/format';
+import { saveFile } from '@/shared/lib/save-file';
+import { XLSX_MIME, xlsxWorkbook } from '@/shared/lib/xlsx';
 import { NotFoundScreen, PageLoader } from '@/shared/ui';
 
 import {
   type AppliedNorm,
   appliedNorms,
   defaultReportSelection,
-  estimatedPages,
   NORMS_NOT_RECOGNIZED,
   type ReportCheck,
   type ReportPlanting,
@@ -67,6 +68,7 @@ import { CROWN_NOTE } from './check-item';
 import { serverManualMethod } from './manual-georeference';
 import { normReference } from './norm-reference';
 import { editsLine } from './planting-register';
+import { checksSheet, hasCrownNote, NO_CHECKS_TEXT, resultText, shortBasis } from './report-checks';
 import classes from './report-page.module.css';
 import { ReportPlan } from './report-plan';
 import { sourceUrl } from './source-link';
@@ -218,9 +220,6 @@ function ReportBody({
   counts,
   version,
 }: ReportBodyProps): JSX.Element {
-  const [allPlantings, setAllPlantings] = useState(false);
-  // Переключатель откликается сразу, а таблица на тысячи строк догоняет в переходе.
-  const [switching, startSwitch] = useTransition();
   const demo = currentDataSource() === 'demo';
   const [generatedAt] = useState(() => new Date().toISOString());
   // Снимок плана готов (или вместо карты — запасной план): печатать можно.
@@ -233,8 +232,25 @@ function ReportBody({
       delete document.documentElement.dataset.print;
     };
   }, []);
-  const shown = allPlantings ? plantings : selection;
-  const pages = estimatedPages(plantings);
+  // Полная таблица проверок собирается только по кнопке: у «Олимпийского» это десятки тысяч
+  // строк, в отчёте для согласования их не читают. Сборка — секунда и больше на медленной
+  // машине, поэтому сначала кадр с кнопкой в загрузке, потом сама книга.
+  const [exporting, setExporting] = useState(false);
+  const downloadChecks = () => {
+    setExporting(true);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        try {
+          saveFile(
+            new Blob([xlsxWorkbook(checksSheet(plantings))], { type: XLSX_MIME }),
+            projectFileName(project.name, ' — проверки по посадкам.xlsx'),
+          );
+        } finally {
+          setExporting(false);
+        }
+      });
+    });
+  };
 
   return (
     <article className={classes.report}>
@@ -323,31 +339,26 @@ function ReportBody({
           Проверки по посадкам
         </Title>
         <Text size="sm" c="dimmed">
-          {allPlantings
-            ? 'Все посадки итоговой расстановки.'
-            : 'Посадки с правками, нарушениями и предупреждениями и по три посадки с наименьшим запасом до каждого вида сетей.'}
+          Посадки с правками, нарушениями и предупреждениями и по три посадки с наименьшим запасом
+          до каждого вида сетей.
         </Text>
-        <Stack gap="xs" className={classes.actions}>
-          <Switch
-            label="Показать проверки всех посадок"
-            checked={allPlantings}
-            onChange={(event) => {
-              const checked = event.currentTarget.checked;
-              startSwitch(() => {
-                setAllPlantings(checked);
-              });
-            }}
-          />
-          <Text size="sm" c="dimmed">
-            {`${formatCount(plantings.length, PLANTING_FORMS)} — около ${formatCount(pages, PAGE_FORMS)}`}
-          </Text>
-        </Stack>
         <Text size="sm" c="dimmed">
           Акт, пункт и причина каждого основания — в разделе «Применённые нормы».
         </Text>
-        <div aria-busy={switching}>
-          <ChecksTable plantings={shown} />
-        </div>
+        <ChecksTable plantings={selection} />
+        <Group gap="md">
+          <Text size="sm" className={classes.numbers}>
+            {`В таблице — ${formatCount(selection.length, PLANTING_FORMS)} из ${formatNumber(plantings.length)}. Полная таблица проверок — в Excel.`}
+          </Text>
+          <Button
+            variant="default"
+            loading={exporting}
+            onClick={downloadChecks}
+            className={classes.actions}
+          >
+            Скачать все проверки (.xlsx)
+          </Button>
+        </Group>
       </section>
 
       <NotChecked uncovered={computed.edited.zones.metadata.uncovered_categories} />
@@ -357,8 +368,6 @@ function ReportBody({
 }
 
 const PLANTING_FORMS = { one: 'посадка', few: 'посадки', many: 'посадок' };
-// После «около» — родительный падеж: «около 1 страницы», «около 3 страниц».
-const PAGE_FORMS = { one: 'страницы', few: 'страниц', many: 'страниц' };
 
 type SummaryProps = {
   result: EditedResult;
@@ -448,22 +457,6 @@ function NormsTable({ norms }: NormsTableProps): JSX.Element {
   );
 }
 
-// В таблице проверок основание короткое: пункт или «значение сервиса». Акт, текст причины
-// и источник — один раз, в «Применённых нормах»: иначе каждая строка повторяла бы абзац.
-const shortBasis = ({ basis, norm, citation }: ReportCheck) =>
-  basis?.basis === 'service_default' ? 'значение сервиса' : (norm?.clause ?? citation);
-
-const resultText = (check: ReportCheck) =>
-  check.violated
-    ? check.basis?.basis === 'service_default'
-      ? 'Отступ сервиса нарушен'
-      : 'Нарушено'
-    : check.basis?.basis === 'service_default'
-      ? 'Значение сервиса'
-      : check.withinTolerance
-        ? 'В пределах точности'
-        : 'Выполнено';
-
 // Как в карточке: до объекта — с сантиметрами, через зону — с точностью хорды буфера (1 знак),
 // у срезанной зоны — только до её границы.
 function measuredText(check: ReportCheck): string {
@@ -508,17 +501,14 @@ function ChecksTable({ plantings }: ChecksTableProps): JSX.Element {
               </Text>
               <Text size="sm">{PLANT_TYPE_LABELS[planting.plantType]}</Text>
               {planting.changed && <Text size="sm">Правка</Text>}
-              {planting.crownOverNote &&
-                planting.checks.some(({ basis }) => basis?.basis === 'regulation') && (
-                  <Text size="sm">{CROWN_NOTE}</Text>
-                )}
+              {hasCrownNote(planting) && <Text size="sm">{CROWN_NOTE}</Text>}
             </Table.Td>
           );
           if (planting.checks.length === 0) {
             return [
               <Table.Tr key={planting.id} className={classes.row}>
                 {title}
-                <Table.Td colSpan={5}>Рядом нет ограничений из проверяемых сервисом</Table.Td>
+                <Table.Td colSpan={5}>{NO_CHECKS_TEXT}</Table.Td>
               </Table.Tr>,
             ];
           }
