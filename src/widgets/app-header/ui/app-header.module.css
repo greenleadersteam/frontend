@@ -35,6 +35,13 @@
   font-weight: 600;
 }
 
+.team {
+  align-self: flex-end;
+  color: var(--app-text-muted);
+  font-size: var(--mantine-font-size-xs);
+  white-space: nowrap;
+}
+
 .list {
   margin: 0;
   padding: 0;

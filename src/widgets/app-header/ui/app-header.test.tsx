@@ -31,6 +31,34 @@ beforeEach(() => {
   mode.switch.mockClear();
 });
 
+describe('AppHeader: название продукта', () => {
+  test('на широком экране рядом с названием — подпись команды', async () => {
+    const wide = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: query === '(min-width: 64em)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    renderHeader();
+
+    expect(await screen.findByRole('link', { name: /^Московские посадки/ })).toContainElement(
+      screen.getByText('by Green Leaders'),
+    );
+    wide.mockRestore();
+  });
+
+  test('на узком экране подписи команды нет', async () => {
+    renderHeader();
+
+    expect(await screen.findByRole('link', { name: 'Московские посадки' })).toBeInTheDocument();
+    expect(screen.queryByText('by Green Leaders')).not.toBeInTheDocument();
+  });
+});
+
 describe('AppHeader и режим показа', () => {
   test('демо выключено в конфиге — переключателя и метки нет', async () => {
     mode.demoMode = 'off';

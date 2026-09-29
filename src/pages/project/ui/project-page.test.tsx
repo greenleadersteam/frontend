@@ -243,7 +243,7 @@ describe('шапка', () => {
       screen.getByText('Демонстрационный проект. Благоустройство сквера, этап 1'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Скачать DXF' })).toBeInTheDocument();
-    expect(document.title).toBe('Сквер на Покровке — Озеленение');
+    expect(document.title).toBe('Сквер на Покровке — Московские посадки');
   });
 
   test.each([
@@ -2575,6 +2575,10 @@ describe('отчёт для согласования', () => {
       'href',
       `/projects/${READY_ID}`,
     );
+    expect(document.title).toBe('Отчёт — Сквер на Покровке — Московские посадки');
+    expect(
+      screen.getByText('Подготовлено сервисом «Московские посадки» — Green Leaders'),
+    ).toBeInTheDocument();
   });
 
   test('из демо — крупная метка «Демонстрационные данные»', async () => {

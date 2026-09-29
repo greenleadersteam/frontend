@@ -1,16 +1,27 @@
 import { Group } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import type { JSX } from 'react';
 import { Link, NavLink } from 'react-router';
 
-import { currentDataSource, getRuntimeConfig, paths, PRODUCT_NAME } from '@/shared/config';
+import {
+  currentDataSource,
+  getRuntimeConfig,
+  paths,
+  PRODUCT_NAME,
+  PRODUCT_TEAM,
+} from '@/shared/config';
 import { Logo } from '@/shared/ui';
 
 import classes from './app-header.module.css';
 import { DataSourceSwitch } from './data-source-switch';
 import { DemoBanner } from './demo-banner';
 
+// На узком экране подпись команды уступает место навигации.
+const TEAM_CAPTION_QUERY = '(min-width: 64em)';
+
 export function AppHeader(): JSX.Element {
   const demoAvailable = getRuntimeConfig().demoMode === 'available';
+  const teamCaption = useMediaQuery(TEAM_CAPTION_QUERY, false, { getInitialValueInEffect: false });
 
   return (
     <div className={classes.wrapper}>
@@ -19,6 +30,7 @@ export function AppHeader(): JSX.Element {
           <Link to={paths.projects} className={classes.brand}>
             <Logo />
             <span className={classes.brandName}>{PRODUCT_NAME}</span>
+            {teamCaption && <span className={classes.team}>{`by ${PRODUCT_TEAM}`}</span>}
           </Link>
           {demoAvailable && <DataSourceSwitch />}
         </div>

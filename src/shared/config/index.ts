@@ -11,7 +11,7 @@ export {
   projectReportPath,
   projectUploadPath,
 } from './paths';
-export { PRODUCT_NAME } from './product';
+export { PRODUCT_NAME, PRODUCT_TEAM } from './product';
 export type { Capability, GeocoderConfig, ImageryConfig } from './runtime-config';
 export {
   CAPABILITIES,

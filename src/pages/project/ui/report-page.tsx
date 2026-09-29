@@ -36,7 +36,7 @@ import {
   versionLabel,
 } from '@/features/edit-plantings';
 import { describeAppError, toAppError } from '@/shared/api';
-import { currentDataSource, PRODUCT_NAME, projectPath } from '@/shared/config';
+import { currentDataSource, PRODUCT_NAME, PRODUCT_TEAM, projectPath } from '@/shared/config';
 import {
   formatCount,
   formatDateTime,
@@ -365,6 +365,9 @@ function ReportBody({
 
       <NotChecked uncovered={computed.edited.zones.metadata.uncovered_categories} />
       <Georeference project={project} />
+      <Text component="footer" size="sm" c="dimmed">
+        {`Подготовлено сервисом «${PRODUCT_NAME}» — ${PRODUCT_TEAM}`}
+      </Text>
     </article>
   );
 }
