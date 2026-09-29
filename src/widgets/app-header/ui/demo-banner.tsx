@@ -23,7 +23,13 @@ export function DemoBanner(): JSX.Element {
 
   return (
     <div className={classes.root}>
-      <span role="status">{announced && 'Демонстрационные данные'}</span>
+      <span>
+        <span role="status">{announced && 'Демонстрационные данные'}</span>
+        <span className={classes.note}>
+          {' '}
+          Проекты и расчёты — пример. Здесь видны и функции, которые сервер пока не поддерживает.
+        </span>
+      </span>
       <Button
         variant="subtle"
         size="compact-sm"

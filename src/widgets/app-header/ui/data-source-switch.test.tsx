@@ -21,13 +21,9 @@ beforeEach(() => {
 
 describe('DataSourceSwitch', () => {
   test.each([
-    [
-      'demo',
-      'Демо',
-      'Все данные демонстрационные: проекты, обработка и результат работают в браузере без сервера. Изменения хранятся до перезагрузки страницы.',
-    ],
-    ['server', 'Сервер', 'Данные и расчёты сервера обработки'],
-  ] as const)('режим %s: выбран «%s», подсказка', async (source, label, hint) => {
+    ['demo', 'Демо'],
+    ['server', 'Сервер'],
+  ] as const)('режим %s: выбран «%s», подсказка про оба режима', async (source, label) => {
     dataSource.current = source;
     renderWithTheme(<DataSourceSwitch />);
 
@@ -36,7 +32,9 @@ describe('DataSourceSwitch', () => {
     expect(group.closest('[data-source]')).toHaveAttribute('data-source', source);
 
     await userEvent.hover(screen.getByRole('radio', { name: label }));
-    expect(await screen.findByText(hint)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/^Сервер — реальные проекты на сервере\. Демо — /),
+    ).toBeInTheDocument();
   });
 
   test('жаргона разработки нет: «Моки» нигде не видно', () => {

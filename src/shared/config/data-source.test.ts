@@ -121,6 +121,33 @@ describe('хранилище и перезагрузка', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  test('со страницы проекта — на список проектов нового режима, с keepPath — на месте', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => undefined);
+    const reload = vi.fn();
+    history.replaceState(null, '', '/projects/5c0b7f2e9a3d4e61b8f0c2a7d9e4b1f3/report?view=x');
+
+    await switchDataSource('demo', reload);
+    expect(reload).toHaveBeenLastCalledWith(`${location.origin}/`);
+
+    await switchDataSource('demo', reload, true);
+    expect(reload).toHaveBeenLastCalledWith(
+      `${location.origin}/projects/5c0b7f2e9a3d4e61b8f0c2a7d9e4b1f3/report?view=x`,
+    );
+    history.replaceState(null, '', '/projects');
+  });
+
+  test('«Проекты», «Геопривязка», «Новый проект» — маршрут сохраняется', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => undefined);
+    const reload = vi.fn();
+
+    for (const path of ['/', '/georeference', '/projects/new']) {
+      history.replaceState(null, '', path);
+      await switchDataSource('demo', reload);
+      expect(reload).toHaveBeenLastCalledWith(`${location.origin}${path}`);
+    }
+    history.replaceState(null, '', '/projects');
+  });
+
   test('хранилище недоступно — выбор переносится в адрес', async () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('denied', 'SecurityError');

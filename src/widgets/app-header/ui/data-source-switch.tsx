@@ -11,17 +11,22 @@ const OPTIONS: { value: DataSource; label: string }[] = [
   { value: 'demo', label: 'Демо' },
 ];
 
-const HINTS: Record<DataSource, string> = {
-  demo: 'Все данные демонстрационные: проекты, обработка и результат работают в браузере без сервера. Изменения хранятся до перезагрузки страницы.',
-  server: 'Данные и расчёты сервера обработки',
-};
+const HINT =
+  'Сервер — реальные проекты на сервере. Демо — демонстрационные данные в браузере: пример проектов и возможности, которые сервер пока не поддерживает. Со страницы проекта переключение откроет список проектов.';
 
 // Режим «Демо» окрашен охрой, чтобы по любому скриншоту было видно, на каких данных он сделан.
 export function DataSourceSwitch(): JSX.Element {
   const source = currentDataSource();
 
   return (
-    <Tooltip label={HINTS[source]} withArrow multiline classNames={{ tooltip: classes.hint }}>
+    <Tooltip
+      label={HINT}
+      withArrow
+      multiline
+      // Подсказка и по фокусу с клавиатуры: фокус на радиокнопке внутри всплывает к переключателю.
+      events={{ hover: true, focus: true, touch: false }}
+      classNames={{ tooltip: classes.hint }}
+    >
       <SegmentedControl
         size="xs"
         aria-label="Источник данных"

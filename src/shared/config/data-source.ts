@@ -80,14 +80,20 @@ export async function unregisterMockWorker(): Promise<void> {
   );
 }
 
+// Маршрут конкретного проекта: в другом режиме такого проекта, скорее всего, нет.
+const PROJECT_ROUTE = /^\/projects\/(?!new(?:\/|$))[^/]+/;
+
 // Смена источника — полная перезагрузка: кэш RTK Query, опросы и загрузки начинаются заново.
 // Параметр адреса перебил бы новый выбор, поэтому он убирается; без хранилища выбор
-// переносится в него.
+// переносится в него. Со страницы проекта переход ведёт на список проектов нового режима:
+// демо-проекта нет на сервере и наоборот. keepPath — остаться на адресе (проект открыли не в
+// том режиме).
 export async function switchDataSource(
   source: DataSource,
   reload: (href: string) => void = (href) => {
     location.replace(href);
   },
+  keepPath = false,
 ): Promise<void> {
   let saved = true;
   try {
@@ -98,6 +104,10 @@ export async function switchDataSource(
   }
   if (source === 'server') await unregisterMockWorker();
   const url = new URL(location.href);
+  if (!keepPath && PROJECT_ROUTE.test(url.pathname)) {
+    url.pathname = '/';
+    url.search = '';
+  }
   if (saved) url.searchParams.delete(URL_PARAM);
   else url.searchParams.set(URL_PARAM, source);
   reload(url.href);

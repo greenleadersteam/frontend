@@ -20,3 +20,8 @@
   color: var(--mantine-color-ochre-8);
   font-size: var(--mantine-font-size-sm);
 }
+
+/* Пояснение к метке — обычным весом: метка остаётся главной. */
+.note {
+  font-weight: 400;
+}

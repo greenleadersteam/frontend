@@ -16,6 +16,7 @@ import { NotFoundScreen, PageLoader } from '@/shared/ui';
 
 import { ProjectBody } from './project-body';
 import { ProjectHeader } from './project-header';
+import { ProjectNotFound } from './project-not-found';
 import classes from './project-page.module.css';
 
 export function ProjectPage(): JSX.Element {
@@ -47,7 +48,7 @@ function ProjectScreen({ id }: ProjectScreenProps): JSX.Element {
     setSawProcessing(true);
   }
 
-  if (notFound) return <NotFoundScreen />;
+  if (notFound) return <ProjectNotFound />;
   if (project === undefined) {
     // Лоадер — прямо в области содержимого: так он встаёт по центру свободного места.
     return error === undefined ? (
