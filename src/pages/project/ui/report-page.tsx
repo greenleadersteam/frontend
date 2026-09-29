@@ -28,6 +28,7 @@ import {
   useProjectWithPolling,
   VERIFIED_CLAUSE_NOTE,
 } from '@/entities/project';
+import { DxfCheckLines, dxfVerdict, selectDxfCheck } from '@/features/check-dxf';
 import {
   EditsLoadAlert,
   useEditsLoader,
@@ -45,6 +46,7 @@ import {
   formatSquareMeters,
 } from '@/shared/lib/format';
 import { saveFile } from '@/shared/lib/save-file';
+import { useAppSelector } from '@/shared/lib/store';
 import { XLSX_MIME, xlsxWorkbook } from '@/shared/lib/xlsx';
 import { NotFoundScreen, PageLoader } from '@/shared/ui';
 
@@ -383,6 +385,7 @@ function ReportBody({
 
       <NotChecked uncovered={computed.edited.zones.metadata.uncovered_categories} />
       <Georeference project={project} />
+      <DrawingCheck project={project} version={version?.id ?? null} />
       <Text component="footer" size="sm" c="dimmed">
         {`Подготовлено сервисом «${PRODUCT_NAME}» — ${PRODUCT_TEAM}`}
       </Text>
@@ -690,5 +693,36 @@ function ReportSkeleton(): JSX.Element {
         Загружаем отчёт…
       </VisuallyHidden>
     </article>
+  );
+}
+
+type DrawingCheckProps = { project: Project; version: number | null };
+
+// Проверка чертежа из «Скачать DXF» → «Проверить DXF» за этот сеанс: исходные слои не тронуты.
+function DrawingCheck({ project, version }: DrawingCheckProps): JSX.Element {
+  const check = useAppSelector((state) => selectDxfCheck(state, project.id));
+  return (
+    <section className={classes.section} aria-labelledby="report-drawing-check">
+      <Title order={2} id="report-drawing-check">
+        Проверка чертежа
+      </Title>
+      {check === null ? (
+        <Text>
+          Проверка не выполнялась. Её запускает пункт «Проверить DXF» в меню рядом с кнопкой
+          «Скачать DXF»: исходный чертёж сравнивается с результатом сервиса по слоям.
+        </Text>
+      ) : (
+        <>
+          {version !== null && check.version !== version && (
+            <Text>{`Проверена версия ${String(check.version)} плана посадок, а отчёт — по версии ${String(version)}.`}</Text>
+          )}
+          <Text fw={600}>{dxfVerdict(check.comparison).text}</Text>
+          <DxfCheckLines check={check} />
+          <Text size="sm" c="dimmed">
+            {`Исходный чертёж: ${check.source.name}. Результат: ${check.result.name}. Проверено ${formatDateTime(check.checkedAt)}. Handle, владелец, $HANDSEED и даты сохранения не сравнивались.`}
+          </Text>
+        </>
+      )}
+    </section>
   );
 }

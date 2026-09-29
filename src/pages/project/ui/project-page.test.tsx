@@ -8,12 +8,14 @@ import { type RouteObject, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { dimensionLabelsMinZoom } from '@/entities/project';
+import { dxfCheckSlice } from '@/features/check-dxf';
 import { plantingEditsActions, plantingEditsSlice } from '@/features/edit-plantings';
 import type * as Config from '@/shared/config';
 import { FOCUS_PROJECTS_HEADING } from '@/shared/config';
 import { formatCount } from '@/shared/lib/format';
 import { renderWithProviders, server } from '@/shared/lib/test';
 
+import { DxfCheckPage } from './dxf-check-page';
 import { ProjectPage } from './project-page';
 import { ProjectReportPage } from './report-page';
 
@@ -135,6 +137,47 @@ type FakeMapViewProps = {
   children?: ReactNode;
 };
 
+// В jsdom нет Web Worker: сравнение подменено, сам разбор проверяют тесты shared/lib/dxf-compare.
+const dxfCompare = vi.hoisted(() => ({
+  calls: [] as { source: Blob; result: Blob }[],
+  // Сравнение не заканчивается само: его останавливает только отмена.
+  hang: false,
+}));
+vi.mock('@/shared/lib/dxf-compare', () => ({
+  compareDxfFiles: (
+    source: Blob,
+    result: Blob,
+    { onProgress, signal }: { onProgress: (value: number) => void; signal: AbortSignal },
+  ) => {
+    dxfCompare.calls.push({ source, result });
+    onProgress(0.5);
+    if (dxfCompare.hang) {
+      return new Promise((resolve) => {
+        signal.addEventListener('abort', () => {
+          resolve(null);
+        });
+      });
+    }
+    return Promise.resolve({
+      kind: 'compared',
+      sourceVersion: 'AC1009',
+      resultVersion: 'AC1009',
+      layers: [
+        { name: 'Газон', source: 12, result: 12, status: 'same', missing: 0, extra: 0 },
+        { name: 'ДОРОГИ', source: 3, result: 3, status: 'same', missing: 0, extra: 0 },
+        {
+          name: 'GREENING_PROPOSED',
+          source: 0,
+          result: 38,
+          status: 'added',
+          missing: 0,
+          extra: 38,
+        },
+      ],
+    });
+  },
+}));
+
 vi.mock('@/shared/map', () => ({
   MapView: ({
     label,
@@ -188,6 +231,7 @@ function ProjectsStub(): ReactNode {
 const routes: RouteObject[] = [
   { path: '/projects/:projectId', Component: ProjectPage },
   { path: '/projects/:projectId/report', Component: ProjectReportPage },
+  { path: '/projects/:projectId/dxf-check', Component: DxfCheckPage },
   { path: '/projects/new', element: <h1>Мастер загрузки</h1> },
   { path: '/', Component: ProjectsStub },
 ];
@@ -195,6 +239,7 @@ const routes: RouteObject[] = [
 // Действия правок, дошедшие до store: тест перетаскивания считает их.
 let editActions: UnknownAction[] = [];
 const reducers = {
+  [dxfCheckSlice.name]: dxfCheckSlice.reducer,
   [plantingEditsSlice.name]: (
     state: ReturnType<typeof plantingEditsSlice.reducer> | undefined,
     action: UnknownAction,
@@ -2419,6 +2464,7 @@ describe('скачивание DXF с правками', () => {
       'Результат с правками (DXF)',
       'Результат сервиса (DXF)',
       'Только слой посадок (DXF)',
+      'Проверить DXF',
     ]);
     await userEvent.click(screen.getByRole('menuitem', { name: 'Только слой посадок (DXF)' }));
 
@@ -2567,7 +2613,9 @@ describe('отчёт для согласования', () => {
       'Проверки по посадкам',
       'Что не проверялось',
       'Геопривязка',
+      'Проверка чертежа',
     ]);
+    expect(screen.getByText(/^Проверка не выполнялась\./)).toBeInTheDocument();
     expect(screen.getByText('Сервер')).toBeInTheDocument();
     expect(screen.queryByText('Демонстрационные данные')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Печать или сохранение в PDF' })).toBeInTheDocument();
@@ -2799,5 +2847,97 @@ describe('проект, упавший на геопривязке', () => {
 
     expect(await screen.findByRole('link', { name: 'Загрузить другой архив' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Привязать вручную' })).not.toBeInTheDocument();
+  });
+});
+
+describe('проверка чертежа', () => {
+  beforeEach(() => {
+    dxfCompare.calls = [];
+    dxfCompare.hang = false;
+  });
+
+  const chooseSource = async () => {
+    // Поле Mantine — кнопка с подписью, сам выбор файла — скрытый input.
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (input === null) throw new Error('нет поля файла');
+    await userEvent.upload(input, new File(['0\nSECTION\n'], 'Генплан.dxf'));
+  };
+
+  test('без editedDxf и без правок «Проверить DXF» — в меню стрелки, когда результат загружен', async () => {
+    serverMock.editedDxf = false;
+    serverMock.plantingEdits = false;
+    renderProject(READY_ID);
+    await selectFirstTree();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Другие действия с DXF' }));
+
+    expect(await screen.findByRole('menuitem', { name: 'Проверить DXF' })).toHaveAttribute(
+      'href',
+      `/projects/${READY_ID}/dxf-check`,
+    );
+  });
+
+  test('отмена: сравнение остановлено, фокус на «Проверить», результата нет', async () => {
+    dxfCompare.hang = true;
+    renderWithProviders(routes, `/projects/${READY_ID}/dxf-check`, reducers);
+    await screen.findByRole('heading', { level: 1, name: 'Сквер на Покровке' });
+    await chooseSource();
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить' }));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Отменить' }));
+
+    expect(screen.queryByRole('button', { name: 'Отменить' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Проверить' })).toHaveFocus();
+    });
+    expect(screen.queryByRole('heading', { name: 'Результат проверки' })).not.toBeInTheDocument();
+  });
+
+  test('из меню «Скачать DXF»: исходный файл против DXF сервера, протокол и раздел отчёта', async () => {
+    const files = captureDownloads();
+    renderProject(READY_ID);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Другие действия с DXF' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Проверить DXF' }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Сквер на Покровке' }),
+    ).toBeVisible();
+    const start = screen.getByRole('button', { name: 'Проверить' });
+    expect(start).toBeDisabled();
+
+    await chooseSource();
+    await userEvent.click(start);
+
+    expect(
+      await screen.findByText('Исходные слои не изменены. Совпадение: 2 слоя, 15 сущностей.'),
+    ).toBeVisible();
+    expect(screen.getByText('Добавлен слой «GREENING_PROPOSED»: 38 сущностей.')).toBeVisible();
+    expect(dxfCompare.calls[0]?.source).toMatchObject({ name: 'Генплан.dxf' });
+    // Итог объявляется: фокус переходит к заголовку результата.
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Результат проверки' })).toHaveFocus();
+    });
+    // Результат — DXF сервера, а не второй файл пользователя.
+    expect(await dxfCompare.calls[0]?.result.text()).toContain('GREENING_PROPOSED');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать протокол (JSON)' }));
+    expect(files[0]?.name).toBe('Сквер на Покровке — проверка чертежа.json');
+    const protocol: unknown = JSON.parse((await files[0]?.blob.text()) ?? '');
+    expect(protocol).toMatchObject({
+      source: { name: 'Генплан.dxf', dxfVersion: 'AC1009' },
+      verdict: { kind: 'unchanged' },
+    });
+
+    await userEvent.click(screen.getByRole('link', { name: 'Назад к проекту' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Действия с проектом' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Отчёт для согласования' }));
+    const section = (await screen.findByRole('heading', { name: 'Проверка чертежа' })).closest(
+      'section',
+    );
+    if (section === null) throw new Error('нет раздела');
+    expect(section).toHaveTextContent(
+      'Исходные слои не изменены. Совпадение: 2 слоя, 15 сущностей.',
+    );
+    expect(section).toHaveTextContent('Исходный чертёж: Генплан.dxf.');
   });
 });

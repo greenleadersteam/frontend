@@ -7,6 +7,7 @@ export {
   georeferenceProjectPath,
   isFocusProjectsHeading,
   paths,
+  projectDxfCheckPath,
   projectPath,
   projectReportPath,
   projectUploadPath,

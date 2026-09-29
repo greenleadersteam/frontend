@@ -1,0 +1,25 @@
+.lead {
+  max-width: 48rem;
+}
+
+.field {
+  max-width: calc(var(--app-card-min-width) * 1.6);
+}
+
+.table {
+  font-variant-numeric: tabular-nums;
+
+  & th {
+    white-space: nowrap;
+  }
+
+  /* На телефоне таблица прокручивается сама, страница — нет. */
+  @media (max-width: $mantine-breakpoint-xs) {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+.number {
+  text-align: end;
+}

@@ -47,6 +47,11 @@
   overflow-wrap: anywhere;
 }
 
+/* Стрелка меню рядом с «Скачать DXF» отделена от кнопки светлой чертой. */
+.menuArrow {
+  border-inline-start: 1px solid var(--mantine-color-sage-5);
+}
+
 .menuHint {
   max-width: calc(var(--app-card-min-width) * 0.8);
   padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-sm);

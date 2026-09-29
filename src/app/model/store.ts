@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
 
 import { GEOREFERENCE_SLICE, georeferenceReducer } from '@/entities/georeference';
+import { dxfCheckSlice } from '@/features/check-dxf';
 import { plantingEditsSlice } from '@/features/edit-plantings';
 import { baseApi } from '@/shared/api';
 
@@ -9,6 +10,7 @@ export const store = configureStore({
   reducer: {
     [baseApi.reducerPath]: baseApi.reducer,
     [plantingEditsSlice.name]: plantingEditsSlice.reducer,
+    [dxfCheckSlice.name]: dxfCheckSlice.reducer,
     [GEOREFERENCE_SLICE]: georeferenceReducer,
   },
   // Кэш RTK Query — JSON с сервера, сериализуемый по построению. Dev-проверки обходили бы его

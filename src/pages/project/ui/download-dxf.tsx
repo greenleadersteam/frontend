@@ -2,6 +2,7 @@ import { Button, Menu, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconChevronDown } from '@tabler/icons-react';
 import { type JSX, useEffect, useId, useRef, useState } from 'react';
+import { Link } from 'react-router';
 
 import {
   downloadProjectDxf,
@@ -13,7 +14,7 @@ import {
 } from '@/entities/project';
 import { usePlantingEdits, usePlantingVersions } from '@/features/edit-plantings';
 import { describeAppError } from '@/shared/api';
-import { useCapability } from '@/shared/config';
+import { projectDxfCheckPath, useCapability } from '@/shared/config';
 import { formatMeters } from '@/shared/lib/format';
 import { saveFile } from '@/shared/lib/save-file';
 
@@ -87,12 +88,44 @@ function ServiceDxfButton({
     target === null ? null : { version: target, fileSuffix: ` — версия ${String(target)}.dxf` };
   // С версиями без номера ушла бы последняя версия под именем без номера: ждём список.
   return (
-    <Button
+    <DownloadWithCheck
+      project={project}
       loading={loading || (withVersions && target === null)}
-      onClick={() => void download(version)}
-    >
-      Скачать DXF
-    </Button>
+      onDownload={() => void download(version)}
+    />
+  );
+}
+
+type DownloadWithCheckProps = { project: Project; loading: boolean; onDownload: () => void };
+
+// Скачивание — одним щелчком, проверка чертежа — в меню стрелки рядом.
+function DownloadWithCheck({ project, loading, onDownload }: DownloadWithCheckProps): JSX.Element {
+  return (
+    <Button.Group>
+      <Button loading={loading} onClick={onDownload}>
+        Скачать DXF
+      </Button>
+      <Menu position="bottom-end">
+        <Menu.Target>
+          <Button aria-label="Другие действия с DXF" px="xs" className={classes.menuArrow}>
+            <IconChevronDown size={20} stroke={1.5} aria-hidden />
+          </Button>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <CheckDxfItem project={project} />
+        </Menu.Dropdown>
+      </Menu>
+    </Button.Group>
+  );
+}
+
+type CheckDxfItemProps = { project: Project };
+
+function CheckDxfItem({ project }: CheckDxfItemProps): JSX.Element {
+  return (
+    <Menu.Item component={Link} to={projectDxfCheckPath(project.id)}>
+      Проверить DXF
+    </Menu.Item>
   );
 }
 
@@ -145,11 +178,7 @@ function DownloadWithEdits({
     );
   const [assembling, setAssembling] = useState(false);
   if (edits.counts.total === 0) {
-    return (
-      <Button loading={loading} onClick={downloadService}>
-        Скачать DXF
-      </Button>
-    );
+    return <DownloadWithCheck project={project} loading={loading} onDownload={downloadService} />;
   }
 
   // Чертёж сервера с итоговой расстановкой на слое результата: файл сервера читается
@@ -223,6 +252,8 @@ function DownloadWithEdits({
         <Text size="xs" c="dimmed" className={classes.menuHint}>
           Вставьте слой в исходный чертёж: координаты совпадают
         </Text>
+        <Menu.Divider />
+        <CheckDxfItem project={project} />
       </Menu.Dropdown>
     </Menu>
   );

@@ -82,7 +82,7 @@ export {
   TOLERANCE_M,
   zoneArea,
 } from './lib/planting-checks';
-export { plantingLayerDxf } from './lib/planting-dxf';
+export { PLANTING_LAYER, plantingLayerDxf } from './lib/planting-dxf';
 export type { PlantingStatus } from './lib/planting-status';
 export { overlappingCrowns, plantingStatus } from './lib/planting-status';
 export type { ResultData, ResultLayerGroup } from './lib/result-layers';

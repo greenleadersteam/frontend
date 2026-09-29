@@ -34,6 +34,10 @@ export const routes: RouteObject[] = [
             }),
           },
           {
+            path: paths.projectDxfCheck,
+            lazy: async () => ({ Component: (await import('@/pages/project')).DxfCheckPage }),
+          },
+          {
             path: paths.projectNew,
             lazy: async () => ({
               Component: (await import('@/pages/project-new')).ProjectNewPage,
