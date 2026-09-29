@@ -124,7 +124,8 @@ export function siteDxf(
   for (const { x, y, plantType, ruleId, id } of plantings) {
     add([0, 'CIRCLE'], [8, PLANTING_LAYER], [10, number(x)], [20, number(y)], [30, '0.0']);
     add([40, String(CROWN_RADIUS_M[plantType])], [1001, 'GREENPLAN'], [1000, plantType]);
-    add([1000, ruleId ?? ''], [1000, id]);
+    // kind — четвёртым, как у сервера с afc4e23: у добавленной вручную правила нет.
+    add([1000, ruleId ?? ''], [1000, id], [1000, ruleId === null ? 'manual' : 'auto']);
   }
   add([0, 'ENDSEC'], [0, 'EOF']);
 

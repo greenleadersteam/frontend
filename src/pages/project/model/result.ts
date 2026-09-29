@@ -28,6 +28,7 @@ import {
   useGetPlantingQuery,
   useGetPlantingVersionQuery,
   useGetRejectedQuery,
+  useGetServiceExplanationQuery,
   useGetSpeciesQuery,
   useGetZonesQuery,
 } from '@/entities/project';
@@ -71,7 +72,10 @@ export function useResultData(project: Project): ResultState {
   );
   const planting = withVersions ? service : latest;
   const zones = useGetZonesQuery(project.id);
-  const explanation = useGetExplanationQuery(project.id);
+  // Объяснения — той же расстановки сервиса: с версиями /explanation отдаёт последнюю версию.
+  const latestExplanation = useGetExplanationQuery(project.id, { skip: withVersions });
+  const serviceExplanation = useGetServiceExplanationQuery(project.id, { skip: !withVersions });
+  const explanation = withVersions ? serviceExplanation : latestExplanation;
   const obstacles = useGetObstaclesQuery(project.id, { skip: !withObstacles });
   const norms = useGetNormsQuery(undefined, { skip: !withObstacles || !withNorms });
   const species = useGetSpeciesQuery(undefined, { skip: !withSpecies });

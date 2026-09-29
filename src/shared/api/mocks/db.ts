@@ -11,12 +11,25 @@ type JobStatus = Real['schemas']['JobStatus'];
 type JobError = Real['schemas']['JobError'];
 type UploadErrorCode = Real['schemas']['UploadErrorCode'];
 type ManualGeoreference = Proposed['schemas']['ManualGeoreference'];
-type PlantingVersion = Proposed['schemas']['PlantingVersion'];
-type PlantingVersionFeature = Proposed['schemas']['PlantingVersionFeature'];
+type PlantingVersion = Real['schemas']['PlantingVersion'];
+// Посадка версии — как у сервера (kind, added_in_version, ../backend/greenplan/api/schemas.py);
+// порода — у демо-посадок сервиса (возможность species).
+type ServiceFeature = Proposed['schemas']['PlantingFeatureCollection']['features'][number];
+export type MockVersionFeature = Omit<ServiceFeature, 'properties'> & {
+  properties: Real['schemas']['PlantingProperties'] & {
+    species_id?: string | null;
+    species_reason_ru?: string | null;
+  };
+};
 
 // Версия плана посадок, созданная правкой. Версия 1 — расстановка обработки, она строится
-// из результата и здесь не хранится.
-export type MockVersion = { meta: PlantingVersion; features: PlantingVersionFeature[] };
+// из результата и здесь не хранится. exportReadyAt — когда «сервер» дособерёт DXF и объяснения
+// версии: до этого они отвечают 202, как у бэкенда.
+export type MockVersion = {
+  meta: PlantingVersion;
+  features: MockVersionFeature[];
+  exportReadyAt: number;
+};
 type BBox = [number, number, number, number];
 
 type MockRun = {

@@ -19,7 +19,10 @@ export function versionLabel({ id, kind, name, created_at: createdAt }: Planting
     kind === 'auto'
       ? 'расстановка сервиса'
       : `правки ${formatDate(createdAt)}, ${time.format(new Date(createdAt))}`;
-  return `${String(id)} — ${title}${name === null ? '' : ` (${name})`}`;
+  // Имя есть у каждой версии: у первой — «Автоматическая посадка», у правки без имени —
+  // «Версия N» (../backend/greenplan/api/plantings.py). Такие имена номер и вид не дополняют.
+  const named = kind === 'manual' && name !== `Версия ${String(id)}`;
+  return `${String(id)} — ${title}${named ? ` (${name})` : ''}`;
 }
 
 type VersionSelectProps = { projectId: string };

@@ -155,12 +155,12 @@ describe('replacePlantingLayer', () => {
     expect(text.match(/\nCIRCLE\n/g)).toHaveLength(2);
     expect(text).not.toContain('  5\n21\n');
     expect(text).toContain(
-      '  0\nCIRCLE\n  5\n2A\n330\n1F\n100\nAcDbEntity\n  8\nGREENING_PROPOSED\n100\nAcDbCircle\n 10\n12.5\n 20\n-3.25\n 30\n0.0\n 40\n1.5\n1001\nGREENPLAN\n1000\ntree\n1000\nTREE_ROW_CURB\n1000\nTREE_ROW_CURB-00001\n',
+      '  0\nCIRCLE\n  5\n2A\n330\n1F\n100\nAcDbEntity\n  8\nGREENING_PROPOSED\n100\nAcDbCircle\n 10\n12.5\n 20\n-3.25\n 30\n0.0\n 40\n1.5\n1001\nGREENPLAN\n1000\ntree\n1000\nTREE_ROW_CURB\n1000\nTREE_ROW_CURB-00001\n1000\nauto\n',
     );
     // Без экспоненты; у добавленной вручную правила нет — пустая строка держит место.
     expect(text).toContain('  5\n2B\n');
     expect(text).toContain(' 10\n0.0000001000\n 20\n40.0\n 30\n0.0\n 40\n0.35\n');
-    expect(text).toContain('1000\nshrub\n1000\n\n1000\nmanual-1\n');
+    expect(text).toContain('1000\nshrub\n1000\n\n1000\nmanual-1\n1000\nmanual\n');
     expect(text).toContain('$HANDSEED\n  5\n2C\n');
     // Кроме заголовка и слоя результата — те же байты: кириллица не перекодирована.
     const circle = R2000.findIndex(([, value]) => value === 'CIRCLE');

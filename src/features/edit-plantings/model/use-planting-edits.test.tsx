@@ -1,7 +1,7 @@
 import { act, waitFor } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 
-import type { PlantingVersionFeatureCollection, Project } from '@/entities/project';
+import type { PlantingFeatureCollection, Project } from '@/entities/project';
 import { baseApi } from '@/shared/api';
 import type * as Config from '@/shared/config';
 import { useAppDispatch, useAppSelector } from '@/shared/lib/store';
@@ -31,10 +31,10 @@ const project = (finishedAt: string): Project => ({
   job: { stage: 'ready', progress_pct: 100, finished_at: finishedAt },
 });
 
-const readJson = async (response: Response): Promise<PlantingVersionFeatureCollection> => {
+const readJson = async (response: Response): Promise<PlantingFeatureCollection> => {
   // Тип тела — по контракту: runtime-проверки ответов нет, как и в продуктовом коде.
   const body: unknown = await response.json();
-  return body as PlantingVersionFeatureCollection;
+  return body as PlantingFeatureCollection;
 };
 
 describe('useEditsLoader с версиями плана посадок', () => {

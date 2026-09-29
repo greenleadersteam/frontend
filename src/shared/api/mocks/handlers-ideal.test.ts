@@ -7,6 +7,7 @@ import type { components as Real } from '../generated/schema';
 import { resetMockDb } from './node';
 
 type Schemas = Proposed['schemas'];
+type RealSchemas = Real['schemas'];
 type ProjectResponse = Real['schemas']['ProjectResponse'];
 
 const READY_GEO = '5c0b7f2e9a3d4e61b8f0c2a7d9e4b1f3';
@@ -211,21 +212,34 @@ describe('обоснование', () => {
   });
 });
 
+// Модель сервера: ../backend/greenplan/api/plantings.py и тесты tests/api/test_plantings.py.
 describe('версии плана посадок', () => {
   const versionUrl = (version: number | string) =>
     `/projects/${READY_LOCAL}/plantings/${String(version)}`;
   const versionOf = async (version: number) =>
-    (await call<Schemas['PlantingVersionFeatureCollection']>(versionUrl(version))).body;
-  const editOf = (version: number, edit: Partial<Schemas['PlantingEdit']>) =>
-    post<Schemas['PlantingVersionCreated']>(`${versionUrl(version)}/edit`, {
+    (await call<Schemas['PlantingFeatureCollection']>(versionUrl(version))).body;
+  const editOf = (version: number, edit: Partial<RealSchemas['PlantingEdit']>) =>
+    post<RealSchemas['PlantingEditResponse']>(`${versionUrl(version)}/edit`, {
       add: [],
       update: [],
       delete: [],
       ...edit,
     });
+  // DXF и объяснения правленой версии «сервер» собирает несколько секунд.
+  const exportDone = () => {
+    vi.setSystemTime(Date.now() + 5000);
+  };
+  const errorTypes = (body: unknown) =>
+    typeof body === 'object' && body !== null && 'detail' in body && Array.isArray(body.detail)
+      ? body.detail.map((item: unknown) =>
+          typeof item === 'object' && item !== null && 'type' in item ? item.type : null,
+        )
+      : [];
 
   test('до правок — одна версия: расстановка обработки, она же в /planting', async () => {
-    const { body } = await call<Schemas['PlantingVersion'][]>(`/projects/${READY_LOCAL}/plantings`);
+    const { body } = await call<RealSchemas['PlantingVersion'][]>(
+      `/projects/${READY_LOCAL}/plantings`,
+    );
     const service = await versionOf(1);
     const planting = await call<Schemas['PlantingFeatureCollection']>(
       `/projects/${READY_LOCAL}/planting`,
@@ -235,13 +249,12 @@ describe('версии плана посадок', () => {
       expect.objectContaining({
         id: 1,
         kind: 'auto',
-        name: null,
+        name: 'Автоматическая посадка',
         based_on: null,
-        planting_count: service.features.length,
+        export_status: 'ready',
       }),
     ]);
-    expect(service.metadata.version).toBe(1);
-    expect(service.features.every(({ properties }) => properties.origin === 'auto')).toBe(true);
+    expect(body[0]?.counts.total).toBe(service.features.length);
     expect(planting.body.features.map(({ properties }) => properties.id)).toEqual(
       service.features.map(({ properties }) => properties.id),
     );
@@ -252,104 +265,161 @@ describe('версии плана посадок', () => {
     if (first === undefined || second === undefined) throw new Error('нет посадок');
 
     const { response, body } = await editOf(1, {
-      name: '  Вариант у школы ',
+      name: 'Вариант у школы',
       delete: [first.properties.id],
-      update: [{ id: second.properties.id, lon: 9, lat: 3, x: 9, y: 3 }],
-      add: [{ client_id: 'draft-1', lon: 30, lat: 10, x: 30, y: 10, plant_type: 'shrub' }],
+      update: [{ id: second.properties.id, lon: 9, lat: 3 }],
+      add: [{ client_id: 'draft-1', lon: 30, lat: 10, plant_type: 'shrub' }],
     });
 
     expect(response.status).toBe(201);
-    expect(body).toMatchObject({ id: 2, kind: 'manual', name: 'Вариант у школы', based_on: 1 });
-    const added = body.added_ids['draft-1'];
+    expect(body.version).toMatchObject({
+      id: 2,
+      kind: 'manual',
+      name: 'Вариант у школы',
+      based_on: 1,
+    });
+    expect(body.id_map).toEqual({ 'draft-1': 'manual-00001' });
     const version = await versionOf(2);
     const byId = new Map(version.features.map(({ properties }) => [properties.id, properties]));
     expect(byId.has(first.properties.id)).toBe(false);
+    // Перемещённая остаётся посадкой сервиса со своим правилом.
     expect(byId.get(second.properties.id)).toMatchObject({
-      origin: 'manual',
+      kind: 'auto',
       rule_id: 'TREE_ROW_CURB',
     });
-    expect(added === undefined ? undefined : byId.get(added)).toMatchObject({
+    expect(byId.get('manual-00001')).toMatchObject({
       plant_type: 'shrub',
       rule_id: null,
-      origin: 'manual',
+      kind: 'manual',
+      added_in_version: 2,
     });
-    expect(body.planting_count).toBe(version.features.length);
+    expect(body.version.counts.total).toBe(version.features.length);
 
-    // /planting — последняя версия, в прежнем формате.
+    // /planting — последняя версия.
     const planting = await call<Schemas['PlantingFeatureCollection']>(
       `/projects/${READY_LOCAL}/planting`,
     );
     expect(planting.body.features).toHaveLength(version.features.length);
-    expect(planting.body.features.some(({ properties }) => 'origin' in properties)).toBe(false);
   });
 
-  test('правится и не последняя версия; удалённая посадка сервиса возвращается через update', async () => {
+  test('без имени — «Версия N»; правится и не последняя версия', async () => {
+    const [first] = (await versionOf(1)).features;
+    if (first === undefined) throw new Error('нет посадок');
+    await editOf(1, { delete: [first.properties.id] });
+
+    const second = await editOf(1, { update: [{ id: first.properties.id, plant_type: 'shrub' }] });
+
+    expect(second.body.version).toMatchObject({ id: 3, based_on: 1, name: 'Версия 3' });
+  });
+
+  test('удалённую в версии посадку сервиса правка не знает — unknown_id; вернуть её можно добавлением', async () => {
     const [first] = (await versionOf(1)).features;
     if (first === undefined) throw new Error('нет посадок');
     const [x = 0, y = 0] = first.geometry.coordinates;
     await editOf(1, { delete: [first.properties.id] });
 
-    const second = await editOf(1, {
-      update: [{ id: first.properties.id, lon: x + 1, lat: y, x: x + 1, y }],
-    });
-    const restored = await editOf(2, {
-      update: [{ id: first.properties.id, lon: x, lat: y, x, y }],
+    const restoredById = await editOf(2, { update: [{ id: first.properties.id, lon: x, lat: y }] });
+    const restoredByAdd = await editOf(2, {
+      add: [{ client_id: first.properties.id, lon: x, lat: y, plant_type: 'tree' }],
     });
 
-    expect(second.body).toMatchObject({ id: 3, based_on: 1 });
-    expect(restored.body).toMatchObject({ id: 4, based_on: 2 });
-    const back = (await versionOf(4)).features.find(
-      ({ properties }) => properties.id === first.properties.id,
-    );
-    expect(back?.properties.origin).toBe('auto');
-    expect(back?.properties.rule_id).toBe(first.properties.rule_id);
+    expect(restoredById.response.status).toBe(422);
+    expect(errorTypes(restoredById.body)).toEqual(['unknown_id']);
+    expect(restoredByAdd.body.id_map[first.properties.id]).toBe('manual-00001');
   });
 
-  test('DXF — по версии; без параметра — последняя, нет версии — 404', async () => {
+  test('DXF — по версии; /dxf — последняя; нет версии — 404', async () => {
     const service = await versionOf(1);
-    await editOf(1, {
-      delete: service.features.slice(3).map(({ properties }) => properties.id),
-    });
-    const circles = async (query: string) => {
-      const response = await fetch(`/api/projects/${READY_LOCAL}/dxf${query}`);
+    await editOf(1, { delete: service.features.slice(3).map(({ properties }) => properties.id) });
+    exportDone();
+    const circles = async (path: string) => {
+      const response = await fetch(`/api/projects/${READY_LOCAL}/${path}`);
       return (await response.text()).split('\r\nCIRCLE\r\n').length - 1;
     };
 
-    expect(await circles('')).toBe(3);
-    expect(await circles('?version=1')).toBe(service.features.length);
-    expect((await fetch(`/api/projects/${READY_LOCAL}/dxf?version=9`)).status).toBe(404);
+    expect(await circles('dxf')).toBe(3);
+    expect(await circles('plantings/1/dxf')).toBe(service.features.length);
+    expect((await fetch(`/api${versionUrl(9)}/dxf`)).status).toBe(404);
   });
 
-  test('точка чертежа — присланная: в версии и в её DXF, а не пересчёт lon, lat', async () => {
+  test('DXF новой версии сначала собирается: 202 с Retry-After, затем файл', async () => {
+    const [first] = (await versionOf(1)).features;
+    if (first === undefined) throw new Error('нет посадок');
+    const { body } = await editOf(1, { delete: [first.properties.id] });
+    expect(body.version.export_status).toBe('pending');
+
+    const pending = await fetch(`/api${versionUrl(2)}/dxf`);
+    expect(pending.status).toBe(202);
+    expect(pending.headers.get('Retry-After')).toBe('2');
+    expect(await pending.json()).toEqual({ version: 2, export_status: 'pending' });
+    expect((await fetch(`/api/projects/${READY_LOCAL}/dxf`)).status).toBe(202);
+
+    exportDone();
+    const versions = await call<RealSchemas['PlantingVersion'][]>(
+      `/projects/${READY_LOCAL}/plantings`,
+    );
+    expect(versions.body.at(-1)?.export_status).toBe('ready');
+    const ready = await fetch(`/api${versionUrl(2)}/dxf`);
+    expect(ready.status).toBe(200);
+    expect(ready.headers.get('Content-Type')).toBe('image/vnd.dxf');
+  });
+
+  test('точку чертежа считает сервер: без привязки — та же точка плана', async () => {
     const [first] = (await versionOf(1)).features;
     if (first === undefined) throw new Error('нет посадок');
 
-    await editOf(1, {
-      update: [{ id: first.properties.id, lon: 5, lat: 6, x: 123.4567, y: -89.0123 }],
-      add: [{ client_id: 'draft-1', lon: 7, lat: 8, x: 321.5, y: 45.25, plant_type: 'tree' }],
-    });
+    await editOf(1, { update: [{ id: first.properties.id, lon: 5, lat: 6 }] });
+    exportDone();
 
-    const version = await versionOf(2);
-    expect(
-      version.features.find(({ properties }) => properties.id === first.properties.id)?.properties,
-    ).toMatchObject({ x: 123.4567, y: -89.0123 });
-    const dxf = await (await fetch(`/api/projects/${READY_LOCAL}/dxf?version=2`)).text();
-    expect(dxf).toContain(' 10\r\n123.4567\r\n 20\r\n-89.0123\r\n');
-    expect(dxf).toContain(' 10\r\n321.5000\r\n 20\r\n45.2500\r\n');
-    expect(dxf).not.toContain(' 10\r\n5.0000\r\n 20\r\n6.0000\r\n');
+    const dxf = await (await fetch(`/api${versionUrl(2)}/dxf`)).text();
+    expect(dxf).toContain(' 10\r\n5.0000\r\n 20\r\n6.0000\r\n');
   });
 
-  test('пустая правка, чужой id, id в двух списках, некорректное тело — 422; нет версии — 404', async () => {
+  test('объяснения версии: перемещённая и добавленная помечены, зоны сервер не проверял', async () => {
+    const [first] = (await versionOf(1)).features;
+    if (first === undefined) throw new Error('нет посадок');
+    const [x = 0, y = 0] = first.geometry.coordinates;
+    await editOf(1, {
+      update: [{ id: first.properties.id, lon: x + 3, lat: y + 4 }],
+      add: [{ client_id: 'draft-1', lon: 1, lat: 2, plant_type: 'tree' }],
+    });
+    exportDone();
+
+    const { body } = await call<RealSchemas['ExplanationEntry'][]>(
+      `/projects/${READY_LOCAL}/plantings/2/explanation`,
+    );
+    const byId = new Map(body.map((entry) => [entry.id, entry]));
+    expect(byId.get(first.properties.id)).toMatchObject({
+      kind: 'auto',
+      moved: true,
+      displacement_m: 5,
+      zone_check: 'not_checked',
+    });
+    expect(byId.get('manual-00001')).toMatchObject({
+      kind: 'manual',
+      rule_id: null,
+      added_in_version: 2,
+      zone_check: 'not_checked',
+    });
+  });
+
+  test('ошибки правки — 422 с кодами сервера; нет версии — 404', async () => {
     const [first] = (await versionOf(1)).features;
     if (first === undefined) throw new Error('нет посадок');
     const id = first.properties.id;
+    const typesOf = async (edit: Partial<RealSchemas['PlantingEdit']>) => {
+      const { response, body } = await editOf(1, edit);
+      expect(response.status).toBe(422);
+      return errorTypes(body);
+    };
 
-    expect((await editOf(1, {})).response.status).toBe(422);
-    expect((await editOf(1, { delete: ['NO-SUCH'] })).response.status).toBe(422);
-    expect(
-      (await editOf(1, { delete: [id], update: [{ id, lon: 1, lat: 1, x: 1, y: 1 }] })).response
-        .status,
-    ).toBe(422);
+    expect(await typesOf({})).toEqual(['empty_edit']);
+    expect(await typesOf({ delete: ['NO-SUCH'] })).toEqual(['unknown_id']);
+    expect(await typesOf({ delete: [id], update: [{ id, lon: 1, lat: 1 }] })).toEqual([
+      'update_delete_conflict',
+    ]);
+    expect(await typesOf({ update: [{ id, lon: 1 }] })).toEqual(['lon_lat_pair']);
+    expect(await typesOf({ update: [{ id }] })).toEqual(['nothing_to_update']);
     const malformed = { add: [{ lon: 'x' }], update: [], delete: [] };
     expect((await post(`${versionUrl(1)}/edit`, malformed)).response.status).toBe(422);
     expect((await editOf(7, { delete: [id] })).response.status).toBe(404);
@@ -363,7 +433,9 @@ describe('версии плана посадок', () => {
     await post(`/projects/${READY_LOCAL}/runs`, {});
     vi.setSystemTime(Date.now() + 25_000);
 
-    const { body } = await call<Schemas['PlantingVersion'][]>(`/projects/${READY_LOCAL}/plantings`);
+    const { body } = await call<RealSchemas['PlantingVersion'][]>(
+      `/projects/${READY_LOCAL}/plantings`,
+    );
     expect(body.map(({ id }) => id)).toEqual([1]);
   });
 });

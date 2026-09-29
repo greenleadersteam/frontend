@@ -22,9 +22,9 @@ import {
 } from '@tabler/icons-react';
 import { type JSX, type ReactNode, useId, useState } from 'react';
 
-import type { DrawingTransform, PlantingFeatureCollection } from '@/entities/project';
+import type { PlantingFeatureCollection } from '@/entities/project';
 import { describeAppError } from '@/shared/api';
-import { formatMeters, formatNumber } from '@/shared/lib/format';
+import { formatNumber } from '@/shared/lib/format';
 import { isTyping } from '@/shared/lib/keyboard';
 import { useAppDispatch } from '@/shared/lib/store';
 import { Icon } from '@/shared/ui';
@@ -41,9 +41,6 @@ type EditToolbarProps = {
   selectedId: string | null;
   // План на экране: при скрытом плане Ctrl+Z и Ctrl+Y не меняют невидимое.
   active: boolean;
-  // Перевод итоговой расстановки в метры чертежа — для правки версии. Считается только при
-  // несохранённых правках: подгонка идёт по всем посадкам.
-  drawing: () => DrawingTransform;
   onRemoved: () => void;
   // Выбран инструмент добавления: фокус уходит на карту, и Enter ставит посадку в центр
   // перекрестия. Иначе фокус оставался бы на кнопке, и Enter снимал бы инструмент.
@@ -55,36 +52,6 @@ const placeHint = (what: string) =>
   `${what}: щёлкните по карте или нажмите Enter — посадка встанет в центр`;
 // Предел имени версии в контракте (PlantingEdit.name).
 const VERSION_NAME_MAX = 200;
-
-type ToDrawing = (point: readonly number[]) => [number, number];
-
-// Точка плана в метрах чертежа для правки версии — или почему правку не сохранить: сервер пишет
-// DXF версии по точкам чертежа, которые считает клиент.
-function drawingPoints(
-  transform: DrawingTransform,
-): { toDrawing: ToDrawing; reason: null } | { toDrawing: null; reason: string } {
-  switch (transform.kind) {
-    case 'identity':
-      return { toDrawing: ([x = 0, y = 0]) => [x, y], reason: null };
-    case 'fitted':
-      return { toDrawing: transform.toDrawing, reason: null };
-    case 'mismatch':
-      return {
-        toDrawing: null,
-        reason: `Сохранить нельзя: координаты плана не сводятся к чертежу поворотом, сдвигом и масштабом (расхождение ${formatMeters(transform.rms, 2)}), а сервер пишет правки в DXF в координатах чертежа. Скачайте результат сервиса и перенесите правки вручную.`,
-      };
-    case 'insufficient':
-      return {
-        toDrawing: null,
-        reason:
-          'Сохранить нельзя: неизменённых посадок сервиса с координатами чертежа меньше трёх, и план не переводится в чертёж, а сервер пишет правки в DXF в координатах чертежа. Скачайте результат сервиса и перенесите правки вручную.',
-      };
-    default: {
-      const unexpected: never = transform;
-      return unexpected;
-    }
-  }
-}
 
 type ToolProps = {
   label: string;
@@ -125,7 +92,6 @@ export function EditToolbar({
   source,
   selectedId,
   active,
-  drawing,
   onRemoved,
   onToolPicked,
 }: EditToolbarProps): JSX.Element {
@@ -136,12 +102,8 @@ export function EditToolbar({
   const [resetting, setResetting] = useState(false);
   const [naming, setNaming] = useState(false);
   const [versionName, setVersionName] = useState('');
-  const reasonId = useId();
-  const points = edits.storage === 'server' && edits.unsaved ? drawingPoints(drawing()) : null;
-  const unsavable = points?.reason ?? null;
   const saveVersion = () => {
-    if (points?.toDrawing == null) return;
-    void save(versionName, points.toDrawing).then((error) => {
+    void save(versionName).then((error) => {
       if (error !== null) {
         notifications.show({ color: 'clay', message: describeAppError(error) });
         return;
@@ -179,43 +141,18 @@ export function EditToolbar({
   let storage: ReactNode;
   switch (edits.storage) {
     case 'server':
-      storage =
-        unsavable === null ? (
-          <Button
-            size="compact-md"
-            loading={saving}
-            disabled={!edits.unsaved || edits.switching}
-            onClick={() => {
-              setNaming(true);
-            }}
-          >
-            Сохранить
-          </Button>
-        ) : (
-          // Недоступна, но в порядке табуляции: подсказка с причиной открывается и по фокусу,
-          // а экранный диктор читает её в описании кнопки.
-          <>
-            <Tooltip
-              label={unsavable}
-              multiline
-              events={{ hover: true, focus: true, touch: true }}
-              classNames={{ tooltip: classes.reason }}
-            >
-              <Button
-                size="compact-md"
-                data-disabled
-                aria-disabled
-                aria-describedby={reasonId}
-                onClick={(event) => {
-                  event.preventDefault();
-                }}
-              >
-                Сохранить
-              </Button>
-            </Tooltip>
-            <VisuallyHidden id={reasonId}>{unsavable}</VisuallyHidden>
-          </>
-        );
+      storage = (
+        <Button
+          size="compact-md"
+          loading={saving}
+          disabled={!edits.unsaved || edits.switching}
+          onClick={() => {
+            setNaming(true);
+          }}
+        >
+          Сохранить
+        </Button>
+      );
       break;
     case 'draft':
       storage = (

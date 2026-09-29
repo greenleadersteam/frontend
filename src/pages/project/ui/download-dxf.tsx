@@ -1,7 +1,7 @@
 import { Button, Menu, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconChevronDown } from '@tabler/icons-react';
-import { type JSX, useState } from 'react';
+import { type JSX, useEffect, useId, useRef, useState } from 'react';
 
 import {
   downloadProjectDxf,
@@ -9,6 +9,7 @@ import {
   fetchProjectDxf,
   type Project,
   projectFileName,
+  SERVICE_VERSION,
 } from '@/entities/project';
 import { usePlantingEdits, usePlantingVersions } from '@/features/edit-plantings';
 import { describeAppError } from '@/shared/api';
@@ -22,31 +23,64 @@ import classes from './project-header.module.css';
 
 type DownloadDxfProps = { project: Project };
 
+const PENDING_TEXT = 'Сервер собирает DXF версии. Файл скачается, когда будет готов.';
+
+// DXF правленой версии сервер собирает в фоне: ожидание видно уведомлением, а уход с экрана
+// его отменяет — файл прошлого проекта не сохранится сам через минуту.
 const useDownload = (project: Project) => {
   const [loading, setLoading] = useState(false);
+  const pendingId = useId();
+  const controller = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      controller.current?.abort();
+      notifications.hide(pendingId);
+    },
+    [pendingId],
+  );
   const download = async (version: DxfVersion | null = null) => {
+    controller.current = new AbortController();
     setLoading(true);
-    const error = await downloadProjectDxf(project, version);
+    const failure = await downloadProjectDxf(project, version, {
+      signal: controller.current.signal,
+      onPending: () => {
+        notifications.show({
+          id: pendingId,
+          loading: true,
+          autoClose: false,
+          message: PENDING_TEXT,
+        });
+      },
+    });
+    notifications.hide(pendingId);
     setLoading(false);
-    if (error !== null) {
-      notifications.show({ color: 'clay', message: describeAppError(error) });
-    }
+    if (failure !== null) notifications.show({ color: 'clay', message: failure });
   };
   return { loading, download };
 };
 
+type Download = ReturnType<typeof useDownload>;
+
 // «Скачать DXF». С возможностью editedDxf сервер отдаёт DXF версии плана посадок, выбранной
 // в шапке. Без неё, когда правки есть, кнопка становится меню: результат сервиса или слой
-// посадок с правками, собранный в браузере.
+// посадок с правками, собранный в браузере. Скачивание — одно на экран: смена кнопки на меню,
+// когда результат догрузился, его не прерывает.
 export function DownloadDxf({ project }: DownloadDxfProps): JSX.Element {
   const state = useResultData(project);
   const withEditedDxf = useCapability('editedDxf');
-  if (state.kind !== 'ready' || withEditedDxf) return <ServiceDxfButton project={project} />;
-  return <DownloadWithEdits project={project} result={state.result} />;
+  const download = useDownload(project);
+  if (state.kind !== 'ready' || withEditedDxf) {
+    return <ServiceDxfButton project={project} download={download} />;
+  }
+  return <DownloadWithEdits project={project} result={state.result} download={download} />;
 }
 
-function ServiceDxfButton({ project }: DownloadDxfProps): JSX.Element {
-  const { loading, download } = useDownload(project);
+type ServiceDxfButtonProps = DownloadDxfProps & { download: Download };
+
+function ServiceDxfButton({
+  project,
+  download: { loading, download },
+}: ServiceDxfButtonProps): JSX.Element {
   const withVersions = useCapability('plantingEdits');
   const { target } = usePlantingVersions(project.id);
   const version =
@@ -91,15 +125,28 @@ const failureText = (
   }
 };
 
-type DownloadWithEditsProps = { project: Project; result: LoadedResult };
+type DownloadWithEditsProps = { project: Project; result: LoadedResult; download: Download };
 
-function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Element {
+function DownloadWithEdits({
+  project,
+  result,
+  download: { loading, download },
+}: DownloadWithEditsProps): JSX.Element {
   const edits = usePlantingEdits(project.id, result.data.planting);
-  const { loading, download } = useDownload(project);
+  // С версиями /dxf — последняя версия; расстановка сервиса и чертёж под правки браузера —
+  // у версии 1, её DXF готов всегда.
+  const withVersions = useCapability('plantingEdits');
+  const serviceVersion = withVersions ? SERVICE_VERSION : null;
+  const downloadService = () =>
+    void download(
+      serviceVersion === null
+        ? null
+        : { version: serviceVersion, fileSuffix: ' — исходный результат.dxf' },
+    );
   const [assembling, setAssembling] = useState(false);
   if (edits.counts.total === 0) {
     return (
-      <Button loading={loading} onClick={() => void download()}>
+      <Button loading={loading} onClick={downloadService}>
         Скачать DXF
       </Button>
     );
@@ -117,9 +164,9 @@ function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Ele
     setAssembling(true);
     let bytes: Uint8Array<ArrayBuffer>;
     try {
-      const server = await fetchProjectDxf(project.id);
-      if (server.kind === 'error') {
-        notifications.show({ color: 'clay', message: describeAppError(server.error) });
+      const server = await fetchProjectDxf(project.id, serviceVersion);
+      if (server.kind !== 'file') {
+        if (server.kind === 'error') notifications.show({ color: 'clay', message: server.message });
         return;
       }
       bytes = new Uint8Array(await server.file.arrayBuffer());
@@ -171,7 +218,7 @@ function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Ele
         <Menu.Item fw={600} onClick={() => void downloadDrawing()}>
           Результат с правками (DXF)
         </Menu.Item>
-        <Menu.Item onClick={() => void download()}>Результат сервиса (DXF)</Menu.Item>
+        <Menu.Item onClick={downloadService}>Результат сервиса (DXF)</Menu.Item>
         <Menu.Item onClick={downloadLayer}>Только слой посадок (DXF)</Menu.Item>
         <Text size="xs" c="dimmed" className={classes.menuHint}>
           Вставьте слой в исходный чертёж: координаты совпадают

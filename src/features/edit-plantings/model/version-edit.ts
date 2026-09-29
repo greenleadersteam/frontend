@@ -1,20 +1,15 @@
-import type {
-  PlantingEdit,
-  PlantingFeatureCollection,
-  PlantingVersionFeatureCollection,
-  PlantType,
-} from '@/entities/project';
+import type { PlantingEdit, PlantingFeatureCollection, PlantType } from '@/entities/project';
 
 import { emptyDiff, type PlantingDiff, type Point } from './edits';
 
 const samePoint = (a: readonly number[], b: readonly number[]) => a[0] === b[0] && a[1] === b[1];
 
 // Версия как разница с версией сервиса: id посадок сервиса во всех версиях те же
-// (contracts/openapi.proposed.yaml, /plantings/{version}). Породу правка версии не меняет,
+// (../backend/greenplan/api/schemas.py, PlantingProperties.id). Породу правка версии не меняет,
 // поэтому её разницы нет.
 export function diffFromVersion(
   service: PlantingFeatureCollection,
-  version: PlantingVersionFeatureCollection,
+  version: PlantingFeatureCollection,
 ): PlantingDiff {
   const diff = emptyDiff();
   const byId = new Map(version.features.map((feature) => [feature.properties.id, feature]));
@@ -58,20 +53,19 @@ function placed(service: PlantingFeatureCollection, diff: PlantingDiff): Placed 
   return result;
 }
 
-// Правка сохранённой версии до того, что на экране. Посадка сервиса, удалённая в сохранённой
-// версии и возвращённая на экране, идёт в update: так сервер возвращает её со своим id.
-// Смена породы не отправляется — в API версий её нет. toDrawing — точка плана в метрах
-// чертежа: по ней сервер пишет посадку в DXF версии.
+// Правка сохранённой версии до того, что на экране. update — только для посадок, которые в
+// сохранённой версии есть: сервер правит лишь их (unknown_id, ../backend/greenplan/api/
+// plantings.py, _apply_edit). Посадка сервиса, удалённая раньше и возвращённая на экране, идёт
+// в add и получает новый id. Точку чертежа для DXF версии сервер считает сам по привязке
+// обработки; смена породы не отправляется — в API версий её нет.
 export function versionEdit(
   service: PlantingFeatureCollection,
   saved: PlantingDiff,
   present: PlantingDiff,
   name: string,
-  toDrawing: (point: readonly number[]) => [number, number],
 ): PlantingEdit {
   const before = placed(service, saved);
   const after = placed(service, present);
-  const serviceIds = new Set(service.features.map(({ properties }) => properties.id));
   const edit: PlantingEdit = {
     name: name.trim() === '' ? null : name.trim(),
     add: [],
@@ -82,11 +76,10 @@ export function versionEdit(
     const previous = before.get(id);
     if (previous !== undefined && samePoint(previous.point, point)) continue;
     const [lon = 0, lat = 0] = point;
-    const [x, y] = toDrawing(point);
-    if (previous === undefined && !serviceIds.has(id)) {
-      edit.add.push({ client_id: id, lon, lat, x, y, plant_type: plantType });
+    if (previous === undefined) {
+      edit.add.push({ client_id: id, lon, lat, plant_type: plantType });
     } else {
-      edit.update.push({ id, lon, lat, x, y });
+      edit.update.push({ id, lon, lat });
     }
   }
   return edit;

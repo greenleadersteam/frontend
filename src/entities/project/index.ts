@@ -14,7 +14,6 @@ export type {
   PlantingEdit,
   PlantingFeatureCollection,
   PlantingVersion,
-  PlantingVersionFeatureCollection,
   RejectedSitesFeatureCollection,
   Species,
   ZonesFeatureCollection,
@@ -29,6 +28,7 @@ export {
   useGetPlantingVersionQuery,
   useGetPlantingVersionsQuery,
   useGetRejectedQuery,
+  useGetServiceExplanationQuery,
   useGetSpeciesQuery,
   useGetZonesQuery,
   useLazyGetPlantingVersionQuery,
@@ -44,7 +44,6 @@ export {
 export { dimensionLines } from './lib/dimension-lines';
 export type { DrawingDxf } from './lib/drawing-dxf';
 export { replacePlantingLayer } from './lib/drawing-dxf';
-export type { DrawingTransform } from './lib/drawing-transform';
 export { DRAWING_FIT_LIMIT_M, drawingTransform } from './lib/drawing-transform';
 export { projectFileName } from './lib/file-name';
 export { createLocalFrame, type LocalFrame } from './lib/local-frame';

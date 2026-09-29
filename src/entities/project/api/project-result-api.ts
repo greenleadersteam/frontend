@@ -1,8 +1,11 @@
-import { baseApi, type ProposedApiComponents } from '@/shared/api';
+import { type ApiComponents, baseApi, type ProposedApiComponents } from '@/shared/api';
 
 type Schemas = ProposedApiComponents['schemas'];
-// В OpenAPI бэкенда у /explanation нет схемы ответа; контракт-предложение описывает текущий
-// формат (../backend/greenplan/explain/builder.py:17-32) и добавочное поле checks, задача P2-1.
+type RealSchemas = ApiComponents['schemas'];
+// Объяснения и посадки — типы контракта-предложения: базовый формат в них тот же, что
+// ExplanationEntry и PlantingFeatureCollection в OpenAPI бэкенда, а добавочно — checks
+// (explanationChecks) и порода species_* (species). Поля правок версии, которые экран не читает
+// (kind, moved, displacement_m, zone_check, note и др.), в них не описаны.
 export type ExplanationEntry = Schemas['ExplanationEntry'];
 export type ZonesFeatureCollection = Schemas['ZonesFeatureCollection'];
 export type PlantingFeatureCollection = Schemas['PlantingFeatureCollection'];
@@ -12,13 +15,15 @@ export type Norm = Schemas['Norm'];
 // Возможности species и rejected.
 export type Species = Schemas['Species'];
 export type RejectedSitesFeatureCollection = Schemas['RejectedSitesFeatureCollection'];
-// Возможность plantingEdits: версии плана посадок.
-export type PlantingVersion = Schemas['PlantingVersion'];
-export type PlantingVersionFeatureCollection = Schemas['PlantingVersionFeatureCollection'];
-export type PlantingEdit = Schemas['PlantingEdit'];
+// Возможность plantingEdits: версии плана посадок — по OpenAPI бэкенда (afc4e23). Посадки версии —
+// в формате /planting: у сервера это тот же PlantingFeatureCollection
+// (../backend/greenplan/api/app.py, get_planting_version).
+export type PlantingVersion = RealSchemas['PlantingVersion'];
+export type PlantingEdit = RealSchemas['PlantingEdit'];
+type PlantingEditResponse = RealSchemas['PlantingEditResponse'];
 
-// Версия 1 — расстановка обработки: новая обработка начинает историю заново, и других версий
-// kind: auto нет (contracts/openapi.proposed.yaml, /plantings).
+// Версия 1 — расстановка обработки: новая обработка удаляет прежние версии вместе с результатом
+// (../backend/greenplan/api/jobs.py, run_processing_job), и других версий kind: auto нет.
 export const SERVICE_VERSION = 1;
 
 const resultTag = (id: string) => [{ type: 'ProjectResult', id }] as const;
@@ -31,8 +36,19 @@ const resultUrl = (id: string, resource: string) =>
 // бэкенд отвечает 404 так же, как на «проекта нет» (../backend/greenplan/api/app.py:48-54).
 export const projectResultApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
+    // /explanation — последняя версия: если её объяснения сервер ещё собирает, он отвечает 202
+    // с телом о сборке (app.py, _version_file). Это не данные, а ошибка «Повторить».
     getExplanation: build.query<ExplanationEntry[], string>({
-      query: (id) => resultUrl(id, 'explanation'),
+      query: (id) => ({
+        url: resultUrl(id, 'explanation'),
+        validateStatus: (response) => response.status === 200,
+      }),
+      providesTags: (_result, _error, id) => resultTag(id),
+    }),
+    // С версиями /explanation — последняя версия, а у правленой объяснение сервер генерирует
+    // в фоне и отвечает 202. Объяснения расстановки сервиса — у версии 1, она готова всегда.
+    getServiceExplanation: build.query<ExplanationEntry[], string>({
+      query: (id) => resultUrl(id, `plantings/${String(SERVICE_VERSION)}/explanation`),
       providesTags: (_result, _error, id) => resultTag(id),
     }),
     getZones: build.query<ZonesFeatureCollection, string>({
@@ -56,10 +72,7 @@ export const projectResultApi = baseApi.injectEndpoints({
       providesTags: (_result, _error, id) => [...resultTag(id), ...versionsTag(id)],
     }),
     // Версия не меняется: её кэш сбрасывает только новая обработка.
-    getPlantingVersion: build.query<
-      PlantingVersionFeatureCollection,
-      { id: string; version: number }
-    >({
+    getPlantingVersion: build.query<PlantingFeatureCollection, { id: string; version: number }>({
       query: ({ id, version }) => resultUrl(id, `plantings/${String(version)}`),
       providesTags: (_result, _error, { id }) => resultTag(id),
     }),
@@ -72,6 +85,8 @@ export const projectResultApi = baseApi.injectEndpoints({
         method: 'POST',
         body: edit,
       }),
+      // Ответ сервера — созданная версия и id, выданные добавленным посадкам; нужна версия.
+      transformResponse: (response: PlantingEditResponse) => response.version,
       invalidatesTags: (_result, _error, { id }) => versionsTag(id),
     }),
     // Справочники норм и пород общие для всех проектов.
@@ -89,6 +104,7 @@ export const {
   useGetPlantingVersionQuery,
   useGetPlantingVersionsQuery,
   useGetRejectedQuery,
+  useGetServiceExplanationQuery,
   useGetSpeciesQuery,
   useGetZonesQuery,
   useLazyGetPlantingVersionQuery,

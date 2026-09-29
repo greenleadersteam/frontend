@@ -2,8 +2,8 @@ import type { PlantType } from '../model/project';
 import { CROWN_RADIUS_M } from './plan-projection';
 import { PLANTING_LAYER, safeText, XDATA_APPID } from './planting-dxf';
 
-// Посадка для чертежа сервиса: XDATA — ровно то, что пишет сервер (тип, правило, id,
-// ../backend/greenplan/io/dxf_sink.py:100).
+// Посадка для чертежа сервиса: XDATA — ровно то, что пишет сервер: тип, правило, id и kind —
+// «manual» у добавленной вручную, иначе «auto» (../backend/greenplan/io/dxf_sink.py, afc4e23).
 export type DrawingPlanting = {
   x: number;
   y: number;
@@ -280,6 +280,8 @@ export function replacePlantingLayer(
       safeText(ruleId ?? ''),
       code(1000),
       safeText(id),
+      code(1000),
+      ruleId === null ? 'manual' : 'auto',
     );
   }
   const inserted = ascii(lines.map((line) => line + eol).join(''));

@@ -17,7 +17,6 @@ import {
 } from '@/entities/project';
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
 import { EditModeButton, VersionSelect } from '@/features/edit-plantings';
-import { describeAppError } from '@/shared/api';
 import {
   FOCUS_PROJECTS_HEADING,
   georeferenceProjectPath,
@@ -208,14 +207,12 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
   const [downloading, setDownloading] = useState(false);
   const downloadOriginal = async () => {
     setDownloading(true);
-    const error = await downloadProjectDxf(project, {
+    const failure = await downloadProjectDxf(project, {
       version: SERVICE_VERSION,
       fileSuffix: ' — исходный результат.dxf',
     });
     setDownloading(false);
-    if (error !== null) {
-      notifications.show({ color: 'clay', message: describeAppError(error) });
-    }
+    if (failure !== null) notifications.show({ color: 'clay', message: failure });
   };
 
   return (

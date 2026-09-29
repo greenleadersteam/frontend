@@ -267,8 +267,12 @@ describe('шапка', () => {
   });
 
   test('«Скачать DXF» — ошибка сервера показывается уведомлением', async () => {
+    // С версиями DXF — у выбранной версии плана посадок.
     server.use(
-      http.get('/api/projects/:projectId/dxf', () => new HttpResponse(null, { status: 500 })),
+      http.get(
+        '/api/projects/:projectId/plantings/:version/dxf',
+        () => new HttpResponse(null, { status: 500 }),
+      ),
     );
     renderProject(READY_ID);
 
@@ -293,6 +297,48 @@ describe('шапка', () => {
     const link = click.mock.contexts[0];
     if (!(link instanceof HTMLAnchorElement)) throw new Error('ожидалась ссылка');
     expect(link.download).toBe('Сквер на Покровке — версия 1.dxf');
+  });
+
+  test('DXF версии собирается — уведомление, затем файл; уход с экрана отменяет ожидание', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:dxf');
+    URL.revokeObjectURL = vi.fn();
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    let requests = 0;
+    let ready = false;
+    server.use(
+      http.get('/api/projects/:projectId/plantings/:version/dxf', () => {
+        requests += 1;
+        return ready
+          ? new HttpResponse('0\r\nSECTION', { headers: { 'Content-Type': 'image/vnd.dxf' } })
+          : HttpResponse.json(
+              { version: 1, export_status: 'pending' },
+              { status: 202, headers: { 'Retry-After': '0.05' } },
+            );
+      }),
+    );
+    const { unmount } = renderProject(READY_ID);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Скачать DXF' }));
+    expect(await screen.findByText(/^Сервер собирает DXF версии/)).toBeInTheDocument();
+    ready = true;
+    await waitFor(() => {
+      expect(click).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/^Сервер собирает DXF версии/)).not.toBeInTheDocument();
+    });
+
+    ready = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать DXF' }));
+    await screen.findByText(/^Сервер собирает DXF версии/);
+    const before = requests;
+    unmount();
+    ready = true;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(requests).toBeLessThanOrEqual(before + 1);
+    expect(click).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -415,9 +461,10 @@ describe('готовый проект', () => {
   });
 
   test('ошибка данных — сообщение и «Повторить» на месте карты, «Скачать DXF» доступна', async () => {
+    // С версиями объяснения — расстановки сервиса, у версии 1.
     server.use(
       http.get(
-        '/api/projects/:projectId/explanation',
+        '/api/projects/:projectId/plantings/1/explanation',
         () => new HttpResponse(null, { status: 500 }),
         { once: true },
       ),
@@ -431,6 +478,24 @@ describe('готовый проект', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
     expect(await screen.findByRole('region', { name: MAP_LABEL })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Править расстановку' })).toBeEnabled();
+  });
+
+  test('без версий /explanation отвечает 202 (сервер собирает чужую версию) — ошибка и «Повторить»', async () => {
+    serverMock.plantingEdits = false;
+    server.use(
+      http.get(
+        '/api/projects/:projectId/explanation',
+        () => HttpResponse.json({ version: 2, export_status: 'pending' }, { status: 202 }),
+        { once: true },
+      ),
+    );
+    renderProject(READY_ID);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Сервер ещё готовит данные. Повторите через несколько секунд.',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    expect(await screen.findByRole('region', { name: MAP_LABEL })).toBeInTheDocument();
   });
 
   test('пустой результат — текст вместо плана, кнопки правки нет', async () => {
@@ -2030,55 +2095,20 @@ describe('правка расстановки', () => {
     await waitFor(() => {
       expect(edits).toHaveLength(1);
     });
+    // Тело — PlantingEdit сервера: точки плана, без точек чертежа — их сервер считает сам.
     expect(edits[0]?.body).toMatchObject({
       name: null,
       delete: [],
       update: [{ id: FIRST_TREE }],
       add: [{ plant_type: 'tree' }],
     });
-    // Точка чертежа — подгонкой «план → чертёж»: дерево из (3; 2,2) м сдвинуто на 2 м к югу.
-    // Тело — PlantingEdit по контракту: сужение на границе теста.
-    const [update] = (edits[0]?.body as { update: { x: number; y: number }[] }).update;
-    expect(update?.x).toBeCloseTo(3, 2);
-    expect(update?.y).toBeCloseTo(0.2, 2);
+    expect(JSON.stringify(edits[0]?.body)).not.toMatch(/"x":|"y":/);
     expect(JSON.stringify(edits[0]?.body)).toMatch(/"client_id":"manual-/);
     // После сохранения на экране — новая версия: добавленная получила id сервера.
     await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
     expect(
       await screen.findByText(/^Правок: 2 \(перемещено 1, добавлено 1\)$/),
     ).toBeInTheDocument();
-  });
-
-  test('подгонка «план → чертёж» не сходится — сохранить нельзя, причина в описании кнопки', async () => {
-    const edits = captureVersionEdits();
-    // Точки чертежа в /explanation перемешаны: подобием план к ним не сводится.
-    // Ответ мока — по контракту: сужение на границе теста.
-    const explanation = (await (await fetch(`/api/projects/${READY_ID}/explanation`)).json()) as {
-      x: number;
-      y: number;
-    }[];
-    const shuffled = explanation.map((entry, index) => ({
-      ...entry,
-      x: explanation[(index * 7) % explanation.length]?.x ?? 0,
-    }));
-    server.use(http.get('/api/projects/:projectId/explanation', () => HttpResponse.json(shuffled)));
-    renderProject(READY_ID);
-    await selectFirstTree();
-    const toolbar = await startEditing();
-    await userEvent.keyboard('{Delete}');
-
-    const save = within(toolbar).getByRole('button', { name: 'Сохранить' });
-    // Недоступна, но фокусируется: причину видно в подсказке и с клавиатуры.
-    expect(save).toHaveAttribute('aria-disabled', 'true');
-    save.focus();
-    expect(save).toHaveFocus();
-    await userEvent.click(save);
-    await userEvent.keyboard('{Enter}');
-    expect(screen.queryByRole('dialog', { name: 'Сохранить правки' })).not.toBeInTheDocument();
-    expect(edits).toEqual([]);
-    expect(save).toHaveAccessibleDescription(
-      /^Сохранить нельзя: координаты плана не сводятся к чертежу/,
-    );
   });
 
   test('ошибка сохранения — сообщение, правки остаются', async () => {
@@ -2127,9 +2157,10 @@ describe('правка расстановки', () => {
     expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toBeDisabled();
 
     await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    // Без имени сервер называет версию «Версия 2» — в подписи это имя не повторяется.
     await waitFor(() => {
       expect(screen.getByRole<HTMLInputElement>('combobox', { name: 'Версия:' }).value).toMatch(
-        /^2 — правки /,
+        /^2 — правки \d+ \S+, \d\d:\d\d$/,
       );
     });
   });
@@ -2179,7 +2210,7 @@ describe('правка расстановки', () => {
     await waitFor(() => {
       expect(files).toHaveLength(1);
     });
-    expect(urls.at(-1)).toMatch(/\/dxf\?version=1$/);
+    expect(urls.at(-1)).toMatch(/\/plantings\/1\/dxf$/);
     expect(files[0]?.name).toBe('Сквер на Покровке — версия 1.dxf');
 
     await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
@@ -2428,9 +2459,10 @@ describe('скачивание DXF с правками', () => {
   test('«Результат с правками» из двоичного DXF — объяснение, файла нет', async () => {
     serverMock.editedDxf = false;
     const files = captureDownloads();
+    // С версиями чертёж под правки браузера — DXF версии 1.
     server.use(
       http.get(
-        '/api/projects/:projectId/dxf',
+        '/api/projects/:projectId/plantings/:version/dxf',
         () => new HttpResponse(new TextEncoder().encode('AutoCAD Binary DXF\r\n\u001a\u0000')),
       ),
     );
@@ -2457,7 +2489,7 @@ describe('скачивание DXF с правками', () => {
     expect(screen.queryByRole('menuitem', { name: 'Слой посадок с правками (DXF)' })).toBeNull();
   });
 
-  test('с editedDxf — исходный результат из меню проекта, ?version=1', async () => {
+  test('с editedDxf — исходный результат из меню проекта, DXF версии 1', async () => {
     const files = captureDownloads();
     const urls: string[] = [];
     server.events.on('request:start', ({ request }) => {
@@ -2473,7 +2505,7 @@ describe('скачивание DXF с правками', () => {
     await waitFor(() => {
       expect(files).toHaveLength(1);
     });
-    expect(urls.at(-1)).toMatch(/\/dxf\?version=1$/);
+    expect(urls.at(-1)).toMatch(/\/plantings\/1\/dxf$/);
     expect(files[0]?.name).toBe('Сквер на Покровке — исходный результат.dxf');
   });
 });

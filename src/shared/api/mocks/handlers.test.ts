@@ -342,9 +342,10 @@ describe('результат', () => {
   test('DXF с заголовками файла', async () => {
     const response = await fetch(`/api/projects/${IDS.readyGeoreferenced}/dxf`);
 
-    expect(response.headers.get('Content-Type')).toBe('application/dxf');
+    // Как у сервера: DXFResponse и _dxf_filename в ../backend/greenplan/api/app.py.
+    expect(response.headers.get('Content-Type')).toBe('image/vnd.dxf');
     expect(response.headers.get('Content-Disposition')).toBe(
-      `attachment; filename="planting.dxf"; filename*=UTF-8''${encodeURIComponent('Сквер на Покровке')}.dxf`,
+      `attachment; filename="planting.dxf"; filename*=UTF-8''${encodeURIComponent('Сквер на Покровке — версия 1.dxf')}`,
     );
     // Чертёж R12 в кодовой странице ANSI_1251, как исходная подоснова: кириллица — байтами cp1251.
     const bytes = new Uint8Array(await response.arrayBuffer());

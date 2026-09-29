@@ -82,7 +82,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Planting */
+        /**
+         * Latest planting version (GeoJSON)
+         * @description Same as `GET /plantings/{n}` for the latest version. Before any edit,
+         *     that is version 1, the automatic layout.
+         */
         get: operations["get_planting_projects__project_id__planting_get"];
         put?: never;
         post?: never;
@@ -99,7 +103,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Explanation */
+        /**
+         * Explanation for the latest planting version
+         * @description Same as `GET /plantings/{n}/explanation` for the latest version.
+         */
         get: operations["get_explanation_projects__project_id__explanation_get"];
         put?: never;
         post?: never;
@@ -116,10 +123,123 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dxf */
+        /**
+         * DXF for the latest planting version
+         * @description Same as `GET /plantings/{n}/dxf` for the latest version.
+         */
         get: operations["get_dxf_projects__project_id__dxf_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/plantings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List planting versions
+         * @description All versions, oldest first. Version 1 is the automatic layout; each
+         *     saved edit adds a version. History is linear: editing any version
+         *     appends a new one (`based_on` says which it was edited from).
+         */
+        get: operations["list_plantings_projects__project_id__plantings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/plantings/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Planting version (GeoJSON)
+         * @description All points of one version, WGS84.
+         */
+        get: operations["get_planting_version_projects__project_id__plantings__version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/plantings/{version_id}/dxf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * DXF for a planting version
+         * @description Version 1's DXF always exists. For later versions it is generated in
+         *     the background (see the `202` response).
+         */
+        get: operations["get_planting_version_dxf_projects__project_id__plantings__version_id__dxf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/plantings/{version_id}/explanation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Explanation for a planting version
+         * @description One entry per point: which rule placed it and, for edited versions,
+         *     what was changed by hand. Generated together with the DXF (see the
+         *     `202` response).
+         */
+        get: operations["get_planting_version_explanation_projects__project_id__plantings__version_id__explanation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/plantings/{version_id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save an edit of a version as a new version
+         * @description Applies `add`/`update`/`delete` to version `version_id` and saves the
+         *     result as a new version (the base version is never changed). New points
+         *     get server ids, returned in `id_map` by `client_id`. Zones are not
+         *     checked on the server. Generation of the new version's DXF/explanation
+         *     starts right away if a worker slot is free (`version.export_status`
+         *     is then `pending`, otherwise `none`).
+         */
+        post: operations["edit_planting_version_projects__project_id__plantings__version_id__edit_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -130,6 +250,115 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ErrorMessage */
+        ErrorMessage: {
+            /** Detail */
+            detail: string;
+        };
+        /** ErrorWithCode */
+        ErrorWithCode: {
+            detail: components["schemas"]["ExportError"];
+        };
+        /**
+         * ExplanationEntry
+         * @description One point's explanation. Coordinates are in the DXF drawing's local
+         *     frame (they match the DXF, not the GeoJSON). Fields marked "edited
+         *     versions" are present only where they apply.
+         */
+        ExplanationEntry: {
+            /** Id */
+            id: string;
+            /**
+             * Plant Type
+             * @enum {string}
+             */
+            plant_type: "tree" | "shrub";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "auto" | "manual";
+            /** Rule Id */
+            rule_id: string | null;
+            /**
+             * Rule Name Ru
+             * @description Human-readable name of the layout rule, if any.
+             */
+            rule_name_ru: string | null;
+            /**
+             * X
+             * @description Drawing-frame x, meters.
+             */
+            x: number;
+            /**
+             * Y
+             * @description Drawing-frame y, meters.
+             */
+            y: number;
+            /**
+             * Moved
+             * @description Auto points: moved from their version-1 position (by at least 1 cm).
+             */
+            moved?: boolean | null;
+            /**
+             * Displacement M
+             * @description Auto points, if moved: distance from the version-1 position, meters.
+             */
+            displacement_m?: number | null;
+            /**
+             * Original Plant Type
+             * @description Auto points, if their plant_type was changed: the version-1 type.
+             */
+            original_plant_type?: ("tree" | "shrub") | null;
+            /**
+             * Added In Version
+             * @description Manual points: the version that added them.
+             */
+            added_in_version?: number | null;
+            /**
+             * Zone Check
+             * @description Present for manual and moved/retyped points: the backend does not check zones for edits, so their placement is not verified against setback norms.
+             */
+            zone_check?: "not_checked" | null;
+            /**
+             * Note
+             * @description Human-readable (Russian) note for edited points.
+             */
+            note?: string | null;
+        };
+        /** ExportError */
+        ExportError: {
+            /**
+             * Code
+             * @description `export_failed` or `transform_unavailable`.
+             */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /**
+         * ExportPendingResponse
+         * @description Returned with `202` while a version's DXF/explanation is being
+         *     generated. Poll `GET /projects/{id}/plantings` until this version's
+         *     `export_status` is `ready` (or `failed`), then request the file again.
+         */
+        ExportPendingResponse: {
+            /** Version */
+            version: number;
+            /**
+             * Export Status
+             * @constant
+             */
+            export_status: "pending";
+        };
+        /** GeoJSONMetadata */
+        GeoJSONMetadata: {
+            /**
+             * Crs
+             * @description Normally "EPSG:4326 (WGS84 lon/lat)".
+             */
+            crs: string;
+        };
         /** GeoreferenceInfo */
         GeoreferenceInfo: {
             /** Confidence */
@@ -166,6 +395,202 @@ export interface components {
             started_at?: string | null;
             /** Finished At */
             finished_at?: string | null;
+        };
+        /** PlantingAdd */
+        PlantingAdd: {
+            /**
+             * Client Id
+             * @description Any client-side id; echoed back in the response's `id_map` with the assigned id.
+             */
+            client_id: string;
+            /**
+             * Plant Type
+             * @enum {string}
+             */
+            plant_type: "tree" | "shrub";
+            /**
+             * Lon
+             * @description WGS84 longitude.
+             */
+            lon: number;
+            /**
+             * Lat
+             * @description WGS84 latitude.
+             */
+            lat: number;
+        };
+        /** PlantingCounts */
+        PlantingCounts: {
+            /** Tree */
+            tree: number;
+            /** Shrub */
+            shrub: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * PlantingEdit
+         * @description A batch of changes to one version, saved as a new version. Applied
+         *     all-or-nothing: any invalid item rejects the whole edit with 422.
+         */
+        PlantingEdit: {
+            /**
+             * Name
+             * @description Version name; default "Версия N".
+             */
+            name?: string | null;
+            /**
+             * Add
+             * @default []
+             */
+            add: components["schemas"]["PlantingAdd"][];
+            /**
+             * Update
+             * @default []
+             */
+            update: components["schemas"]["PlantingUpdate"][];
+            /**
+             * Delete
+             * @description Ids of points to remove.
+             * @default []
+             */
+            delete: string[];
+        };
+        /** PlantingEditResponse */
+        PlantingEditResponse: {
+            /** @description Metadata of the newly created version. */
+            version: components["schemas"]["PlantingVersion"];
+            /**
+             * Id Map
+             * @description `client_id` of each `add` item -> the point id the server assigned to it.
+             */
+            id_map: {
+                [key: string]: string;
+            };
+        };
+        /** PlantingFeature */
+        PlantingFeature: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "Feature";
+            geometry: components["schemas"]["PointGeometry"];
+            properties: components["schemas"]["PlantingProperties"];
+        };
+        /** PlantingFeatureCollection */
+        PlantingFeatureCollection: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "FeatureCollection";
+            metadata: components["schemas"]["GeoJSONMetadata"];
+            /** Features */
+            features: components["schemas"]["PlantingFeature"][];
+        };
+        /** PlantingProperties */
+        PlantingProperties: {
+            /**
+             * Id
+             * @description Opaque string id. Automatic points (e.g. `TREE_ROW_CURB-00012`) keep the same id in every version; manual points get `manual-NNNNN`, never reused within a project.
+             */
+            id: string;
+            /**
+             * Plant Type
+             * @enum {string}
+             */
+            plant_type: "tree" | "shrub";
+            /**
+             * Kind
+             * @description `auto`: placed by the layout engine (possibly moved/retyped since). `manual`: added by a user edit.
+             * @enum {string}
+             */
+            kind: "auto" | "manual";
+            /**
+             * Rule Id
+             * @description Layout rule that placed the point; `null` for manual points.
+             */
+            rule_id: string | null;
+            /**
+             * Added In Version
+             * @description Manual points only: the version that added the point.
+             */
+            added_in_version?: number | null;
+        };
+        /** PlantingUpdate */
+        PlantingUpdate: {
+            /**
+             * Id
+             * @description Id of an existing point in the base version.
+             */
+            id: string;
+            /**
+             * Lon
+             * @description New WGS84 longitude (give together with `lat`).
+             */
+            lon?: number | null;
+            /**
+             * Lat
+             * @description New WGS84 latitude (give together with `lon`).
+             */
+            lat?: number | null;
+            /**
+             * Plant Type
+             * @description New plant type.
+             */
+            plant_type?: ("tree" | "shrub") | null;
+        };
+        /** PlantingVersion */
+        PlantingVersion: {
+            /**
+             * Id
+             * @description Version number, 1-based. Version 1 is the automatic layout.
+             */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @description `auto` for version 1, `manual` for saved edits.
+             * @enum {string}
+             */
+            kind: "auto" | "manual";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Based On
+             * @description The version this one was edited from; `null` for version 1.
+             */
+            based_on: number | null;
+            counts: components["schemas"]["PlantingCounts"];
+            /**
+             * Export Status
+             * @description State of this version's DXF/explanation files: `none` (not generated yet -- requesting either file starts generation), `pending` (being generated), `ready`, `failed`.
+             * @enum {string}
+             */
+            export_status: "none" | "pending" | "ready" | "failed";
+            /** @description Set when `export_status` is `failed`. */
+            export_error?: components["schemas"]["ExportError"] | null;
+        };
+        /** PointGeometry */
+        PointGeometry: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "Point";
+            /**
+             * Coordinates
+             * @description [lon, lat] in WGS84 (EPSG:4326). Projects without georeferencing (only very old ones) use the drawing's own local x/y instead.
+             */
+            coordinates: [
+                number,
+                number
+            ];
         };
         /** ProjectCreateRequest */
         ProjectCreateRequest: {
@@ -458,13 +883,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description GeoJSON FeatureCollection of Point features. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/geo+json": components["schemas"]["PlantingFeatureCollection"];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
                 };
             };
             /** @description Validation Error */
@@ -495,7 +929,34 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ExplanationEntry"][];
+                };
+            };
+            /** @description The file is being generated (it starts on save, or on this request if it hadn't yet). Poll `GET /projects/{id}/plantings` until the version's `export_status` is `ready`, then request the file again. Has a `Retry-After` header (seconds). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportPendingResponse"];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description `transform_unavailable`: the project was processed before edited versions could be exported; only version 1 has a DXF/explanation. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
                 };
             };
             /** @description Validation Error */
@@ -507,9 +968,103 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Generation is needed but all worker slots are busy; try again later. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description Generation failed (`export_failed`); not retried automatically. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
+                };
+            };
         };
     };
     get_dxf_projects__project_id__dxf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The root drawing with the planting added on the `GREENING_PROPOSED` layer (one circle per point; XDATA `GREENPLAN`: plant_type, rule_id, id, kind). Sent as an attachment named after the project, e.g. `Сквер — версия 2.dxf` (non-ASCII names via `filename*`, RFC 5987). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/vnd.dxf": string;
+                };
+            };
+            /** @description The file is being generated (it starts on save, or on this request if it hadn't yet). Poll `GET /projects/{id}/plantings` until the version's `export_status` is `ready`, then request the file again. Has a `Retry-After` header (seconds). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportPendingResponse"];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description `transform_unavailable`: the project was processed before edited versions could be exported; only version 1 has a DXF/explanation. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Generation is needed but all worker slots are busy; try again later. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description Generation failed (`export_failed`); not retried automatically. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
+                };
+            };
+        };
+    };
+    list_plantings_projects__project_id__plantings_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -526,10 +1081,259 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PlantingVersion"][];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
                 };
             };
             /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_planting_version_projects__project_id__plantings__version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                version_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GeoJSON FeatureCollection of Point features. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/geo+json": components["schemas"]["PlantingFeatureCollection"];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_planting_version_dxf_projects__project_id__plantings__version_id__dxf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                version_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The root drawing with the planting added on the `GREENING_PROPOSED` layer (one circle per point; XDATA `GREENPLAN`: plant_type, rule_id, id, kind). Sent as an attachment named after the project, e.g. `Сквер — версия 2.dxf` (non-ASCII names via `filename*`, RFC 5987). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/vnd.dxf": string;
+                };
+            };
+            /** @description The file is being generated (it starts on save, or on this request if it hadn't yet). Poll `GET /projects/{id}/plantings` until the version's `export_status` is `ready`, then request the file again. Has a `Retry-After` header (seconds). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportPendingResponse"];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description `transform_unavailable`: the project was processed before edited versions could be exported; only version 1 has a DXF/explanation. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Generation is needed but all worker slots are busy; try again later. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description Generation failed (`export_failed`); not retried automatically. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
+                };
+            };
+        };
+    };
+    get_planting_version_explanation_projects__project_id__plantings__version_id__explanation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                version_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplanationEntry"][];
+                };
+            };
+            /** @description The file is being generated (it starts on save, or on this request if it hadn't yet). Poll `GET /projects/{id}/plantings` until the version's `export_status` is `ready`, then request the file again. Has a `Retry-After` header (seconds). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportPendingResponse"];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description `transform_unavailable`: the project was processed before edited versions could be exported; only version 1 has a DXF/explanation. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Generation is needed but all worker slots are busy; try again later. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description Generation failed (`export_failed`); not retried automatically. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorWithCode"];
+                };
+            };
+        };
+    };
+    edit_planting_version_projects__project_id__plantings__version_id__edit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                version_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlantingEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantingEditResponse"];
+                };
+            };
+            /** @description Project not found, not `ready` yet, or no such version. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorMessage"];
+                };
+            };
+            /** @description Invalid edit; nothing is saved. Same `{loc, msg, type}` shape for schema errors and for these edit-specific `type`s: `empty_edit`, `unknown_id`, `duplicate_id`, `duplicate_client_id`, `update_delete_conflict`, `outside_project_bbox`, `coordinates_not_finite`, `lon_lat_pair`, `nothing_to_update`. */
             422: {
                 headers: {
                     [name: string]: unknown;

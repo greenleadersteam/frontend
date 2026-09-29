@@ -1,5 +1,7 @@
 import { http, HttpResponse, type JsonBodyType } from 'msw';
 
+import { placementTransform } from '@/shared/lib/georeference';
+
 import { MAX_ARCHIVE_BYTES } from '../archive-limit';
 import type { components as Proposed } from '../generated/proposed';
 import {
@@ -11,6 +13,7 @@ import {
   listProjects,
   type MockProject,
   type MockVersion,
+  type MockVersionFeature,
   placementOfProject,
   slotsAvailable,
   startRun,
@@ -25,8 +28,6 @@ import { siteDxf } from './fixtures/result-dxf';
 import { buildSiteResult, type RunParams } from './fixtures/site';
 import { SPECIES } from './fixtures/species';
 
-type PlantingEdit = Proposed['schemas']['PlantingEdit'];
-type PlantingVersionFeature = Proposed['schemas']['PlantingVersionFeature'];
 type ManualGeoreference = Proposed['schemas']['ManualGeoreference'];
 
 // Совпадает с apiBaseUrl в public/config.json: мок подменяет тот же адрес, что и прокси Vite.
@@ -300,100 +301,250 @@ const isPlantType = (value: unknown): value is 'tree' | 'shrub' =>
 
 type VersionParams = ProjectParams & { version: string };
 
-// Версия 1 — расстановка обработки в формате версии, точка чертежа — как в /explanation; за ней —
-// версии, созданные правками.
+// Как у сервера: ../backend/greenplan/api/plantings.py.
+const FIRST_VERSION_NAME = 'Автоматическая посадка';
+const MANUAL_ID_PREFIX = 'manual-';
+const BBOX_MARGIN_DEG = 0.01;
+const MOVE_THRESHOLD_M = 0.01;
+const NOTE_MOVED = 'Перемещено вручную; соответствие правилу размещения не гарантируется';
+const NOTE_RETYPED =
+  'Тип растения изменён вручную; соответствие правилу размещения не гарантируется';
+const NOTE_MANUAL = 'Добавлено вручную; проверка по зонам на сервере не выполнялась';
+
+// Сборка DXF и объяснений правленой версии: сервер делает её в фоне (run_version_export_job),
+// мок — за несколько секунд, чтобы в «Демо» был виден путь 202 → готово.
+const EXPORT_DURATION_MS = 4000;
+const EXPORT_RETRY_AFTER_S = 2;
+
+const countsOf = (features: readonly MockVersionFeature[]) => {
+  const tree = features.filter(({ properties }) => properties.plant_type === 'tree').length;
+  return { tree, shrub: features.length - tree, total: features.length };
+};
+
+// Версия 1 — расстановка обработки в формате версии; за ней — версии, созданные правками.
 function versionsOf({ project, result }: ReadyResult): MockVersion[] {
-  const drawing = new Map(result.explanation.map(({ id, x, y }) => [id, { x, y }]));
+  const features: MockVersionFeature[] = result.planting.features.map((feature) => ({
+    ...feature,
+    properties: { ...feature.properties, kind: 'auto' },
+  }));
   const service: MockVersion = {
     meta: {
       id: 1,
-      name: null,
+      name: FIRST_VERSION_NAME,
       kind: 'auto',
       created_at:
         toProjectResponse(project, Date.now()).job.finished_at ?? new Date().toISOString(),
       based_on: null,
-      planting_count: result.planting.features.length,
+      counts: countsOf(features),
+      export_status: 'ready',
+      export_error: null,
     },
-    features: result.planting.features.map((feature) => {
-      const point = drawing.get(feature.properties.id);
-      // Фикстура строит /explanation по тем же посадкам, что /planting.
-      if (point === undefined) throw new Error(`Нет обоснования у ${feature.properties.id}`);
-      return { ...feature, properties: { ...feature.properties, origin: 'auto', ...point } };
-    }),
+    features,
+    exportReadyAt: 0,
   };
-  return [service, ...project.versions];
+  const now = Date.now();
+  return [
+    service,
+    ...project.versions.map((version) => {
+      const status: MockVersion['meta']['export_status'] =
+        now < version.exportReadyAt ? 'pending' : 'ready';
+      return { ...version, meta: { ...version.meta, export_status: status } };
+    }),
+  ];
 }
+
+// Пока версия собирается — 202 с Retry-After, как _version_file сервера.
+const exportPending = (version: MockVersion): Response | null =>
+  version.meta.export_status === 'pending'
+    ? HttpResponse.json(
+        { version: version.meta.id, export_status: 'pending' },
+        { status: 202, headers: { 'Retry-After': String(EXPORT_RETRY_AFTER_S) } },
+      )
+    : null;
 
 const findVersion = (ready: ReadyResult, version: string): MockVersion | undefined =>
   versionsOf(ready).find(({ meta }) => meta.id === Number(version));
 
-const editIssue = (loc: (string | number)[], msg: string, input: unknown): ValidationIssue => ({
-  type: 'value_error',
-  loc: ['body', ...loc],
-  msg,
-  input,
-});
-
-// Правка версии по контракту: delete, update, add. Посадка сервиса, удалённая раньше, через
-// update возвращается со своим id; в точке расстановки обработки она снова auto.
-function applyEdit(
-  project: MockProject,
-  service: readonly PlantingVersionFeature[],
-  base: readonly PlantingVersionFeature[],
-  edit: PlantingEdit,
-): { features: PlantingVersionFeature[]; addedIds: Record<string, string> } | ValidationIssue {
-  if (edit.add.length + edit.update.length + edit.delete.length === 0) {
-    return editIssue([], 'Edit is empty', edit);
-  }
-  const ids = [...edit.update.map(({ id }) => id), ...edit.delete];
-  if (new Set(ids).size !== ids.length) return editIssue([], 'Planting id is repeated', ids);
-  const current = new Map(base.map((feature) => [feature.properties.id, feature]));
-  const original = new Map(service.map((feature) => [feature.properties.id, feature]));
-  for (const [index, id] of edit.delete.entries()) {
-    if (!current.delete(id)) return editIssue(['delete', index], 'Planting not found', id);
-  }
-  for (const [index, { id, lon, lat, x: drawingX, y: drawingY }] of edit.update.entries()) {
-    const planting = current.get(id) ?? original.get(id);
-    if (planting === undefined) return editIssue(['update', index], 'Planting not found', id);
-    const [x, y] = original.get(id)?.geometry.coordinates ?? [];
-    current.set(id, {
-      ...planting,
-      geometry: { type: 'Point', coordinates: [lon, lat] },
-      properties: {
-        ...planting.properties,
-        origin: x === lon && y === lat ? 'auto' : 'manual',
-        // Точка чертежа — присланная клиентом: сервер её не пересчитывает.
-        x: drawingX,
-        y: drawingY,
-      },
-    });
-  }
-  const addedIds: Record<string, string> = {};
-  for (const { client_id: clientId, lon, lat, x, y, plant_type: plantType } of edit.add) {
-    project.manualPlantings += 1;
-    const id = `MANUAL-${String(project.manualPlantings).padStart(5, '0')}`;
-    addedIds[clientId] = id;
-    current.set(id, {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [lon, lat] },
-      properties: {
-        id,
-        plant_type: plantType,
-        rule_id: null,
-        origin: 'manual',
-        species_id: null,
-        species_reason_ru: null,
-        x,
-        y,
-      },
-    });
-  }
-  return { features: [...current.values()], addedIds };
+// Точка плана в метрах чертежа — как у сервера, обратным преобразованием привязки обработки
+// (../backend/greenplan/api/jobs.py, run_version_export_job). Без привязки план — в метрах
+// чертежа.
+function drawingPointOf(project: MockProject): (point: readonly number[]) => [number, number] {
+  const placement = placementOfProject(project);
+  if (placement === null) return ([x = 0, y = 0]) => [x, y];
+  const { toLocal } = placementTransform(placement);
+  return ([lon = 0, lat = 0]) => {
+    const { x, y } = toLocal({ lat, lon });
+    return [x, y];
+  };
 }
 
-// Разбор тела POST /plantings/{version}/edit по контракту PlantingEdit: мок проверяет то,
-// от чего зависит новая версия, — списки, id, точки и тип посадки.
-function parseEdit(body: unknown): PlantingEdit | ValidationIssue {
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+// Объяснения версии — как build_explanations сервера: у посадки сервиса — правило и отметки
+// правки, у добавленной вручную — версия, где её добавили, и примечание.
+function explanationOf(ready: ReadyResult, version: MockVersion): JsonBodyType {
+  if (version.meta.id === 1) return ready.result.explanation;
+  const service = new Map(ready.result.explanation.map((entry) => [entry.id, entry]));
+  const original = new Map(
+    ready.result.planting.features.map((feature) => [feature.properties.id, feature]),
+  );
+  const toDrawing = drawingPointOf(ready.project);
+  return version.features.map(({ geometry, properties }) => {
+    const [x, y] = toDrawing(geometry.coordinates);
+    if (properties.kind === 'manual') {
+      return {
+        id: properties.id,
+        plant_type: properties.plant_type,
+        kind: 'manual',
+        rule_id: null,
+        rule_name_ru: null,
+        x: round2(x),
+        y: round2(y),
+        added_in_version: properties.added_in_version ?? null,
+        zone_check: 'not_checked',
+        note: NOTE_MANUAL,
+      };
+    }
+    const entry = service.get(properties.id);
+    const before = original.get(properties.id);
+    const [bx, by] = before === undefined ? [x, y] : toDrawing(before.geometry.coordinates);
+    const displacement = Math.hypot(x - bx, y - by);
+    const moved = displacement >= MOVE_THRESHOLD_M;
+    const retyped = before !== undefined && before.properties.plant_type !== properties.plant_type;
+    return {
+      ...entry,
+      id: properties.id,
+      plant_type: properties.plant_type,
+      kind: 'auto',
+      x: round2(x),
+      y: round2(y),
+      moved,
+      ...(moved && { displacement_m: round2(displacement) }),
+      ...(retyped && { original_plant_type: before.properties.plant_type }),
+      ...((moved || retyped) && {
+        zone_check: 'not_checked',
+        note: moved ? NOTE_MOVED : NOTE_RETYPED,
+      }),
+    };
+  });
+}
+
+type EditAdd = { client_id: string; plant_type: 'tree' | 'shrub'; lon: number; lat: number };
+type EditUpdate = { id: string; lon?: number; lat?: number; plant_type?: 'tree' | 'shrub' };
+type MockEdit = { name: string | null; add: EditAdd[]; update: EditUpdate[]; delete: string[] };
+
+// Правка версии — как _apply_edit сервера: все ошибки разом, типы ошибок — его коды.
+function applyEdit(
+  project: MockProject,
+  base: readonly MockVersionFeature[],
+  edit: MockEdit,
+  newVersion: number,
+): { features: MockVersionFeature[]; idMap: Record<string, string> } | ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const issue = (loc: (string | number)[], type: string, msg: string) => {
+    issues.push({ type, loc: ['body', ...loc], msg, input: null });
+  };
+  const byId = new Map(base.map((feature) => [feature.properties.id, feature]));
+  const placement = placementOfProject(project);
+  const checkPoint = (loc: (string | number)[], lon: number, lat: number) => {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+      issue(loc, 'coordinates_not_finite', 'coordinates must be finite numbers');
+      return;
+    }
+    const bbox = project.bbox;
+    if (placement === null || bbox === null) return;
+    const [minX, minY, maxX, maxY] = bbox;
+    const inside =
+      lon >= minX - BBOX_MARGIN_DEG &&
+      lon <= maxX + BBOX_MARGIN_DEG &&
+      lat >= minY - BBOX_MARGIN_DEG &&
+      lat <= maxY + BBOX_MARGIN_DEG;
+    if (!inside) {
+      issue(
+        loc,
+        'outside_project_bbox',
+        `point (${String(lon)}, ${String(lat)}) is outside the project bbox`,
+      );
+    }
+  };
+  if (edit.add.length + edit.update.length + edit.delete.length === 0) {
+    issue([], 'empty_edit', 'edit is empty: add, update and delete are all empty');
+  }
+  const clientIds = new Set<string>();
+  for (const [index, item] of edit.add.entries()) {
+    if (clientIds.has(item.client_id)) {
+      issue(
+        ['add', index, 'client_id'],
+        'duplicate_client_id',
+        `duplicate client_id '${item.client_id}'`,
+      );
+    }
+    clientIds.add(item.client_id);
+    checkPoint(['add', index], item.lon, item.lat);
+  }
+  const updated = new Set<string>();
+  for (const [index, item] of edit.update.entries()) {
+    if (updated.has(item.id))
+      issue(['update', index, 'id'], 'duplicate_id', `duplicate id '${item.id}'`);
+    updated.add(item.id);
+    if (!byId.has(item.id)) {
+      issue(['update', index, 'id'], 'unknown_id', `no point with id '${item.id}' in this version`);
+    }
+    if ((item.lon === undefined) !== (item.lat === undefined)) {
+      issue(['update', index], 'lon_lat_pair', 'lon and lat must be given together');
+    } else if (item.lon !== undefined && item.lat !== undefined) {
+      checkPoint(['update', index], item.lon, item.lat);
+    }
+    if (item.lon === undefined && item.lat === undefined && item.plant_type === undefined) {
+      issue(
+        ['update', index],
+        'nothing_to_update',
+        'nothing to change: give lon/lat and/or plant_type',
+      );
+    }
+  }
+  for (const [index, id] of edit.delete.entries()) {
+    if (!byId.has(id))
+      issue(['delete', index], 'unknown_id', `no point with id '${id}' in this version`);
+    if (updated.has(id)) {
+      issue(['delete', index], 'update_delete_conflict', `id '${id}' is both updated and deleted`);
+    }
+  }
+  if (issues.length > 0) return issues;
+
+  const next = new Map(base.map((feature) => [feature.properties.id, structuredClone(feature)]));
+  for (const item of edit.update) {
+    const feature = next.get(item.id);
+    if (feature === undefined) continue;
+    if (item.lon !== undefined && item.lat !== undefined) {
+      feature.geometry = { type: 'Point', coordinates: [item.lon, item.lat] };
+    }
+    if (item.plant_type !== undefined) feature.properties.plant_type = item.plant_type;
+  }
+  for (const id of edit.delete) next.delete(id);
+  const idMap: Record<string, string> = {};
+  for (const item of edit.add) {
+    project.manualPlantings += 1;
+    const id = `${MANUAL_ID_PREFIX}${String(project.manualPlantings).padStart(5, '0')}`;
+    idMap[item.client_id] = id;
+    next.set(id, {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
+      properties: {
+        id,
+        plant_type: item.plant_type,
+        kind: 'manual',
+        rule_id: null,
+        added_in_version: newVersion,
+      },
+    });
+  }
+  return { features: [...next.values()], idMap };
+}
+
+// Разбор тела POST /plantings/{version}/edit по схеме PlantingEdit сервера: лишние поля, как у
+// pydantic, пропускаются.
+function parseEdit(body: unknown): MockEdit | ValidationIssue {
   const invalid = (loc: (string | number)[], msg: string, input: unknown): ValidationIssue => ({
     type: 'value_error',
     loc: ['body', ...loc],
@@ -401,54 +552,88 @@ function parseEdit(body: unknown): PlantingEdit | ValidationIssue {
     input,
   });
   if (!isRecord(body)) return notAnObject(body);
-  const { name, add, update } = body;
-  const removed = body.delete;
+  const { name, add = [], update = [] } = body;
+  const removed = body.delete ?? [];
   if (!(name === undefined || name === null || typeof name === 'string')) {
     return invalid(['name'], 'Input should be a valid string', name);
   }
   if (!Array.isArray(add) || !Array.isArray(update) || !Array.isArray(removed)) {
-    return invalid([], 'Fields add, update and delete are required', body);
+    return invalid([], 'Input should be a valid list', body);
   }
-  const edit: PlantingEdit = { name: name ?? null, add: [], update: [], delete: [] };
+  const edit: MockEdit = { name: name ?? null, add: [], update: [], delete: [] };
   for (const [index, item] of add.entries()) {
     if (
       !isRecord(item) ||
       typeof item.client_id !== 'string' ||
-      !isFiniteNumber(item.lon) ||
-      !isFiniteNumber(item.lat) ||
-      !isFiniteNumber(item.x) ||
-      !isFiniteNumber(item.y) ||
+      typeof item.lon !== 'number' ||
+      typeof item.lat !== 'number' ||
       !isPlantType(item.plant_type)
     ) {
-      return invalid(['add', index], 'client_id, lon, lat, x, y and plant_type expected', item);
+      return invalid(['add', index], 'client_id, plant_type, lon and lat expected', item);
     }
     edit.add.push({
       client_id: item.client_id,
+      plant_type: item.plant_type,
       lon: item.lon,
       lat: item.lat,
-      x: item.x,
-      y: item.y,
-      plant_type: item.plant_type,
     });
   }
   for (const [index, item] of update.entries()) {
     if (
       !isRecord(item) ||
       typeof item.id !== 'string' ||
-      !isFiniteNumber(item.lon) ||
-      !isFiniteNumber(item.lat) ||
-      !isFiniteNumber(item.x) ||
-      !isFiniteNumber(item.y)
+      !(item.lon === undefined || item.lon === null || typeof item.lon === 'number') ||
+      !(item.lat === undefined || item.lat === null || typeof item.lat === 'number') ||
+      !(item.plant_type === undefined || item.plant_type === null || isPlantType(item.plant_type))
     ) {
-      return invalid(['update', index], 'id, lon, lat, x and y expected', item);
+      return invalid(['update', index], 'id expected; lon, lat and plant_type optional', item);
     }
-    edit.update.push({ id: item.id, lon: item.lon, lat: item.lat, x: item.x, y: item.y });
+    edit.update.push({
+      id: item.id,
+      ...(typeof item.lon === 'number' && { lon: item.lon }),
+      ...(typeof item.lat === 'number' && { lat: item.lat }),
+      ...(isPlantType(item.plant_type) && { plant_type: item.plant_type }),
+    });
   }
   for (const [index, id] of removed.entries()) {
-    if (typeof id !== 'string') return invalid(['delete', index], 'Id expected', id);
+    if (typeof id !== 'string')
+      return invalid(['delete', index], 'Input should be a valid string', id);
     edit.delete.push(id);
   }
   return edit;
+}
+
+// DXF версии — копия подосновы со слоем результата по точкам чертежа версии, как у сервера.
+function versionDxf(ready: ReadyResult, version: MockVersion): Response {
+  const service = new Map(ready.result.explanation.map((entry) => [entry.id, entry]));
+  const original = new Map(
+    ready.result.planting.features.map((feature) => [feature.properties.id, feature]),
+  );
+  const toDrawing = drawingPointOf(ready.project);
+  const dxf = siteDxf(
+    buildSiteResult(ready.run.params, null).obstacles.features,
+    version.features.map(({ geometry, properties }) => {
+      const unmoved =
+        original.get(properties.id)?.geometry.coordinates.join() === geometry.coordinates.join();
+      const entry = service.get(properties.id);
+      const [x, y] =
+        unmoved && entry !== undefined ? [entry.x, entry.y] : toDrawing(geometry.coordinates);
+      return {
+        x,
+        y,
+        plantType: properties.plant_type,
+        ruleId: properties.rule_id,
+        id: properties.id,
+      };
+    }),
+  );
+  const fileName = `${ready.project.name} — версия ${String(version.meta.id)}.dxf`;
+  return new HttpResponse(dxf, {
+    headers: {
+      'Content-Type': 'image/vnd.dxf',
+      'Content-Disposition': `attachment; filename="planting.dxf"; filename*=UTF-8''${encodeRfc5987(fileName)}`,
+    },
+  });
 }
 
 // Разбор тела PUT /georeference: числа там, где контракт их требует.
@@ -612,10 +797,13 @@ export const handlers = [
     return HttpResponse.json(toProjectResponse(project, now), { status: 202 });
   }),
 
+  // Объяснения последней версии, как у сервера: get_explanation.
   http.get<ProjectParams>(`${API}/projects/:projectId/explanation`, ({ params }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
-    return HttpResponse.json(ready.result.explanation);
+    const latest = versionsOf(ready).at(-1);
+    if (latest === undefined) return HttpResponse.json(ready.result.explanation);
+    return exportPending(latest) ?? HttpResponse.json(explanationOf(ready, latest));
   }),
 
   http.get<ProjectParams>(`${API}/projects/:projectId/zones`, ({ params }) => {
@@ -626,25 +814,12 @@ export const handlers = [
     });
   }),
 
-  // Последняя версия плана посадок в формате /planting: без origin.
+  // Последняя версия плана посадок, как у сервера: get_planting.
   http.get<ProjectParams>(`${API}/projects/:projectId/planting`, ({ params }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
     const latest = versionsOf(ready).at(-1)?.features ?? [];
-    return geoJson({
-      ...ready.result.planting,
-      features: latest.map(({ type, geometry, properties }) => ({
-        type,
-        geometry,
-        properties: {
-          id: properties.id,
-          plant_type: properties.plant_type,
-          rule_id: properties.rule_id,
-          species_id: properties.species_id,
-          species_reason_ru: properties.species_reason_ru,
-        },
-      })),
-    });
+    return geoJson({ ...ready.result.planting, features: latest });
   }),
 
   http.get<ProjectParams>(`${API}/projects/:projectId/obstacles`, ({ params }) => {
@@ -682,10 +857,29 @@ export const handlers = [
     if (version === undefined) return detail(404, 'Planting version not found');
     return geoJson({
       type: 'FeatureCollection',
-      metadata: { crs: ready.result.planting.metadata.crs, version: version.meta.id },
+      metadata: { crs: ready.result.planting.metadata.crs },
       features: version.features,
     });
   }),
+
+  http.get<VersionParams>(`${API}/projects/:projectId/plantings/:version/dxf`, ({ params }) => {
+    const ready = readyResult(params.projectId);
+    if (ready instanceof Response) return ready;
+    const version = findVersion(ready, params.version);
+    if (version === undefined) return detail(404, 'Planting version not found');
+    return exportPending(version) ?? versionDxf(ready, version);
+  }),
+
+  http.get<VersionParams>(
+    `${API}/projects/:projectId/plantings/:version/explanation`,
+    ({ params }) => {
+      const ready = readyResult(params.projectId);
+      if (ready instanceof Response) return ready;
+      const version = findVersion(ready, params.version);
+      if (version === undefined) return detail(404, 'Planting version not found');
+      return exportPending(version) ?? HttpResponse.json(explanationOf(ready, version));
+    },
+  ),
 
   http.post<VersionParams>(
     `${API}/projects/:projectId/plantings/:version/edit`,
@@ -699,23 +893,27 @@ export const handlers = [
       if (!parsed.ok) return validationError([jsonInvalid()]);
       const edit = parseEdit(parsed.body);
       if (isIssue(edit)) return validationError([edit]);
-      const applied = applyEdit(ready.project, versions[0]?.features ?? [], base.features, edit);
-      if (isIssue(applied)) return validationError([applied]);
+      const id = (versions.at(-1)?.meta.id ?? 0) + 1;
+      const applied = applyEdit(ready.project, base.features, edit, id);
+      if (Array.isArray(applied)) return validationError(applied);
 
-      const name = edit.name?.trim() ?? '';
+      // Сборка DXF и объяснений начинается сразу, как у сервера при свободном слоте.
       const created: MockVersion = {
         meta: {
-          id: (versions.at(-1)?.meta.id ?? 0) + 1,
-          name: name === '' ? null : name,
+          id,
+          name: edit.name === null || edit.name === '' ? `Версия ${String(id)}` : edit.name,
           kind: 'manual',
           created_at: new Date().toISOString(),
           based_on: base.meta.id,
-          planting_count: applied.features.length,
+          counts: countsOf(applied.features),
+          export_status: 'pending',
+          export_error: null,
         },
         features: applied.features,
+        exportReadyAt: Date.now() + EXPORT_DURATION_MS,
       };
       ready.project.versions.push(created);
-      return HttpResponse.json({ ...created.meta, added_ids: applied.addedIds }, { status: 201 });
+      return HttpResponse.json({ version: created.meta, id_map: applied.idMap }, { status: 201 });
     },
   ),
 
@@ -749,29 +947,13 @@ export const handlers = [
     },
   ),
 
-  http.get<ProjectParams>(`${API}/projects/:projectId/dxf`, ({ params, request }) => {
+  // DXF последней версии, как у сервера: get_dxf.
+  http.get<ProjectParams>(`${API}/projects/:projectId/dxf`, ({ params }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
-    const requested = new URL(request.url).searchParams.get('version');
-    const version = requested === null ? versionsOf(ready).at(-1) : findVersion(ready, requested);
-    if (version === undefined) return detail(404, 'Planting version not found');
-    // Копия подосновы со слоем результата по точкам чертежа версии, как у сервера.
-    const dxf = siteDxf(
-      buildSiteResult(ready.run.params, null).obstacles.features,
-      version.features.map(({ properties }) => ({
-        x: properties.x,
-        y: properties.y,
-        plantType: properties.plant_type,
-        ruleId: properties.rule_id,
-        id: properties.id,
-      })),
-    );
-    return new HttpResponse(dxf, {
-      headers: {
-        'Content-Type': 'application/dxf',
-        'Content-Disposition': `attachment; filename="planting.dxf"; filename*=UTF-8''${encodeRfc5987(ready.project.name)}.dxf`,
-      },
-    });
+    const latest = versionsOf(ready).at(-1);
+    if (latest === undefined) return detail(404, 'Planting version not found');
+    return exportPending(latest) ?? versionDxf(ready, latest);
   }),
 ];
 
