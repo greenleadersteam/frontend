@@ -45,9 +45,12 @@ type EditToolbarProps = {
   // несохранённых правках: подгонка идёт по всем посадкам.
   drawing: () => DrawingTransform;
   onRemoved: () => void;
+  // Выбран инструмент добавления: фокус уходит на карту, и Enter ставит посадку в центр
+  // перекрестия. Иначе фокус оставался бы на кнопке, и Enter снимал бы инструмент.
+  onToolPicked: () => void;
 };
 
-const PLACE_HINT = 'Щелчок по карте или Enter на карте ставит посадку';
+const PLACE_HINT = 'Щёлкните по карте или нажмите Enter — посадка встанет в центр перекрестия';
 // Предел имени версии в контракте (PlantingEdit.name).
 const VERSION_NAME_MAX = 200;
 
@@ -119,6 +122,7 @@ export function EditToolbar({
   active,
   drawing,
   onRemoved,
+  onToolPicked,
 }: EditToolbarProps): JSX.Element {
   const dispatch = useAppDispatch();
   const mode = useEditMode(projectId);
@@ -145,7 +149,9 @@ export function EditToolbar({
   const undo = () => dispatch(actions.undone({ projectId }));
   const redo = () => dispatch(actions.redone({ projectId }));
   const toggleTool = (tool: 'tree' | 'shrub') => {
-    mode.setTool(mode.tool === tool ? 'select' : tool);
+    const picked = mode.tool !== tool;
+    mode.setTool(picked ? tool : 'select');
+    if (picked) onToolPicked();
   };
   const remove = () => {
     if (selectedId === null) return;

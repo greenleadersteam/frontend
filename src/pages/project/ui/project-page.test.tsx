@@ -2172,14 +2172,17 @@ describe('правка расстановки', () => {
     expect(await screen.findByRole('button', { name: 'Править расстановку' })).toBeInTheDocument();
   });
 
-  test('Enter на карте ставит посадку инструмента в центр видимой области', async () => {
+  test('инструмент переводит фокус на карту, Enter ставит посадку в центр перекрестия', async () => {
     // В черновике у добавленной — первая подходящая порода из справочника.
     serverMock.plantingEdits = false;
     renderProject(READY_ID);
     await screen.findByRole('region', { name: MAP_LABEL });
     const toolbar = await startEditing();
-    await userEvent.click(within(toolbar).getByRole('button', { name: 'Добавить дерево' }));
+    fakeMap.focus.mockClear();
 
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'Добавить дерево' }));
+    // Иначе фокус остался бы на кнопке инструмента, и Enter снял бы инструмент.
+    expect(fakeMap.focus).toHaveBeenCalledWith({ preventScroll: true });
     act(() => {
       fakeMap.canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
@@ -2187,6 +2190,21 @@ describe('правка расстановки', () => {
     // Центр подменной карты — в 300 м к северу, вне участка.
     const panel = await screen.findByRole('region', { name: 'Липа мелколистная' });
     expect(within(panel).getByText('Вне разрешённой области')).toBeInTheDocument();
+    expect(within(panel).getByText('Ш 55,761995, Д 37,645200')).toBeInTheDocument();
+  });
+
+  test('Enter на кнопке инструмента посадку не ставит', async () => {
+    renderProject(READY_ID);
+    await screen.findByRole('region', { name: MAP_LABEL });
+    const toolbar = await startEditing();
+    const tool = within(toolbar).getByRole('button', { name: 'Добавить дерево' });
+    await userEvent.click(tool);
+
+    act(() => {
+      tool.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
   });
 
   test('в «Ведомости» клавиши правки невидимый план не меняют', async () => {

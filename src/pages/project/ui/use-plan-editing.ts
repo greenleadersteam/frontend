@@ -233,8 +233,8 @@ export function usePlanEditing(options: PlanEditingOptions): void {
     };
   }, [map, dispatch]);
 
-  // Esc выходит из режима добавления. Фаза захвата: фокус обычно остаётся на кнопке
-  // инструмента, а её подсказка (floating-ui useDismiss) останавливает всплытие Esc.
+  // Esc выходит из режима добавления. Фаза захвата: пока открыта подсказка кнопки инструмента
+  // под курсором, её floating-ui useDismiss останавливает всплытие Esc.
   useWindowEvent(
     'keydown',
     (event) => {

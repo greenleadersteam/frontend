@@ -804,6 +804,10 @@ export function ResultMap({
             onBasemapResolved={setBasemapAvailable}
             onUnavailable={onUnavailable}
           >
+            {mode.editing && mode.tool !== 'select' && (
+              // Куда встанет посадка по Enter: видно, пока карта в фокусе.
+              <div className={classes.crosshair} aria-hidden />
+            )}
             {mode.editing && (
               <div className={classes.topCenter}>
                 <EditToolbar
@@ -815,6 +819,9 @@ export function ResultMap({
                   drawing={() => drawingTransform(data.planting.features, explanation, geographic)}
                   onRemoved={() => {
                     onSelect(null);
+                  }}
+                  onToolPicked={() => {
+                    map?.getCanvas().focus({ preventScroll: true });
                   }}
                 />
               </div>

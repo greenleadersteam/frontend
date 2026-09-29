@@ -66,3 +66,38 @@
   background: var(--app-surface);
   box-shadow: var(--mantine-shadow-sm);
 }
+
+/* Перекрестие добавления: центр видимой области, куда Enter ставит посадку. Видно, пока холст
+   карты в фокусе. Линии — основной текст с белым ореолом, как подписи на карте. */
+.crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: none;
+  inline-size: var(--mantine-spacing-xl);
+  block-size: var(--mantine-spacing-xl);
+  translate: -50% -50%;
+  pointer-events: none;
+
+  &::before,
+  &::after {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    background: var(--app-text);
+    box-shadow: 0 0 0 0.0625rem var(--app-surface);
+    content: '';
+  }
+
+  &::before {
+    inline-size: 0.125rem;
+  }
+
+  &::after {
+    block-size: 0.125rem;
+  }
+}
+
+.area:has(:global(.maplibregl-canvas):focus) .crosshair {
+  display: block;
+}
