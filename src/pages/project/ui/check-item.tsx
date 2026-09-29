@@ -17,7 +17,7 @@ import {
   TOLERANCE_M,
   VERIFIED_CLAUSE_NOTE,
 } from '@/entities/project';
-import { formatMeters } from '@/shared/lib/format';
+import { formatMeters, sentence } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
 import { basisReference, VERIFIED_CLAUSE_HINT } from './norm-reference';
@@ -63,7 +63,7 @@ const requirement = (basis: NormBasis | null) =>
 // Консервативное значение сервиса — не требование закона: вместо ссылки на пункт — почему
 // нормы нет (contracts/norms-verified.md).
 export const serviceDefaultText = (distance: number, reason: string): string =>
-  `Отступ ${formatMeters(distance)} — консервативное значение сервиса. ${reason}.`;
+  `Отступ ${formatMeters(distance)} — консервативное значение сервиса. ${sentence(reason)}`;
 
 function viewOf(
   check: PlantingCheck,

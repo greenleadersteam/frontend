@@ -155,3 +155,10 @@ export const formatDrawingCoordinate = (value: number): string => drawingMeters.
 // Та же координата с единицей: «-1499,26 м».
 export const formatDrawingMeters = (value: number): string =>
   `${drawingMeters.format(value)}${NBSP}м`;
+
+// Предложение из текста сервера: точка — только если её или другого знака конца ещё нет,
+// иначе «нормы нет..».
+export const sentence = (text: string): string => {
+  const trimmed = text.trimEnd();
+  return /[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+};

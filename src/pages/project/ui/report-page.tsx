@@ -44,6 +44,7 @@ import {
   formatMeters,
   formatNumber,
   formatSquareMeters,
+  sentence,
 } from '@/shared/lib/format';
 import { saveFile } from '@/shared/lib/save-file';
 import { useAppSelector } from '@/shared/lib/store';
@@ -447,7 +448,7 @@ function Summary({ result, counts }: SummaryProps): JSX.Element {
 // Основание нормы: акт и пункт или «значение сервиса» с причиной. Пункт из сверки помечен:
 // сервер его не присылал.
 function basisText({ basis, norm, citation }: Pick<ReportCheck, 'basis' | 'norm' | 'citation'>) {
-  if (basis?.basis === 'service_default') return `Значение сервиса. ${basis.reason}.`;
+  if (basis?.basis === 'service_default') return `Значение сервиса. ${sentence(basis.reason)}`;
   const reference = basisReference(basis, norm, citation);
   return reference.verified ? `${reference.text} (${VERIFIED_CLAUSE_NOTE})` : reference.text;
 }

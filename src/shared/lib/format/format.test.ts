@@ -13,6 +13,7 @@ import {
   formatPercent,
   formatSquareMeters,
   formatTransferred,
+  sentence,
 } from './format';
 
 const NBSP = '\u00A0';
@@ -148,4 +149,16 @@ test('координата чертежа — два знака, без разр
 test('доля — процентом без дробной части, с неразрывным пробелом', () => {
   expect(formatPercent(0.284)).toBe('28\u00A0%');
   expect(formatPercent(0)).toBe('0\u00A0%');
+});
+
+describe('sentence', () => {
+  test('точка — только если знака конца ещё нет', () => {
+    expect(sentence('Для кустарника норма не установлена')).toBe(
+      'Для кустарника норма не установлена.',
+    );
+    expect(sentence('Норма не установлена.')).toBe('Норма не установлена.');
+    expect(sentence('Норма не установлена. ')).toBe('Норма не установлена.');
+    expect(sentence('Так ли?')).toBe('Так ли?');
+    expect(sentence('и т. д…')).toBe('и т. д…');
+  });
 });

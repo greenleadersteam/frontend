@@ -13,4 +13,5 @@ export {
   formatSquareMeters,
   formatTransferred,
   numberFormat,
+  sentence,
 } from './format';
