@@ -89,3 +89,21 @@
   font-weight: 600;
   text-transform: none;
 }
+
+/* Те же переменные, что ставит fullScreen у Modal (Modal.css Mantine), но по ширине экрана. */
+.modalInner {
+  @media (max-width: $mantine-breakpoint-xs) {
+    --modal-inner-y-offset: 0;
+    --modal-inner-x-offset: 0;
+  }
+}
+
+.modalContent {
+  @media (max-width: $mantine-breakpoint-xs) {
+    --modal-content-flex: 0 0 100%;
+    --modal-content-max-height: auto;
+    --modal-content-height: 100dvh;
+
+    border-radius: 0;
+  }
+}

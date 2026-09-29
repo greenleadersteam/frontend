@@ -53,7 +53,13 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
       >
         Проекты
       </Button>
-      <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
+      <Group
+        justify="space-between"
+        align="flex-start"
+        wrap="nowrap"
+        gap="xl"
+        className={classes.top}
+      >
         <Stack gap="sm" className={classes.summary}>
           <Title order={1} lineClamp={2}>
             {project.name}
@@ -71,7 +77,7 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
           {state.kind === 'ready' && <VersionSelect projectId={project.id} />}
           {project.description !== null && <Text c="dimmed">{project.description}</Text>}
         </Stack>
-        <Group gap="sm" wrap="nowrap">
+        <Group gap="sm" wrap="nowrap" className={classes.actions}>
           {/* Кнопка правки есть, только когда правки загружены и не устарели. */}
           {state.kind === 'ready' && <EditModeSlot project={project} />}
           {state.kind === 'ready' && <DownloadDxf project={project} />}
@@ -120,6 +126,7 @@ function GeoreferenceButton({ project }: GeoreferenceButtonProps): JSX.Element {
         <Button
           variant="subtle"
           size="compact-sm"
+          classNames={{ root: classes.georeferenceButton, label: classes.georeferenceLabel }}
           onClick={() => {
             setOpened(!opened);
           }}

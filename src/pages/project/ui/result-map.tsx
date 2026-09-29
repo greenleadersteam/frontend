@@ -854,7 +854,7 @@ export function ResultMap({
         </Suspense>
       </div>
       {narrow && panel !== null && (
-        <div ref={panelRef} className={classes.below}>
+        <div ref={panelRef} className={classes.sheet}>
           {panel}
         </div>
       )}

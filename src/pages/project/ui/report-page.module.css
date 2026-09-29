@@ -10,6 +10,7 @@
 /* На экране лист — как A4 в альбомной ориентации, до 70rem: таблицы помещаются без прокрутки. */
 .report {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--mantine-spacing-xl);
   width: 100%;
   max-width: var(--app-report-width);
@@ -19,10 +20,15 @@
   border-radius: var(--mantine-radius-lg);
   background: var(--app-surface);
   box-shadow: var(--mantine-shadow-sm);
+
+  @media (max-width: $mantine-breakpoint-xs) {
+    padding: var(--mantine-spacing-lg);
+  }
 }
 
 .section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--mantine-spacing-sm);
 }
 
@@ -37,9 +43,15 @@
 
 .facts {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
   margin: 0;
+
+  /* На телефоне подпись над значением: второй колонке иначе не хватает ширины на слово. */
+  @media (max-width: $mantine-breakpoint-xs) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0;
+  }
 
   & dd {
     margin: 0;
@@ -65,6 +77,13 @@
    переносятся посреди слова, числа — вправо, табличными цифрами. */
 .table {
   font-size: var(--mantine-font-size-sm);
+
+  /* На телефоне колонки не помещаются: таблица прокручивается сама, страница — нет. Печать
+     не затрагивается. */
+  @media screen and (max-width: $mantine-breakpoint-xs) {
+    display: block;
+    overflow-x: auto;
+  }
 
   & th {
     white-space: nowrap;

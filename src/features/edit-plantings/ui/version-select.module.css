@@ -1,4 +1,9 @@
 /* Подпись версии с датой и именем не должна обрезаться до номера. */
 .select {
+  min-inline-size: 0;
   inline-size: calc(var(--app-card-min-width) * 1.6);
+}
+
+.label {
+  white-space: nowrap;
 }

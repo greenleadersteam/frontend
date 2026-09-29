@@ -8,6 +8,7 @@ import {
   type CSSVariablesResolver,
   Input,
   InputWrapper,
+  Modal,
   Paper,
   Progress,
   Stepper,
@@ -116,6 +117,10 @@ export const theme = createTheme({
       },
     }),
     Checkbox: Checkbox.extend({ classNames: { input: classes.checkboxInput } }),
+    // На телефоне диалог — на весь экран; сам экран решает CSS, без useMediaQuery в каждом диалоге.
+    Modal: Modal.extend({
+      classNames: { inner: classes.modalInner, content: classes.modalContent },
+    }),
     Switch: Switch.extend({
       classNames: { input: classes.switchInput, track: classes.switchTrack },
     }),

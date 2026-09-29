@@ -7,19 +7,25 @@
 
 .root {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--mantine-spacing-xl);
+  gap: var(--mantine-spacing-sm) var(--mantine-spacing-xl);
   padding: var(--mantine-spacing-md) var(--mantine-spacing-xl);
   border-radius: var(--mantine-radius-lg);
   background-color: var(--app-surface);
   box-shadow: var(--mantine-shadow-sm);
+
+  @media (max-width: $mantine-breakpoint-sm) {
+    padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  }
 }
 
 .start {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--mantine-spacing-xl);
+  gap: var(--mantine-spacing-sm) var(--mantine-spacing-xl);
 }
 
 .brand {
@@ -33,6 +39,7 @@
 .brandName {
   font-size: var(--mantine-font-size-lg);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .team {
@@ -46,12 +53,21 @@
   margin: 0;
   padding: 0;
   list-style: none;
+
+  @media (max-width: $mantine-breakpoint-sm) {
+    --group-gap: var(--mantine-spacing-md);
+  }
 }
 
 .link {
   color: var(--app-text-muted);
+  white-space: nowrap;
   font-size: var(--mantine-font-size-md);
   text-decoration: none;
+
+  @media (max-width: $mantine-breakpoint-xs) {
+    font-size: var(--mantine-font-size-sm);
+  }
 
   &:hover {
     color: var(--app-text);

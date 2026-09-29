@@ -1,5 +1,6 @@
 .header {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--mantine-spacing-sm);
   width: 100%;
   max-width: var(--app-content-width);
@@ -10,6 +11,35 @@
 .back {
   justify-self: start;
   margin-inline-start: calc(var(--mantine-spacing-md) * -1);
+}
+
+/* Узкий экран: кнопки уходят под название, а на телефоне и друг под друга. Group задаёт
+   --group-wrap инлайн-стилем, поэтому перебивается само свойство. */
+.top {
+  @media (max-width: $mantine-breakpoint-md) {
+    flex-wrap: wrap;
+  }
+}
+
+.actions {
+  @media (max-width: $mantine-breakpoint-xs) {
+    flex-wrap: wrap;
+  }
+}
+
+/* Длинная подпись геопривязки на телефоне переносится, кнопка растёт в высоту. */
+.georeferenceButton {
+  @media (max-width: $mantine-breakpoint-xs) {
+    height: auto;
+    min-height: var(--button-height);
+  }
+}
+
+.georeferenceLabel {
+  @media (max-width: $mantine-breakpoint-xs) {
+    white-space: normal;
+    text-align: start;
+  }
 }
 
 .summary {

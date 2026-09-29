@@ -43,7 +43,7 @@ export function VersionSelect({ projectId }: VersionSelectProps): JSX.Element | 
 
   return (
     <Group gap="xs" wrap="nowrap">
-      <Text component="label" htmlFor={inputId} size="sm" c="dimmed">
+      <Text component="label" htmlFor={inputId} size="sm" c="dimmed" className={classes.label}>
         Версия:
       </Text>
       <Select
