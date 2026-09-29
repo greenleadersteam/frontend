@@ -67,7 +67,10 @@ const OBSTACLE_SUBTYPE_LABELS: Record<string, string> = {
   school_kindergarten: 'Здание школы или детского сада',
   retaining_wall: 'Подпорная стенка',
   slope: 'Откос, терраса',
-  // Категории улиц и напряжение ЛЭП — в нормах сервиса есть, распознавание их пока не выдаёт.
+  // Категории улиц — у проезжей части и бортового камня: из проекта и уточнённые по Overture
+  // (../backend/greenplan/fusion/roads.py, 6d2016b). arterial — проект называет улицу
+  // магистральной, не говоря какой. Напряжение ЛЭП распознавание пока не выдаёт.
+  arterial: 'Магистральная улица',
   arterial_citywide: 'Магистральная улица общегородского значения',
   arterial_district: 'Магистральная улица районного значения',
   local: 'Улица местного значения',
@@ -88,6 +91,7 @@ const OBSTACLE_CATEGORY_LABELS: Record<string, string> = {
   underground_utilities: 'Подземная сеть',
   buildings: 'Здания и сооружения',
   road_edge: 'Бортовой камень',
+  carriageway: 'Проезжая часть',
   footpath_edge: 'Край дорожек и тротуаров',
   green_existing: 'Существующие насаждения',
   poles_masts: 'Опоры и мачты',

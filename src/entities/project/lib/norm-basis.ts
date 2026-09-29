@@ -79,6 +79,13 @@ const VERIFIED: Record<string, Record<PlantType, VerifiedNorm>> = {
     tree: { distance: 2, basis: REGULATION },
     shrub: { distance: 1, basis: REGULATION },
   },
+  // Проезжая часть без категории улицы — та же норма края проезжей части (norms/default.yaml,
+  // 6d2016b). С категорией — МГСН 1.02-02, табл. 9.1: с первоисточником не сверено
+  // (contracts/norms-verified.md), основание не показывается.
+  'carriageway|': {
+    tree: { distance: 2, basis: REGULATION },
+    shrub: { distance: 1, basis: REGULATION },
+  },
   'footpath_edge|': {
     tree: { distance: 0.7, basis: REGULATION },
     shrub: { distance: 0.5, basis: REGULATION },
