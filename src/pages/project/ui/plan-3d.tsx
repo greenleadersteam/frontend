@@ -1,12 +1,14 @@
-import { Button, Group, SegmentedControl, Stack, Text } from '@mantine/core';
+import { ActionIcon, Button, Group, SegmentedControl, Stack, Text, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { IconInfoCircle } from '@tabler/icons-react';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
-import { type JSX, useEffect, useRef, useState } from 'react';
+import { type JSX, useEffect, useId, useRef, useState } from 'react';
 
 import type { Species } from '@/entities/project';
 import { saveFile } from '@/shared/lib/save-file';
 import { BASEMAP_SOURCE } from '@/shared/map';
 import { plan3dColors } from '@/shared/theme';
+import { Icon } from '@/shared/ui';
 
 import { type Shot, shotsArchive, STAGES, VIEWS } from '../lib/plan-3d-archive';
 import { type View, viewCamera } from '../lib/plan-3d-camera';
@@ -27,6 +29,9 @@ const PLANTING_LAYERS = [LAYERS.trunk, LAYERS.crown, LAYERS.shrub];
 const MAX_PITCH = 85;
 const FIT_PADDING = 48;
 const SAVE_FAILED = 'Визуализации не сохранены. Повторите скачивание.';
+const ABOUT =
+  'Схематичная 3D-визуализация по плану посадок. Размеры крон — условные или по справочнику пород.';
+const CONVENTIONAL_NOTE = 'У части посадок размеры условные: нет данных о породе.';
 
 const VIEW_LABELS: Record<View, string> = {
   overview: 'Обзор',
@@ -99,6 +104,11 @@ export function Plan3d({
   const [view, setView] = useState<View>('overview');
   const [saving, setSaving] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  // Свёрнутая панель — одна кнопка: сцена видна целиком.
+  const [collapsed, setCollapsed] = useState(false);
+  // Подсказка «О визуализации» — и по фокусу с клавиатуры, не только при наведении мыши.
+  const [aboutShown, setAboutShown] = useState(false);
+  const aboutId = useId();
   // Режим выключен посреди съёмки (уход со страницы): кадры больше не снимаются.
   const mounted = useRef(true);
   const scene = plantingScene(planting, species);
@@ -226,17 +236,71 @@ export function Plan3d({
     }
   };
 
+  if (collapsed) {
+    return (
+      <div className={classes.panel}>
+        <Button
+          variant="default"
+          size="compact-sm"
+          onClick={() => {
+            setCollapsed(false);
+          }}
+        >
+          3D-настройки
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <Stack gap="xs" className={classes.panel}>
-      <Text size="xs" c="dimmed">
-        Схематичная 3D-визуализация по плану посадок. Размеры крон — условные или по справочнику
-        пород.
-      </Text>
-      {scene.conventional && (
-        <Text size="xs" c="dimmed">
-          У части посадок размеры условные: нет данных о породе.
-        </Text>
-      )}
+      <Group justify="space-between" wrap="nowrap" gap="xs">
+        <Group gap={4} wrap="nowrap">
+          <Text size="sm" fw={600}>
+            3D
+          </Text>
+          <Tooltip
+            label={
+              <span id={aboutId}>
+                {ABOUT + (scene.conventional ? ` ${CONVENTIONAL_NOTE}` : '')}
+              </span>
+            }
+            multiline
+            opened={aboutShown}
+            classNames={{ tooltip: classes.tooltip }}
+          >
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              aria-label="О визуализации"
+              aria-describedby={aboutShown ? aboutId : undefined}
+              onFocus={() => {
+                setAboutShown(true);
+              }}
+              onBlur={() => {
+                setAboutShown(false);
+              }}
+              onMouseEnter={() => {
+                setAboutShown(true);
+              }}
+              onMouseLeave={() => {
+                setAboutShown(false);
+              }}
+            >
+              <Icon icon={IconInfoCircle} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          onClick={() => {
+            setCollapsed(true);
+          }}
+        >
+          Свернуть
+        </Button>
+      </Group>
       <SegmentedControl
         size="xs"
         data={STAGE_OPTIONS}

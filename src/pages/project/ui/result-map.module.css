@@ -51,6 +51,13 @@
   bottom: calc(var(--mantine-spacing-xl) * 4);
 }
 
+/* Панель «Слои» открыта слева — панель 3D встаёт правее неё, с тем же отступом. */
+.area:has(.topLeft .panel) {
+  --map-plan3d-left: calc(
+    var(--mantine-spacing-lg) + var(--app-card-min-width) + var(--mantine-spacing-md)
+  );
+}
+
 /* Пока справа открыта карточка, переключатель подложки уходит левее неё: ширина карточки,
    её отступ от края минус отступ столбца кнопок и зазор. */
 .area:has(.topRight .panel) {
