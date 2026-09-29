@@ -11,7 +11,12 @@ type JobStatus = Real['schemas']['JobStatus'];
 type JobError = Real['schemas']['JobError'];
 type UploadErrorCode = Real['schemas']['UploadErrorCode'];
 type ManualGeoreference = Proposed['schemas']['ManualGeoreference'];
-type CheckedPlantings = Proposed['schemas']['CheckedPlantingsFeatureCollection'];
+type PlantingVersion = Proposed['schemas']['PlantingVersion'];
+type PlantingVersionFeature = Proposed['schemas']['PlantingVersionFeature'];
+
+// Версия плана посадок, созданная правкой. Версия 1 — расстановка обработки, она строится
+// из результата и здесь не хранится.
+export type MockVersion = { meta: PlantingVersion; features: PlantingVersionFeature[] };
 type BBox = [number, number, number, number];
 
 type MockRun = {
@@ -36,8 +41,10 @@ export type MockProject = {
   run: MockRun | null;
   // Привязка, присланная через PUT /georeference; важнее bbox.
   georeference: ManualGeoreference | null;
-  // Последние правки посадок (PUT /plantings); новая обработка их сбрасывает.
-  edits: CheckedPlantings | null;
+  // Версии плана посадок после первой; новая обработка начинает историю заново.
+  versions: MockVersion[];
+  // Счётчик id посадок, добавленных вручную: id не повторяются между версиями.
+  manualPlantings: number;
 };
 
 // Как проект привязан к местности: присланная привязка, иначе bbox демо-проекта, иначе —
@@ -132,7 +139,8 @@ export function resetMockDb(now = Date.now()): void {
       updatedAt: createdAt,
       archive,
       georeference: null,
-      edits: null,
+      versions: [],
+      manualPlantings: 0,
       run:
         run === null || archive === null
           ? null
@@ -253,7 +261,8 @@ export function createProject(
     archive: null,
     run: null,
     georeference: null,
-    edits: null,
+    versions: [],
+    manualPlantings: 0,
   };
   projects.set(project.id, project);
   return project;
@@ -285,7 +294,8 @@ export function startRun(
   now: number,
 ): void {
   project.archive = archive;
-  project.edits = null;
+  project.versions = [];
+  project.manualPlantings = 0;
   project.run = {
     queuedAt: now,
     params,

@@ -5,11 +5,11 @@ import { type JSX, useState } from 'react';
 
 import {
   downloadProjectDxf,
-  type DxfVariant,
+  type DxfVersion,
   type Project,
   projectFileName,
 } from '@/entities/project';
-import { usePlantingEdits } from '@/features/edit-plantings';
+import { usePlantingEdits, usePlantingVersions } from '@/features/edit-plantings';
 import { describeAppError } from '@/shared/api';
 import { useCapability } from '@/shared/config';
 import { formatMeters } from '@/shared/lib/format';
@@ -23,9 +23,9 @@ type DownloadDxfProps = { project: Project };
 
 const useDownload = (project: Project) => {
   const [loading, setLoading] = useState(false);
-  const download = async (variant: DxfVariant = 'edited') => {
+  const download = async (version: DxfVersion | null = null) => {
     setLoading(true);
-    const error = await downloadProjectDxf(project, variant);
+    const error = await downloadProjectDxf(project, version);
     setLoading(false);
     if (error !== null) {
       notifications.show({ color: 'clay', message: describeAppError(error) });
@@ -34,9 +34,9 @@ const useDownload = (project: Project) => {
   return { loading, download };
 };
 
-// «Скачать DXF». С возможностью editedDxf сервер сам отдаёт результат с правками. Без неё,
-// когда правки есть, кнопка становится меню: результат сервиса или слой посадок с правками,
-// собранный в браузере.
+// «Скачать DXF». С возможностью editedDxf сервер отдаёт DXF версии плана посадок, выбранной
+// в шапке. Без неё, когда правки есть, кнопка становится меню: результат сервиса или слой
+// посадок с правками, собранный в браузере.
 export function DownloadDxf({ project }: DownloadDxfProps): JSX.Element {
   const state = useResultData(project);
   const withEditedDxf = useCapability('editedDxf');
@@ -46,8 +46,16 @@ export function DownloadDxf({ project }: DownloadDxfProps): JSX.Element {
 
 function ServiceDxfButton({ project }: DownloadDxfProps): JSX.Element {
   const { loading, download } = useDownload(project);
+  const withVersions = useCapability('plantingEdits');
+  const { target } = usePlantingVersions(project.id);
+  const version =
+    target === null ? null : { version: target, fileSuffix: ` — версия ${String(target)}.dxf` };
+  // С версиями без номера ушла бы последняя версия под именем без номера: ждём список.
   return (
-    <Button loading={loading} onClick={() => void download()}>
+    <Button
+      loading={loading || (withVersions && target === null)}
+      onClick={() => void download(version)}
+    >
       Скачать DXF
     </Button>
   );
@@ -79,8 +87,7 @@ function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Ele
 
   // Слой собирается по щелчку: расчёт статусов и подгонка не нужны при каждом рендере шапки.
   const downloadLayer = () => {
-    // Слой — в координатах чертежа: ручная привязка карты его не касается.
-    const base = resultBase(result, null);
+    const base = resultBase(result);
     const layer =
       base === null ? ({ kind: 'insufficient' } as const) : editedDxf(editedResult(base, edits));
     if (layer.kind !== 'ready') {

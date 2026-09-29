@@ -29,9 +29,8 @@ import {
   projectGeoreference,
   selectGeoreference,
 } from '@/entities/georeference';
-import { isProjectId } from '@/entities/project';
-import { useApplyGeoreference } from '@/features/georeference-project';
-import { describeAppError } from '@/shared/api';
+import { isProjectId, usePutGeoreferenceMutation } from '@/entities/project';
+import { describeAppError, toAppError } from '@/shared/api';
 import { getRuntimeConfig, PRODUCT_NAME, projectPath } from '@/shared/config';
 import { isLocked, isOutlier, stats as gcpStats } from '@/shared/lib/georeference';
 import { useAppDispatch, useAppSelector } from '@/shared/lib/store';
@@ -119,9 +118,9 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
   const [vectorScale, setVectorScale] = useState<VectorScale>(50);
   const [residualsOpen, setResidualsOpen] = useState(true);
   const [planVisible, setPlanVisible] = useState(true);
-  const { apply, applying } = useApplyGeoreference();
+  const [putGeoreference, { isLoading: applying }] = usePutGeoreferenceMutation();
   // Контур проекта ставится в сессию один раз на открытие экрана — и когда в сессии остался тот же
-  // проект с прошлого раза: начинать надо с сохранённой привязки, а не с брошенной правки.
+  // проект с прошлого раза: брошенная правка прошлого открытия не продолжается.
   const openedRef = useRef(false);
 
   const locked = isLocked(session.gcp);
@@ -195,22 +194,22 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
   });
 
   // Сессия модуля живёт в store приложения: в режиме проекта она получает контур проекта, когда
-  // готова карта (без привязки контур встаёт в её центр), а вне его контур проекта не остаётся.
+  // готова карта (контур встаёт в её центр без поворота), а вне его контур проекта не остаётся.
   useEffect(() => {
     if (project === null) {
       if (current.projectId !== null) dispatch(georeferenceActions.projectClosed());
       return;
     }
-    const { start, contour } = project;
+    const { contour } = project;
     // Без контура в данных проекта его откроет файл пользователя.
     if (map === null || openedRef.current || contour === null) return;
     openedRef.current = true;
     const center = map.getCenter();
     const opened = {
       source: contour,
-      anchor: start?.anchor ?? { lat: center.lat, lon: center.lng },
-      rotation: start?.rotation ?? 0,
-      scale: start?.scale ?? 1,
+      anchor: { lat: center.lat, lon: center.lng },
+      rotation: 0,
+      scale: 1,
     };
     dispatch(
       georeferenceActions.projectOpened({
@@ -219,41 +218,24 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
         anchor: opened.anchor,
         rotation: opened.rotation,
         scale: opened.scale,
-        gcp: start?.gcp ?? [],
+        gcp: [],
       }),
     );
     fit(opened);
   }, [map, project, current.projectId, dispatch, fit]);
 
-  // Применить к проекту: с возможностью manualGeoreference привязка уходит на сервер и проект
-  // обрабатывается заново, иначе — в браузер. В обоих случаях — назад к проекту.
+  // Применить к проекту: привязка уходит на сервер, проект обрабатывается заново — назад к нему.
   const applyToProject = async () => {
     if (project === null || placement === null) return;
-    const outcome = await apply(
-      project.project,
-      projectGeoreference(placement, session.gcp, session.workScale),
-    );
-    switch (outcome.kind) {
-      case 'browser':
-        notifications.show({ message: 'Привязка применена' });
-        break;
-      case 'server':
-        notifications.show({ message: 'Привязка отправлена: проект обрабатывается заново' });
-        break;
-      case 'failed':
-        notifications.show({
-          color: 'clay',
-          message:
-            outcome.error === null
-              ? 'Браузер не дал сохранить привязку. Разрешите сайту хранить данные и примените привязку снова.'
-              : describeAppError(outcome.error),
-        });
-        return;
-      default: {
-        const unexpected: never = outcome;
-        return unexpected;
-      }
+    const result = await putGeoreference({
+      id: project.project.id,
+      georeference: projectGeoreference(placement, session.gcp, session.workScale),
+    });
+    if ('error' in result) {
+      notifications.show({ color: 'clay', message: describeAppError(toAppError(result.error)) });
+      return;
     }
+    notifications.show({ message: 'Привязка отправлена: проект обрабатывается заново' });
     void navigate(projectPath(project.project.id));
   };
 

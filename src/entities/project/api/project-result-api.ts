@@ -12,11 +12,18 @@ export type Norm = Schemas['Norm'];
 // Возможности species и rejected.
 export type Species = Schemas['Species'];
 export type RejectedSitesFeatureCollection = Schemas['RejectedSitesFeatureCollection'];
-// Возможность plantingEdits: правки посадок со статусами сервера.
-export type EditedPlantingsFeatureCollection = Schemas['EditedPlantingsFeatureCollection'];
-export type CheckedPlantingsFeatureCollection = Schemas['CheckedPlantingsFeatureCollection'];
+// Возможность plantingEdits: версии плана посадок.
+export type PlantingVersion = Schemas['PlantingVersion'];
+export type PlantingVersionFeatureCollection = Schemas['PlantingVersionFeatureCollection'];
+export type PlantingEdit = Schemas['PlantingEdit'];
+
+// Версия 1 — расстановка обработки: новая обработка начинает историю заново, и других версий
+// kind: auto нет (contracts/openapi.proposed.yaml, /plantings).
+export const SERVICE_VERSION = 1;
 
 const resultTag = (id: string) => [{ type: 'ProjectResult', id }] as const;
+// Правка меняет список версий и последнюю версию в /planting, но не зоны и не объяснения.
+const versionsTag = (id: string) => [{ type: 'PlantingVersions', id }] as const;
 const resultUrl = (id: string, resource: string) =>
   `/projects/${encodeURIComponent(id)}/${resource}`;
 
@@ -34,7 +41,7 @@ export const projectResultApi = baseApi.injectEndpoints({
     }),
     getPlanting: build.query<PlantingFeatureCollection, string>({
       query: (id) => resultUrl(id, 'planting'),
-      providesTags: (_result, _error, id) => resultTag(id),
+      providesTags: (_result, _error, id) => [...resultTag(id), ...versionsTag(id)],
     }),
     getObstacles: build.query<ObstaclesFeatureCollection, string>({
       query: (id) => resultUrl(id, 'obstacles'),
@@ -44,29 +51,28 @@ export const projectResultApi = baseApi.injectEndpoints({
       query: (id) => resultUrl(id, 'rejected'),
       providesTags: (_result, _error, id) => resultTag(id),
     }),
-    // 204 — правок не было: fetchBaseQuery отдаёт пустое тело как null.
-    getPlantings: build.query<CheckedPlantingsFeatureCollection | null, string>({
+    getPlantingVersions: build.query<PlantingVersion[], string>({
       query: (id) => resultUrl(id, 'plantings'),
-      providesTags: (_result, _error, id) => resultTag(id),
+      providesTags: (_result, _error, id) => [...resultTag(id), ...versionsTag(id)],
     }),
-    // Ответ — те же посадки со статусами сервера: кэш GET обновляется им, без второго запроса.
-    putPlantings: build.mutation<
-      CheckedPlantingsFeatureCollection,
-      { id: string; plantings: EditedPlantingsFeatureCollection }
+    // Версия не меняется: её кэш сбрасывает только новая обработка.
+    getPlantingVersion: build.query<
+      PlantingVersionFeatureCollection,
+      { id: string; version: number }
     >({
-      query: ({ id, plantings }) => ({
-        url: resultUrl(id, 'plantings'),
-        method: 'PUT',
-        body: plantings,
+      query: ({ id, version }) => resultUrl(id, `plantings/${String(version)}`),
+      providesTags: (_result, _error, { id }) => resultTag(id),
+    }),
+    editPlantingVersion: build.mutation<
+      PlantingVersion,
+      { id: string; version: number; edit: PlantingEdit }
+    >({
+      query: ({ id, version, edit }) => ({
+        url: resultUrl(id, `plantings/${String(version)}/edit`),
+        method: 'POST',
+        body: edit,
       }),
-      // Ошибку сохранения показывает вызывающий; отказ здесь только гасится, иначе он всплыл
-      // бы необработанным.
-      onQueryStarted: ({ id }, { dispatch, queryFulfilled }) =>
-        queryFulfilled.then(
-          ({ data }) =>
-            void dispatch(projectResultApi.util.upsertQueryData('getPlantings', id, data)),
-          () => undefined,
-        ),
+      invalidatesTags: (_result, _error, { id }) => versionsTag(id),
     }),
     // Справочники норм и пород общие для всех проектов.
     getNorms: build.query<Norm[], undefined>({ query: () => '/norms' }),
@@ -75,13 +81,15 @@ export const projectResultApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useEditPlantingVersionMutation,
   useGetExplanationQuery,
   useGetNormsQuery,
   useGetObstaclesQuery,
   useGetPlantingQuery,
-  useGetPlantingsQuery,
+  useGetPlantingVersionQuery,
+  useGetPlantingVersionsQuery,
   useGetRejectedQuery,
   useGetSpeciesQuery,
   useGetZonesQuery,
-  usePutPlantingsMutation,
+  useLazyGetPlantingVersionQuery,
 } = projectResultApi;

@@ -19,12 +19,14 @@ import {
   type RejectedSitesFeatureCollection,
   type ResultData,
   resultExtent,
+  SERVICE_VERSION,
   type Species,
   toMapObstacles,
   useGetExplanationQuery,
   useGetNormsQuery,
   useGetObstaclesQuery,
   useGetPlantingQuery,
+  useGetPlantingVersionQuery,
   useGetRejectedQuery,
   useGetSpeciesQuery,
   useGetZonesQuery,
@@ -32,7 +34,6 @@ import {
 import type { FinalPlanting } from '@/features/edit-plantings';
 import { type AppError, toAppError } from '@/shared/api';
 import { useCapability } from '@/shared/config';
-import type { PlacementCore } from '@/shared/lib/georeference';
 
 // Результат обработки со всем, что сервер отдаёт сверх /planting и /zones.
 export type LoadedResult = {
@@ -60,7 +61,15 @@ export function useResultData(project: Project): ResultState {
   const withNorms = useCapability('norms');
   const withSpecies = useCapability('species');
   const withRejected = useCapability('rejected');
-  const planting = useGetPlantingQuery(project.id);
+  const withVersions = useCapability('plantingEdits');
+  // С версиями плана посадок /planting отдаёт последнюю версию, а правки считаются от
+  // расстановки сервиса — версии 1.
+  const latest = useGetPlantingQuery(project.id, { skip: withVersions });
+  const service = useGetPlantingVersionQuery(
+    { id: project.id, version: SERVICE_VERSION },
+    { skip: !withVersions },
+  );
+  const planting = withVersions ? service : latest;
   const zones = useGetZonesQuery(project.id);
   const explanation = useGetExplanationQuery(project.id);
   const obstacles = useGetObstaclesQuery(project.id, { skip: !withObstacles });
@@ -136,12 +145,13 @@ export type EditedResult = ResultBase & {
   statuses: Map<string, PlantingStatus>;
 };
 
-// null — в результате нет ни посадок, ни зон запрета: охвата нет. placement — ручная привязка
-// проекта без геопривязки сервера: она меняет только путь на карту (createLocalFrame).
-export function resultBase(
-  { data, explanation, obstacles, norms }: LoadedResult,
-  placement: PlacementCore | null,
-): ResultBase | null {
+// null — в результате нет ни посадок, ни зон запрета: охвата нет.
+export function resultBase({
+  data,
+  explanation,
+  obstacles,
+  norms,
+}: LoadedResult): ResultBase | null {
   const extent = resultExtent(data);
   if (extent === null) return null;
   // Без геопривязки бэкенд отдаёт координаты чертежа с меткой CRS
@@ -149,7 +159,7 @@ export function resultBase(
   // пока не отдаёт metadata в /planting.
   const geographic = isGeographic(data.zones.metadata.crs);
   // Охват и система координат — по расстановке сервиса: правка не сдвигает центр плана.
-  const frame = createLocalFrame(extent, geographic, geographic ? null : placement);
+  const frame = createLocalFrame(extent, geographic);
   return {
     extent,
     geographic,
@@ -167,41 +177,27 @@ export function resultBase(
   };
 }
 
-export function editedResult(
-  base: ResultBase,
-  edits: { final: FinalPlanting; serverStatuses: ReadonlyMap<string, PlantingStatus> | null },
-): EditedResult {
+export function editedResult(base: ResultBase, edits: { final: FinalPlanting }): EditedResult {
   const { frame, prepared, obstacles } = base;
   return {
     ...base,
     edited: { planting: edits.final, zones: base.zones },
-    statuses: plantingStatuses(edits.final, edits.serverStatuses, (point, plantType) =>
+    statuses: plantingStatuses(edits.final, (point, plantType) =>
       plantingStatus(frame.toLocal(point), plantType, prepared, obstacles?.prepared ?? null),
     ),
   };
 }
 
-// Статусы для карты и ведомости. После сохранения первичны статусы сервера; у правленых
-// посадок — свой расчёт, и в dev его расхождение с сервером видно в консоли, как в Б2.
-// У неправленых без ответа сервера статуса нет: это allowed расстановки сервиса.
+// Статусы для карты и ведомости — только у правленых посадок: в API версий статусов нет,
+// а у неправленых это allowed расстановки сервиса.
 function plantingStatuses(
   final: FinalPlanting,
-  server: ReadonlyMap<string, PlantingStatus> | null,
   statusOf: (point: readonly number[], plantType: PlantType) => PlantingStatus,
 ): Map<string, PlantingStatus> {
   const statuses = new Map<string, PlantingStatus>();
   for (const { geometry, properties } of final.features) {
-    const changed = properties.origin === 'manual' || properties.moved_from !== null;
-    const own = changed ? statusOf(geometry.coordinates, properties.plant_type) : null;
-    const saved = server?.get(properties.id);
-    if (saved !== undefined) {
-      if (import.meta.env.DEV && own !== null && own !== saved) {
-        // eslint-disable-next-line no-console -- сигнал разработчику о расхождении реализаций, только в dev
-        console.warn(`Статус ${properties.id}: сервер ${saved}, клиент ${own}`);
-      }
-      statuses.set(properties.id, saved);
-    } else if (own !== null) {
-      statuses.set(properties.id, own);
+    if (properties.origin === 'manual' || properties.moved_from !== null) {
+      statuses.set(properties.id, statusOf(geometry.coordinates, properties.plant_type));
     }
   }
   return statuses;

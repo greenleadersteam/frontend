@@ -29,6 +29,14 @@ const put = <Body>(path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- см. call
+const post = <Body>(path: string, body: unknown) =>
+  call<Body>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   resetMockDb();
@@ -46,17 +54,28 @@ describe('нормы и породы', () => {
         .map(({ id }) => id)
         .sort(),
     ).toEqual([
+      '743-pp-building-shrub',
+      '743-pp-building-tree',
       '743-pp-comm-cable-shrub',
       '743-pp-comm-cable-tree',
       '743-pp-drainage-tree',
+      '743-pp-footpath-edge-shrub',
+      '743-pp-footpath-edge-tree',
       '743-pp-gas-tree',
       '743-pp-heat-shrub',
       '743-pp-heat-tree',
+      '743-pp-poles-tree',
       '743-pp-power-cable-shrub',
       '743-pp-power-cable-tree',
+      '743-pp-retaining-wall-shrub',
+      '743-pp-retaining-wall-tree',
       '743-pp-road-edge-shrub',
       '743-pp-road-edge-tree',
+      '743-pp-school-shrub',
+      '743-pp-school-tree',
       '743-pp-sewer-tree',
+      '743-pp-slope-shrub',
+      '743-pp-slope-tree',
       '743-pp-water-tree',
     ]);
     // В таблице у кустарника прочерк: значение сервиса показывается без пункта.
@@ -192,173 +211,136 @@ describe('обоснование', () => {
   });
 });
 
-describe('правки посадок', () => {
-  const editedFrom = async (project = READY_LOCAL) => {
-    const { body } = await call<Schemas['PlantingFeatureCollection']>(
-      `/projects/${project}/planting`,
-    );
-    const features: Schemas['EditedPlanting'][] = body.features.map(({ geometry, properties }) => ({
-      type: 'Feature',
-      geometry,
-      properties: {
-        id: properties.id,
-        plant_type: properties.plant_type,
-        species_id: properties.species_id ?? null,
-        origin: 'auto',
-      },
-    }));
-    return { metadata: body.metadata, features };
-  };
+describe('версии плана посадок', () => {
+  const versionUrl = (version: number | string) =>
+    `/projects/${READY_LOCAL}/plantings/${String(version)}`;
+  const versionOf = async (version: number) =>
+    (await call<Schemas['PlantingVersionFeatureCollection']>(versionUrl(version))).body;
+  const editOf = (version: number, edit: Partial<Schemas['PlantingEdit']>) =>
+    post<Schemas['PlantingVersionCreated']>(`${versionUrl(version)}/edit`, {
+      add: [],
+      update: [],
+      delete: [],
+      ...edit,
+    });
 
-  test('неизменённые посадки сервиса остаются allowed и при геопривязке', async () => {
-    const { body } = await put<Schemas['CheckedPlantingsFeatureCollection']>(
-      `/projects/${READY_GEO}/plantings`,
-      { type: 'FeatureCollection', ...(await editedFrom(READY_GEO)) },
+  test('до правок — одна версия: расстановка обработки, она же в /planting', async () => {
+    const { body } = await call<Schemas['PlantingVersion'][]>(`/projects/${READY_LOCAL}/plantings`);
+    const service = await versionOf(1);
+    const planting = await call<Schemas['PlantingFeatureCollection']>(
+      `/projects/${READY_LOCAL}/planting`,
     );
 
-    expect(body.features.length).toBeGreaterThan(0);
-    expect(body.features.filter(({ properties }) => properties.status !== 'allowed')).toEqual([]);
-    const violated = body.features.flatMap(({ properties }) =>
-      properties.checks.filter((check) => check.actual_m < check.required_m),
-    );
-    expect(violated).toEqual([]);
-  });
-
-  test('до правок GET /plantings — 204: правок не было', async () => {
-    const { response, body } = await call(`/projects/${READY_LOCAL}/plantings`);
-
-    expect(response.status).toBe(204);
-    expect(body).toBeNull();
-  });
-
-  test('шаг — из параметров обработки: после /runs с шагом 4 м посадки в 4,5 м допустимы', async () => {
-    await call(`/projects/${READY_LOCAL}/runs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        planting_rules: { TREE_ROW_CURB: { spacing_m: 4 }, TREE_FILL_LAWN: { spacing_m: 4 } },
+    expect(body).toEqual([
+      expect.objectContaining({
+        id: 1,
+        kind: 'auto',
+        name: null,
+        based_on: null,
+        planting_count: service.features.length,
       }),
-    });
-    vi.setSystemTime(Date.now() + 25_000);
-    const edited = await editedFrom();
-    const [first] = edited.features;
-    if (first === undefined) throw new Error('нет посадок');
-    edited.features.push(
-      {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [16, 9] },
-        properties: { id: 'MANUAL-1', plant_type: 'tree', species_id: null, origin: 'manual' },
-      },
-      {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [16, 13.5] },
-        properties: { id: 'MANUAL-2', plant_type: 'tree', species_id: null, origin: 'manual' },
-      },
+    ]);
+    expect(service.metadata.version).toBe(1);
+    expect(service.features.every(({ properties }) => properties.origin === 'auto')).toBe(true);
+    expect(planting.body.features.map(({ properties }) => properties.id)).toEqual(
+      service.features.map(({ properties }) => properties.id),
     );
-
-    const { body } = await put<Schemas['CheckedPlantingsFeatureCollection']>(
-      `/projects/${READY_LOCAL}/plantings`,
-      { type: 'FeatureCollection', ...edited },
-    );
-
-    // По умолчанию наименьший шаг деревьев — 5 м: 4,5 м между посадками было бы нарушением.
-    const manual = body.features.filter(({ properties }) => properties.origin === 'manual');
-    expect(
-      manual.map(({ properties }) => properties.rejection?.reason ?? properties.status),
-    ).toEqual(['allowed', 'allowed']);
   });
 
-  test('статус — по точному расстоянию: 1,496 м от газопровода — в зоне запрета', async () => {
-    const edited = await editedFrom();
-    const [first] = edited.features;
-    if (first === undefined) throw new Error('нет посадок');
-    // Газопровод на y = 12, отступ дерева 1,5 м: округлённое actual_m — 1,5.
-    first.geometry = { type: 'Point', coordinates: [9, 12 - 1.496] };
-
-    const { body } = await put<Schemas['CheckedPlantingsFeatureCollection']>(
-      `/projects/${READY_LOCAL}/plantings`,
-      { type: 'FeatureCollection', ...edited },
-    );
-
-    const checked = body.features.find(({ properties }) => properties.id === first.properties.id);
-    expect(checked?.properties.status).toBe('forbidden');
-    expect(checked?.properties.checks.find(({ subtype }) => subtype === 'gas')?.actual_m).toBe(1.5);
-  });
-
-  test('перепроверка: в зоне запрета — forbidden, у соседа — rejected по шагу, за газоном — outside_site', async () => {
-    const edited = await editedFrom();
-    const [first, second] = edited.features;
+  test('правка создаёт версию: удаление, перемещение, добавление; id сервиса те же', async () => {
+    const [first, second] = (await versionOf(1)).features;
     if (first === undefined || second === undefined) throw new Error('нет посадок');
-    // Второе дерево ряда — на газопровод (y = 12, отступ 1,5 м).
-    second.geometry = { type: 'Point', coordinates: [9, 12] };
-    edited.features.push(
-      {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [3.5, 2.2] },
-        properties: { id: 'MANUAL-1', plant_type: 'tree', species_id: null, origin: 'manual' },
-      },
-      {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [30, 25] },
-        properties: { id: 'MANUAL-2', plant_type: 'tree', species_id: null, origin: 'manual' },
-      },
-    );
 
-    const { response, body } = await put<Schemas['CheckedPlantingsFeatureCollection']>(
-      `/projects/${READY_LOCAL}/plantings`,
-      { type: 'FeatureCollection', ...edited },
-    );
-
-    expect(response.status).toBe(200);
-    const byId = new Map(body.features.map(({ properties }) => [properties.id, properties]));
-    const moved = byId.get(second.properties.id);
-    expect(moved?.status).toBe('forbidden');
-    expect(moved?.checks.some(({ actual_m, required_m }) => actual_m < required_m)).toBe(true);
-    expect(byId.get('MANUAL-1')).toMatchObject({
-      status: 'rejected',
-      origin: 'manual',
-      rejection: { reason: 'spacing', neighbour_id: first.properties.id },
+    const { response, body } = await editOf(1, {
+      name: '  Вариант у школы ',
+      delete: [first.properties.id],
+      update: [{ id: second.properties.id, lon: 9, lat: 3 }],
+      add: [{ client_id: 'draft-1', lon: 30, lat: 10, plant_type: 'shrub' }],
     });
-    expect(byId.get('MANUAL-1')?.rejection?.text_ru).toBe(
-      'До соседней посадки 0,5\u00A0м при шаге 5\u00A0м',
-    );
-    expect(byId.get('MANUAL-2')?.rejection?.reason).toBe('outside_site');
-    const untouched = body.features.filter(
-      ({ properties }) =>
-        ![first.properties.id, second.properties.id, 'MANUAL-1', 'MANUAL-2'].includes(
-          properties.id,
-        ),
-    );
-    expect(untouched.every(({ properties }) => properties.status === 'allowed')).toBe(true);
 
-    const saved = await call<Schemas['CheckedPlantingsFeatureCollection']>(
-      `/projects/${READY_LOCAL}/plantings`,
+    expect(response.status).toBe(201);
+    expect(body).toMatchObject({ id: 2, kind: 'manual', name: 'Вариант у школы', based_on: 1 });
+    const added = body.added_ids['draft-1'];
+    const version = await versionOf(2);
+    const byId = new Map(version.features.map(({ properties }) => [properties.id, properties]));
+    expect(byId.has(first.properties.id)).toBe(false);
+    expect(byId.get(second.properties.id)).toMatchObject({
+      origin: 'manual',
+      rule_id: 'TREE_ROW_CURB',
+    });
+    expect(added === undefined ? undefined : byId.get(added)).toMatchObject({
+      plant_type: 'shrub',
+      rule_id: null,
+      origin: 'manual',
+    });
+    expect(body.planting_count).toBe(version.features.length);
+
+    // /planting — последняя версия, в прежнем формате.
+    const planting = await call<Schemas['PlantingFeatureCollection']>(
+      `/projects/${READY_LOCAL}/planting`,
     );
-    expect(saved.body.features).toHaveLength(body.features.length);
+    expect(planting.body.features).toHaveLength(version.features.length);
+    expect(planting.body.features.some(({ properties }) => 'origin' in properties)).toBe(false);
   });
 
-  test('DXF — вариант с правками по умолчанию, ?variant=original — исходный', async () => {
-    const edited = await editedFrom();
-    const original = edited.features.length;
-    edited.features = edited.features.slice(0, 3);
-    await put(`/projects/${READY_LOCAL}/plantings`, { type: 'FeatureCollection', ...edited });
+  test('правится и не последняя версия; удалённая посадка сервиса возвращается через update', async () => {
+    const [first] = (await versionOf(1)).features;
+    if (first === undefined) throw new Error('нет посадок');
+    const [x = 0, y = 0] = first.geometry.coordinates;
+    await editOf(1, { delete: [first.properties.id] });
 
+    const second = await editOf(1, { update: [{ id: first.properties.id, lon: x + 1, lat: y }] });
+    const restored = await editOf(2, { update: [{ id: first.properties.id, lon: x, lat: y }] });
+
+    expect(second.body).toMatchObject({ id: 3, based_on: 1 });
+    expect(restored.body).toMatchObject({ id: 4, based_on: 2 });
+    const back = (await versionOf(4)).features.find(
+      ({ properties }) => properties.id === first.properties.id,
+    );
+    expect(back?.properties.origin).toBe('auto');
+    expect(back?.properties.rule_id).toBe(first.properties.rule_id);
+  });
+
+  test('DXF — по версии; без параметра — последняя, нет версии — 404', async () => {
+    const service = await versionOf(1);
+    await editOf(1, {
+      delete: service.features.slice(3).map(({ properties }) => properties.id),
+    });
     const circles = async (query: string) => {
       const response = await fetch(`/api/projects/${READY_LOCAL}/dxf${query}`);
       return (await response.text()).split('\r\nCIRCLE\r\n').length - 1;
     };
 
     expect(await circles('')).toBe(3);
-    expect(await circles('?variant=original')).toBe(original);
+    expect(await circles('?version=1')).toBe(service.features.length);
+    expect((await fetch(`/api/projects/${READY_LOCAL}/dxf?version=9`)).status).toBe(404);
   });
 
-  test('некорректное тело — 422', async () => {
-    const { response } = await put(`/projects/${READY_LOCAL}/plantings`, {
-      type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { coordinates: ['x'] }, properties: {} }],
-    });
+  test('пустая правка, чужой id, id в двух списках, некорректное тело — 422; нет версии — 404', async () => {
+    const [first] = (await versionOf(1)).features;
+    if (first === undefined) throw new Error('нет посадок');
+    const id = first.properties.id;
 
-    expect(response.status).toBe(422);
+    expect((await editOf(1, {})).response.status).toBe(422);
+    expect((await editOf(1, { delete: ['NO-SUCH'] })).response.status).toBe(422);
+    expect(
+      (await editOf(1, { delete: [id], update: [{ id, lon: 1, lat: 1 }] })).response.status,
+    ).toBe(422);
+    const malformed = { add: [{ lon: 'x' }], update: [], delete: [] };
+    expect((await post(`${versionUrl(1)}/edit`, malformed)).response.status).toBe(422);
+    expect((await editOf(7, { delete: [id] })).response.status).toBe(404);
+  });
+
+  test('новая обработка начинает историю заново', async () => {
+    const [first] = (await versionOf(1)).features;
+    if (first === undefined) throw new Error('нет посадок');
+    await editOf(1, { delete: [first.properties.id] });
+
+    await post(`/projects/${READY_LOCAL}/runs`, {});
+    vi.setSystemTime(Date.now() + 25_000);
+
+    const { body } = await call<Schemas['PlantingVersion'][]>(`/projects/${READY_LOCAL}/plantings`);
+    expect(body.map(({ id }) => id)).toEqual([1]);
   });
 });
 

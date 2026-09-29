@@ -1,4 +1,3 @@
-import { formatMeters } from '@/shared/lib/format';
 import { isInside, type LocalPoint, nearestOnBoundary } from '@/shared/lib/geometry';
 import { type PlacementCore, placementTransform } from '@/shared/lib/georeference';
 
@@ -12,8 +11,6 @@ type PlantType = Schemas['PlantType'];
 type ZoneFeature = Schemas['ZoneFeature'];
 type ExplanationCheck = Schemas['ExplanationCheck'];
 type ManualGeoreference = Schemas['ManualGeoreference'];
-type EditedPlanting = Schemas['EditedPlanting'];
-type CheckedPlanting = Schemas['CheckedPlanting'];
 
 export type RunParams = {
   plantTypes: readonly PlantType[];
@@ -160,7 +157,7 @@ const OBSTACLES: SiteObstacle[] = [
     },
   },
   {
-    normId: null,
+    normId: '743-pp-building',
     obstacle: { category: 'buildings', subtype: null },
     shape: {
       kind: 'polygon',
@@ -181,7 +178,7 @@ const OBSTACLES: SiteObstacle[] = [
     },
   },
   {
-    normId: null,
+    normId: '743-pp-footpath-edge',
     obstacle: { category: 'footpath_edge', subtype: null },
     shape: { kind: 'segment', from: [0, -1.5], to: [60, -1.5] },
     source: {
@@ -322,10 +319,13 @@ const consecutivePairs = (values: number[]): [number, number][] =>
 // Разность прямоугольников через сетку по всем их кромкам. Буфер вокруг дерева вычитается
 // описанным квадратом: разрешённая зона выходит чуть меньше настоящей, для мока это допустимо.
 function subtract(base: Rect, holes: Rect[]): Rect[] {
-  const edges = (pick: (rect: Rect) => number[]) =>
-    [...new Set([base, ...holes].flatMap(pick))].sort((a, b) => a - b);
-  const columns = consecutivePairs(edges((rect) => [rect.x1, rect.x2]));
-  const rows = consecutivePairs(edges((rect) => [rect.y1, rect.y2]));
+  // Кромки дыр вне основы (здание и тротуар за газоном) сетку не продолжают.
+  const edges = (pick: (rect: Rect) => number[], min: number, max: number) =>
+    [...new Set([base, ...holes].flatMap(pick))]
+      .filter((edge) => edge >= min && edge <= max)
+      .sort((a, b) => a - b);
+  const columns = consecutivePairs(edges((rect) => [rect.x1, rect.x2], base.x1, base.x2));
+  const rows = consecutivePairs(edges((rect) => [rect.y1, rect.y2], base.y1, base.y2));
 
   return rows.flatMap(([y1, y2]) => {
     const runs: Rect[] = [];
@@ -360,8 +360,8 @@ const arc = ([cx, cy]: Point, radius: number, from: number, steps: number): Poin
     return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)] as const;
   });
 
-// Буфер со скруглёнными концами: у точки — круг, у отрезка — «стадион». Многоугольников среди
-// нормированных препятствий мока нет.
+// Буфер со скруглёнными концами: у точки — круг, у отрезка — «стадион», у выпуклого
+// многоугольника — он же со скруглёнными углами.
 function bufferOf(shape: Shape, radius: number): Point[] {
   switch (shape.kind) {
     case 'point':
@@ -376,8 +376,25 @@ function bufferOf(shape: Shape, radius: number): Point[] {
         ...arc(shape.from, radius, normal - Math.PI, ARC_STEPS),
       ];
     }
-    case 'polygon':
-      throw new Error('Буфер многоугольника в моке не нужен');
+    case 'polygon': {
+      // Выпуклый многоугольник (здание): стороны, сдвинутые наружу, и дуги в углах — как буфер
+      // shapely. Обход по часовой, как у дуг выше.
+      const open = shape.ring.slice(0, -1);
+      const area = open.reduce((sum, [x, y], index) => {
+        const [nx, ny] = open[(index + 1) % open.length] ?? [x, y];
+        return sum + x * ny - nx * y;
+      }, 0);
+      const ring = area > 0 ? [...open].reverse() : open;
+      // Внешняя нормаль ребра при обходе по часовой.
+      const normal = ([ax, ay]: Point, [bx, by]: Point) => Math.atan2(bx - ax, -(by - ay));
+      return ring.flatMap((vertex, index) => {
+        const previous = ring[(index + ring.length - 1) % ring.length] ?? vertex;
+        const next = ring[(index + 1) % ring.length] ?? vertex;
+        const from = normal(previous, vertex);
+        const turn = (from - normal(vertex, next) + 2 * Math.PI) % (2 * Math.PI);
+        return arc(vertex, radius, from, Math.round((turn / Math.PI) * ARC_STEPS));
+      });
+    }
     default: {
       const unexpected: never = shape;
       return unexpected;
@@ -623,92 +640,6 @@ export function buildSiteResult(params: RunParams, placement: PlacementCore | nu
       })),
     },
   };
-}
-
-// Наименьший шаг правил этой обработки для типа посадки: ближе к соседней посадке того же
-// типа сервис посадку не поставил бы (../backend/greenplan/layout/engine.py:74-77). У правки
-// нет правила посадки, поэтому берётся наименьший шаг — самое мягкое из требований.
-const minSpacing = (params: RunParams, plantType: PlantType): number =>
-  Math.min(
-    ...Object.entries(params.rules)
-      .filter(([ruleId]) => processingDefaults.planting_rules[ruleId]?.plant_type === plantType)
-      .map(([, rule]) => rule.spacing),
-  );
-
-// Перепроверка правок, как в контракте PUT /plantings: сначала нормы, потом допустимая область
-// и шаг. Координаты — в системе ответа /planting.
-export function checkPlantings(
-  plantings: EditedPlanting[],
-  placement: PlacementCore | null,
-  params: RunParams,
-  original: readonly Schemas['PlantingFeature'][],
-): CheckedPlanting[] {
-  const originalPoints = new Map(
-    original.map(({ geometry, properties }) => [properties.id, geometry.coordinates]),
-  );
-  // Посадку сервиса, которую не двигали (тот же id, та же точка), раскладка уже поставила
-  // с учётом области и шага; перепроверяются только нормы.
-  const unchanged = ({ geometry, properties }: EditedPlanting) => {
-    const [x, y] = originalPoints.get(properties.id) ?? [];
-    return (
-      properties.origin === 'auto' && x === geometry.coordinates[0] && y === geometry.coordinates[1]
-    );
-  };
-  const toDrawing = placement === null ? null : fromLonLat(placement);
-  const local = plantings.map(({ geometry }) => {
-    const [x = 0, y = 0] = geometry.coordinates;
-    return toDrawing === null ? ([x, y] as const) : toDrawing([x, y]);
-  });
-
-  return plantings.map((planting, index) => {
-    const point = local[index] ?? ([0, 0] as const);
-    const { plant_type: plantType } = planting.properties;
-    const measured = checksAt(point, plantType);
-    const base = { ...planting.properties, checks: measured.map(({ check }) => check) };
-
-    if (measured.some(({ violated }) => violated)) {
-      return { ...planting, properties: { ...base, status: 'forbidden', rejection: null } };
-    }
-    if (unchanged(planting)) {
-      return { ...planting, properties: { ...base, status: 'allowed', rejection: null } };
-    }
-    if (!insideRect(point, LAWN)) {
-      return {
-        ...planting,
-        properties: {
-          ...base,
-          status: 'rejected',
-          rejection: {
-            reason: 'outside_site',
-            text_ru: 'Точка вне газона в границе участка',
-            neighbour_id: null,
-          },
-        },
-      };
-    }
-    const spacing = minSpacing(params, plantType);
-    const neighbour = plantings
-      .map((other, otherIndex) => ({ other, at: local[otherIndex] ?? point }))
-      .filter(({ other }) => other !== planting && other.properties.plant_type === plantType)
-      .map(({ other, at }) => ({ other, gap: Math.hypot(at[0] - point[0], at[1] - point[1]) }))
-      .filter(({ gap }) => gap < spacing)
-      .sort((a, b) => a.gap - b.gap)[0];
-    if (neighbour !== undefined) {
-      return {
-        ...planting,
-        properties: {
-          ...base,
-          status: 'rejected',
-          rejection: {
-            reason: 'spacing',
-            text_ru: `До соседней посадки ${formatMeters(neighbour.gap, 1)} при шаге ${formatMeters(spacing, 1)}`,
-            neighbour_id: neighbour.other.properties.id,
-          },
-        },
-      };
-    }
-    return { ...planting, properties: { ...base, status: 'allowed', rejection: null } };
-  });
 }
 
 // Координаты посадок для DXF — в метрах чертежа, как пишет ../backend/greenplan/io/dxf_sink.py.

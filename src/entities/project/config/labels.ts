@@ -64,6 +64,24 @@ const OBSTACLE_SUBTYPE_LABELS: Record<string, string> = {
   tree_strip: 'Полоса деревьев',
   shrub_existing: 'Существующий кустарник',
   lawn: 'Газон',
+  school_kindergarten: 'Здание школы или детского сада',
+  retaining_wall: 'Подпорная стенка',
+  slope: 'Откос, терраса',
+  // Категории улиц и напряжение ЛЭП — в нормах сервиса есть, распознавание их пока не выдаёт.
+  arterial_citywide: 'Магистральная улица общегородского значения',
+  arterial_district: 'Магистральная улица районного значения',
+  local: 'Улица местного значения',
+  driveway: 'Проезд',
+  axis: 'Ось трамвайных путей',
+  bed_edge: 'Край трамвайного полотна',
+  lt_1kv: 'Воздушная линия до 1\u00A0кВ',
+  kv_1_20: 'Воздушная линия 1–20\u00A0кВ',
+  kv_35: 'Воздушная линия 35\u00A0кВ',
+  kv_110: 'Воздушная линия 110\u00A0кВ',
+  kv_150_220: 'Воздушная линия 150, 220\u00A0кВ',
+  kv_300_500: 'Воздушная линия 300, 500\u00A0кВ',
+  kv_750: 'Воздушная линия 750\u00A0кВ',
+  kv_1150: 'Воздушная линия 1150\u00A0кВ',
 };
 
 const OBSTACLE_CATEGORY_LABELS: Record<string, string> = {
@@ -79,6 +97,9 @@ const OBSTACLE_CATEGORY_LABELS: Record<string, string> = {
   contours: 'Горизонтали рельефа',
   geodetic_points: 'Геодезические пункты',
   site_boundary: 'Граница участка',
+  ditch_edge: 'Бровка канавы',
+  tram_tracks: 'Трамвайные пути',
+  overhead_power_lines: 'Воздушная линия электропередачи',
 };
 
 export function obstacleLabel(category: string, subtype: string | null): string {

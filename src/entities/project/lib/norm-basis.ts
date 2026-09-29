@@ -14,7 +14,7 @@ const noNorm = (reason: string) => ({ basis: 'service_default', reason }) as con
 // Основание норм сервиса на фронте: без возможности norms у сервера нет поля basis. Таблица —
 // строки «Нормы сервиса» из contracts/norms-verified.md: значение сервиса и основание для
 // дерева и кустарника. Когда бэкенд отдаст /norms, модуль удаляется. Второе место, где фронт
-// знает нормы, — список норм первоисточника, которых нет в сервисе (pages/project/model/report.ts).
+// знает нормы, — список норм, объекты которых распознавание не выдаёт (pages/project/model/report.ts).
 const VERIFIED: Record<string, Record<PlantType, VerifiedNorm>> = {
   'underground_utilities|gas': {
     tree: { distance: 1.5, basis: REGULATION },
@@ -74,13 +74,55 @@ const VERIFIED: Record<string, Record<PlantType, VerifiedNorm>> = {
       basis: noNorm('Для неопознанной подземной сети строки в ПП №\u00A0743-ПП, табл. 3.6.1, нет'),
     },
   },
+  // Бортовой камень сервис считает краем проезжей части (../backend/greenplan/norms/default.yaml).
   'road_edge|': {
+    tree: { distance: 2, basis: REGULATION },
+    shrub: { distance: 1, basis: REGULATION },
+  },
+  'footpath_edge|': {
     tree: { distance: 0.7, basis: REGULATION },
     shrub: { distance: 0.5, basis: REGULATION },
   },
+  'buildings|': {
+    tree: { distance: 5, basis: REGULATION },
+    shrub: { distance: 1.5, basis: REGULATION },
+  },
+  'buildings|school_kindergarten': {
+    tree: { distance: 10, basis: REGULATION },
+    shrub: { distance: 1.5, basis: REGULATION },
+  },
+  'poles_masts|': {
+    tree: { distance: 4, basis: REGULATION },
+    shrub: {
+      distance: 4,
+      basis: noNorm(
+        'Для кустарника у мачты и опоры норма в ПП №\u00A0743-ПП, табл. 3.6.1, не установлена',
+      ),
+    },
+  },
+  'retaining_walls_slopes|slope': {
+    tree: { distance: 1, basis: REGULATION },
+    shrub: { distance: 0.5, basis: REGULATION },
+  },
+  'retaining_walls_slopes|retaining_wall': {
+    tree: { distance: 3, basis: REGULATION },
+    shrub: { distance: 1, basis: REGULATION },
+  },
+  'ditch_edge|': {
+    tree: { distance: 2, basis: REGULATION },
+    shrub: { distance: 1, basis: REGULATION },
+  },
+  'tram_tracks|axis': {
+    tree: { distance: 5, basis: REGULATION },
+    shrub: { distance: 3, basis: REGULATION },
+  },
+  'tram_tracks|bed_edge': {
+    tree: { distance: 5, basis: REGULATION },
+    shrub: { distance: 3, basis: REGULATION },
+  },
   'green_existing|existing_tree': {
     tree: {
-      distance: 5,
+      distance: 6,
       basis: noNorm(
         'Табл. 3.6.2 ПП №\u00A0743-ПП задаёт ориентировочный шаг посадки деревьев 5–6\u00A0м, а не отступ от существующего дерева',
       ),

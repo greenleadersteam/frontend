@@ -7,7 +7,6 @@ import {
   countEdits,
   emptyDiff,
   HISTORY_DEPTH,
-  MANUAL_RULE,
   manualId,
   plantingEditsActions as actions,
   plantingEditsSlice,
@@ -78,7 +77,7 @@ describe('правки посадок', () => {
     });
     expect(final.features[1]?.properties).toMatchObject({
       origin: 'manual',
-      rule_id: MANUAL_RULE,
+      rule_id: null,
       moved_from: null,
     });
     expect(countEdits(present(state) ?? emptyDiff())).toEqual({

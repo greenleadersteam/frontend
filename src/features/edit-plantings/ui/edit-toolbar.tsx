@@ -6,6 +6,7 @@ import {
   Modal,
   Stack,
   Text,
+  TextInput,
   Tooltip,
   VisuallyHidden,
 } from '@mantine/core';
@@ -44,6 +45,8 @@ type EditToolbarProps = {
 };
 
 const PLACE_HINT = 'Щелчок по карте или Enter на карте ставит посадку';
+// Предел имени версии в контракте (PlantingEdit.name).
+const VERSION_NAME_MAX = 200;
 
 type ToolProps = {
   label: string;
@@ -88,6 +91,18 @@ export function EditToolbar({
   const edits = usePlantingEdits(projectId, source);
   const { save, saving } = useSavePlantings(projectId, source);
   const [resetting, setResetting] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [versionName, setVersionName] = useState('');
+  const saveVersion = () => {
+    void save(versionName).then((error) => {
+      if (error !== null) {
+        notifications.show({ color: 'clay', message: describeAppError(error) });
+        return;
+      }
+      setNaming(false);
+      setVersionName('');
+    });
+  };
 
   const undo = () => dispatch(actions.undone({ projectId }));
   const redo = () => dispatch(actions.redone({ projectId }));
@@ -119,13 +134,9 @@ export function EditToolbar({
         <Button
           size="compact-md"
           loading={saving}
-          disabled={!edits.unsaved}
+          disabled={!edits.unsaved || edits.switching}
           onClick={() => {
-            void save().then((error) => {
-              if (error !== null) {
-                notifications.show({ color: 'clay', message: describeAppError(error) });
-              }
-            });
+            setNaming(true);
           }}
         >
           Сохранить
@@ -210,6 +221,50 @@ export function EditToolbar({
         {`Правок: ${formatNumber(edits.counts.total)}`}
       </Text>
       {storage}
+      <Modal
+        opened={naming}
+        onClose={() => {
+          setNaming(false);
+        }}
+        title="Сохранить правки"
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveVersion();
+          }}
+        >
+          <Stack gap="lg">
+            <Text>
+              Правки станут новой версией плана посадок. Прежние версии остаются, к ним можно
+              вернуться в шапке проекта.
+            </Text>
+            <TextInput
+              label="Имя версии"
+              description="Необязательно. Видно в списке версий."
+              maxLength={VERSION_NAME_MAX}
+              value={versionName}
+              onChange={(event) => {
+                setVersionName(event.currentTarget.value);
+              }}
+              data-autofocus
+            />
+            <Group justify="flex-end" gap="sm">
+              <Button
+                variant="default"
+                onClick={() => {
+                  setNaming(false);
+                }}
+              >
+                Отмена
+              </Button>
+              <Button type="submit" loading={saving}>
+                Сохранить
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
       <Modal
         opened={resetting}
         onClose={() => {

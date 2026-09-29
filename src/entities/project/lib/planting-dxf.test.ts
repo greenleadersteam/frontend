@@ -50,7 +50,7 @@ const PLANTINGS: DxfPlanting[] = [
     x: -1480,
     y: 210.5,
     plantType: 'shrub',
-    ruleId: 'manual',
+    ruleId: null,
     id: 'manual-1',
     origin: 'manual',
     status: 'rejected',
@@ -108,7 +108,7 @@ describe('plantingLayerDxf', () => {
       'sorbus_aucuparia',
     ]);
     // Породы нет — её строки тоже нет.
-    expect(values(shrub, 1000)).toEqual(['shrub', 'manual', 'manual-1', 'manual', 'rejected']);
+    expect(values(shrub, 1000)).toEqual(['shrub', '', 'manual-1', 'manual', 'rejected']);
   });
 
   test('перевод строки в данных сервера не разрывает пары', () => {

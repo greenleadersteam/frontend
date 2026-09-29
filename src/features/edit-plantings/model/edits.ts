@@ -22,8 +22,8 @@ export type PlantingDiff = {
 
 export type EditTool = 'select' | 'tree' | 'shrub';
 
-// Где живут правки: на сервере (plantingEdits), черновиком в браузере или только в памяти —
-// если хранилище браузера недоступно.
+// Где живут правки: версиями плана посадок на сервере (plantingEdits), черновиком в браузере
+// или только в памяти — если хранилище браузера недоступно.
 export type EditsStorage = 'server' | 'draft' | 'memory';
 
 type ProjectEdits = {
@@ -41,6 +41,13 @@ type ProjectEdits = {
   storage: EditsStorage;
   // Найден черновик прошлой обработки: пока пользователь не решил, что с ним делать, правок нет.
   stale: PlantingDiff | null;
+  // Версия плана посадок, которая лежит в saved; null — правки не на сервере.
+  version: number | null;
+  // Окончание обработки, к которой относится версия: новая обработка начинает историю версий
+  // заново, и номер версии сам по себе её не отличает.
+  finishedAt: string | null;
+  // Какую версию показать; null — последнюю. Пока она грузится, на экране прежняя.
+  selected: number | null;
 };
 
 export type PlantingEditsState = Record<string, ProjectEdits>;
@@ -55,7 +62,9 @@ const fresh = (
     readOnly = false,
     storage = 'server',
     stale = null,
-  }: Partial<Pick<ProjectEdits, 'readOnly' | 'storage' | 'stale'>> = {},
+    version = null,
+    finishedAt = null,
+  }: Partial<Pick<ProjectEdits, 'readOnly' | 'storage' | 'stale' | 'version' | 'finishedAt'>> = {},
 ): ProjectEdits => ({
   present: diff,
   past: [],
@@ -67,6 +76,9 @@ const fresh = (
   readOnly,
   storage,
   stale,
+  version,
+  finishedAt,
+  selected: version,
 });
 
 type Of<T = object> = PayloadAction<{ projectId: string } & T>;
@@ -100,15 +112,35 @@ export const plantingEditsSlice = createSlice({
   name: 'plantingEdits',
   initialState,
   reducers: {
-    // Правки загружены (с сервера или из черновика): история начинается заново.
+    // Правки загружены (версия с сервера или черновик): история начинается заново. Разница
+    // версии — с версией сервиса, поэтому счётчики и «Сбросить» относятся к расстановке сервиса.
     opened: (
       state,
-      { payload }: Of<{ diff: PlantingDiff; readOnly?: boolean; storage: EditsStorage }>,
+      {
+        payload,
+      }: Of<{
+        diff: PlantingDiff;
+        readOnly?: boolean;
+        storage: EditsStorage;
+        version?: number;
+        finishedAt?: string | null;
+      }>,
     ) => {
-      state[payload.projectId] = fresh(payload.diff, {
+      const previous = state[payload.projectId];
+      const entry = fresh(payload.diff, {
         readOnly: payload.readOnly ?? false,
         storage: payload.storage,
+        version: payload.version ?? null,
+        finishedAt: payload.finishedAt ?? null,
       });
+      // Сохранение открывает новую версию: из режима правки оно не выводит.
+      entry.editing = (previous?.editing ?? false) && !entry.readOnly;
+      state[payload.projectId] = entry;
+    },
+    // До загрузки правок выбирать нечего: список версий показывается после неё.
+    versionSelected: (state, { payload }: Of<{ version: number }>) => {
+      const entry = state[payload.projectId];
+      if (entry !== undefined) entry.selected = payload.version;
     },
     // Черновик прошлой обработки: правок нет, пока не выбрано «Удалить» или «Оставить как есть».
     staleFound: (state, { payload }: Of<{ diff: PlantingDiff }>) => {
@@ -228,9 +260,6 @@ export type FinalPlanting = Omit<PlantingFeatureCollection, 'features'> & {
   }[];
 };
 
-// Правило у добавленной вручную: у бэкенда такого нет, имя правила не показывается.
-export const MANUAL_RULE = 'manual';
-
 export function applyDiff(source: PlantingFeatureCollection, diff: PlantingDiff): FinalPlanting {
   const features: FinalPlanting['features'] = source.features.flatMap((feature) => {
     const { id } = feature.properties;
@@ -264,7 +293,8 @@ export function applyDiff(source: PlantingFeatureCollection, diff: PlantingDiff)
       properties: {
         id,
         plant_type: plantType,
-        rule_id: MANUAL_RULE,
+        // Как у добавленной вручную в версии плана посадок: правила у неё нет.
+        rule_id: null,
         species_id: speciesId,
         species_reason_ru: null,
         origin: 'manual',

@@ -39,7 +39,7 @@ export function speciesRows(
     const known = properties.species_id == null ? undefined : species.get(properties.species_id);
     const key =
       known === undefined
-        ? `rule|${properties.plant_type}|${properties.rule_id}`
+        ? `rule|${properties.plant_type}|${properties.rule_id ?? ''}`
         : `species|${known.id}`;
     const row = rows.get(key);
     if (row !== undefined) {
@@ -51,8 +51,9 @@ export function speciesRows(
       known === undefined
         ? {
             key,
+            // Правила нет только у добавленной вручную.
             nameRu:
-              properties.origin === 'manual'
+              properties.rule_id === null
                 ? MANUAL_NAME
                 : (explanation.get(properties.id)?.rule_name_ru ??
                   `${PLANT_TYPE_LABELS[properties.plant_type]}, правило ${properties.rule_id}`),

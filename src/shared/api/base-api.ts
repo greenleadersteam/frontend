@@ -26,6 +26,6 @@ export type AppBaseQuery = typeof baseQuery;
 export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery,
-  tagTypes: ['Project', 'ProjectResult'],
+  tagTypes: ['Project', 'ProjectResult', 'PlantingVersions'],
   endpoints: () => ({}),
 });

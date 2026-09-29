@@ -9,7 +9,7 @@ flowchart TB
   app["<b>app</b><br/>провайдеры, store, маршруты, границы ошибок"]
   widgets["<b>widgets</b><br/>app-header — шапка, переключатель «Сервер» / «Демо»"]
   pages["<b>pages</b> — экраны<br/>projects — список проектов<br/>project-new — мастер загрузки<br/>project — план, ведомость, отчёт<br/>georeference — модуль геопривязки"]
-  features["<b>features</b> — действия<br/>edit-plantings — правка расстановки<br/>georeference-project — привязка проекта<br/>choose-root-dxf — выбор главного чертежа<br/>delete-project — удаление"]
+  features["<b>features</b> — действия<br/>edit-plantings — правка расстановки<br/>choose-root-dxf — выбор главного чертежа<br/>delete-project — удаление"]
   entities["<b>entities</b> — предметные сущности<br/>project — API, состояние обработки, проверки норм, слои карты, DXF<br/>georeference — сессия привязки, история, выгрузка"]
   shared["<b>shared</b> — без предметного знания<br/>api — RTK Query, загрузка архива, контракт, демо<br/>map — MapLibre, подложки<br/>lib — геодезия, геометрия, подгонка, ZIP, формат чисел<br/>config — config.json, возможности сервера<br/>ui, theme"]
   app --> widgets
@@ -31,8 +31,7 @@ PNG для печати: [images/architecture-components.png](images/architectur
   - `project` — экран проекта: план на карте (`ui/result-map.tsx`), панели выбранного, ведомость, скачивание DXF, отчёт для согласования (`ui/report-page.tsx`).
   - `georeference` — модуль геопривязки; открывается сам по себе или из проекта (`?project=<id>`).
 - **`features`.**
-  - `edit-plantings` — правки расстановки: разница с расстановкой сервиса, история, черновик в браузере или сохранение на сервере.
-  - `georeference-project` — привязка проекта: хранение в браузере или отправка на сервер.
+  - `edit-plantings` — правки расстановки: разница с расстановкой сервиса, история, черновик в браузере или версии плана посадок на сервере.
   - `choose-root-dxf` — выбор главного чертежа, если в архиве их несколько.
   - `delete-project` — удаление проекта и правило, когда оно доступно.
 - **`entities`.**
@@ -55,7 +54,7 @@ flowchart TB
   B -->|ready| C["Результат<br/>/planting, /zones, /explanation<br/>+ /obstacles, /norms, /species, /rejected"]
   C --> D["План<br/>система координат, слои карты"]
   D --> E["Проверки<br/>расстояния, нормы, размерные линии"]
-  E --> F["Правки<br/>черновик или PUT /plantings"]
+  E --> F["Правки<br/>черновик или версии плана посадок"]
   F --> G["Экспорт<br/>DXF, слой с правками, CSV, отчёт"]
 ```
 

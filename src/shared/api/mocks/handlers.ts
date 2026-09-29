@@ -10,6 +10,7 @@ import {
   findProject,
   listProjects,
   type MockProject,
+  type MockVersion,
   placementOfProject,
   slotsAvailable,
   startRun,
@@ -21,10 +22,11 @@ import { NORMS } from './fixtures/norms';
 import { processingDefaults } from './fixtures/processing-defaults';
 import type { MockArchive } from './fixtures/projects';
 import { plantingDxf } from './fixtures/result-dxf';
-import { buildSiteResult, checkPlantings, drawingPoints, type RunParams } from './fixtures/site';
+import { buildSiteResult, drawingPoints, type RunParams } from './fixtures/site';
 import { SPECIES } from './fixtures/species';
 
-type EditedPlanting = Proposed['schemas']['EditedPlanting'];
+type PlantingEdit = Proposed['schemas']['PlantingEdit'];
+type PlantingVersionFeature = Proposed['schemas']['PlantingVersionFeature'];
 type ManualGeoreference = Proposed['schemas']['ManualGeoreference'];
 
 // Совпадает с apiBaseUrl в public/config.json: мок подменяет тот же адрес, что и прокси Vite.
@@ -296,51 +298,139 @@ const geoJson = (body: JsonBodyType) =>
 const isPlantType = (value: unknown): value is 'tree' | 'shrub' =>
   value === 'tree' || value === 'shrub';
 
-// Разбор тела PUT /plantings по контракту EditedPlantingsFeatureCollection. Мок проверяет
-// ровно то, от чего зависит перепроверка: точку, тип, породу и происхождение.
-function parsePlantings(body: unknown): EditedPlanting[] | ValidationIssue {
+type VersionParams = ProjectParams & { version: string };
+
+// Версия 1 — расстановка обработки в формате версии; за ней — созданные правками.
+function versionsOf({ project, result }: ReadyResult): MockVersion[] {
+  const service: MockVersion = {
+    meta: {
+      id: 1,
+      name: null,
+      kind: 'auto',
+      created_at:
+        toProjectResponse(project, Date.now()).job.finished_at ?? new Date().toISOString(),
+      based_on: null,
+      planting_count: result.planting.features.length,
+    },
+    features: result.planting.features.map((feature) => ({
+      ...feature,
+      properties: { ...feature.properties, origin: 'auto' },
+    })),
+  };
+  return [service, ...project.versions];
+}
+
+const findVersion = (ready: ReadyResult, version: string): MockVersion | undefined =>
+  versionsOf(ready).find(({ meta }) => meta.id === Number(version));
+
+const editIssue = (loc: (string | number)[], msg: string, input: unknown): ValidationIssue => ({
+  type: 'value_error',
+  loc: ['body', ...loc],
+  msg,
+  input,
+});
+
+// Правка версии по контракту: delete, update, add. Посадка сервиса, удалённая раньше, через
+// update возвращается со своим id; в точке расстановки обработки она снова auto.
+function applyEdit(
+  project: MockProject,
+  service: readonly PlantingVersionFeature[],
+  base: readonly PlantingVersionFeature[],
+  edit: PlantingEdit,
+): { features: PlantingVersionFeature[]; addedIds: Record<string, string> } | ValidationIssue {
+  if (edit.add.length + edit.update.length + edit.delete.length === 0) {
+    return editIssue([], 'Edit is empty', edit);
+  }
+  const ids = [...edit.update.map(({ id }) => id), ...edit.delete];
+  if (new Set(ids).size !== ids.length) return editIssue([], 'Planting id is repeated', ids);
+  const current = new Map(base.map((feature) => [feature.properties.id, feature]));
+  const original = new Map(service.map((feature) => [feature.properties.id, feature]));
+  for (const [index, id] of edit.delete.entries()) {
+    if (!current.delete(id)) return editIssue(['delete', index], 'Planting not found', id);
+  }
+  for (const [index, { id, lon, lat }] of edit.update.entries()) {
+    const planting = current.get(id) ?? original.get(id);
+    if (planting === undefined) return editIssue(['update', index], 'Planting not found', id);
+    const [x, y] = original.get(id)?.geometry.coordinates ?? [];
+    current.set(id, {
+      ...planting,
+      geometry: { type: 'Point', coordinates: [lon, lat] },
+      properties: { ...planting.properties, origin: x === lon && y === lat ? 'auto' : 'manual' },
+    });
+  }
+  const addedIds: Record<string, string> = {};
+  for (const { client_id: clientId, lon, lat, plant_type: plantType } of edit.add) {
+    project.manualPlantings += 1;
+    const id = `MANUAL-${String(project.manualPlantings).padStart(5, '0')}`;
+    addedIds[clientId] = id;
+    current.set(id, {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [lon, lat] },
+      properties: {
+        id,
+        plant_type: plantType,
+        rule_id: null,
+        origin: 'manual',
+        species_id: null,
+        species_reason_ru: null,
+      },
+    });
+  }
+  return { features: [...current.values()], addedIds };
+}
+
+// Разбор тела POST /plantings/{version}/edit по контракту PlantingEdit: мок проверяет то,
+// от чего зависит новая версия, — списки, id, точки и тип посадки.
+function parseEdit(body: unknown): PlantingEdit | ValidationIssue {
   const invalid = (loc: (string | number)[], msg: string, input: unknown): ValidationIssue => ({
     type: 'value_error',
     loc: ['body', ...loc],
     msg,
     input,
   });
-  if (!isRecord(body) || !Array.isArray(body.features)) {
-    return invalid(['features'], 'Field required', body);
+  if (!isRecord(body)) return notAnObject(body);
+  const { name, add, update } = body;
+  const removed = body.delete;
+  if (!(name === undefined || name === null || typeof name === 'string')) {
+    return invalid(['name'], 'Input should be a valid string', name);
   }
-  const plantings: EditedPlanting[] = [];
-  for (const [index, feature] of body.features.entries()) {
-    const geometry = isRecord(feature) ? feature.geometry : undefined;
-    const properties = isRecord(feature) ? feature.properties : undefined;
-    const coordinates = isRecord(geometry) ? geometry.coordinates : undefined;
+  if (!Array.isArray(add) || !Array.isArray(update) || !Array.isArray(removed)) {
+    return invalid([], 'Fields add, update and delete are required', body);
+  }
+  const edit: PlantingEdit = { name: name ?? null, add: [], update: [], delete: [] };
+  for (const [index, item] of add.entries()) {
     if (
-      !Array.isArray(coordinates) ||
-      coordinates.length !== 2 ||
-      !coordinates.every(isFiniteNumber)
+      !isRecord(item) ||
+      typeof item.client_id !== 'string' ||
+      !isFiniteNumber(item.lon) ||
+      !isFiniteNumber(item.lat) ||
+      !isPlantType(item.plant_type)
     ) {
-      return invalid(['features', index, 'geometry'], 'Point [x, y] expected', geometry);
+      return invalid(['add', index], 'client_id, lon, lat and plant_type expected', item);
     }
-    if (
-      !isRecord(properties) ||
-      typeof properties.id !== 'string' ||
-      !isPlantType(properties.plant_type) ||
-      !(properties.species_id === null || typeof properties.species_id === 'string') ||
-      !(properties.origin === 'auto' || properties.origin === 'manual')
-    ) {
-      return invalid(['features', index, 'properties'], 'Invalid planting properties', properties);
-    }
-    plantings.push({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates },
-      properties: {
-        id: properties.id,
-        plant_type: properties.plant_type,
-        species_id: properties.species_id,
-        origin: properties.origin,
-      },
+    edit.add.push({
+      client_id: item.client_id,
+      lon: item.lon,
+      lat: item.lat,
+      plant_type: item.plant_type,
     });
   }
-  return plantings;
+  for (const [index, item] of update.entries()) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== 'string' ||
+      !isFiniteNumber(item.lon) ||
+      !isFiniteNumber(item.lat)
+    ) {
+      return invalid(['update', index], 'id, lon and lat expected', item);
+    }
+    edit.update.push({ id: item.id, lon: item.lon, lat: item.lat });
+  }
+  for (const [index, id] of removed.entries()) {
+    if (typeof id !== 'string') return invalid(['delete', index], 'Id expected', id);
+    edit.delete.push(id);
+  }
+  return edit;
 }
 
 // Разбор тела PUT /georeference: числа там, где контракт их требует.
@@ -518,11 +608,24 @@ export const handlers = [
     });
   }),
 
+  // Последняя версия плана посадок в формате /planting: без origin.
   http.get<ProjectParams>(`${API}/projects/:projectId/planting`, ({ params }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
-    return HttpResponse.json(ready.result.planting, {
-      headers: { 'Content-Type': 'application/geo+json' },
+    const latest = versionsOf(ready).at(-1)?.features ?? [];
+    return geoJson({
+      ...ready.result.planting,
+      features: latest.map(({ type, geometry, properties }) => ({
+        type,
+        geometry,
+        properties: {
+          id: properties.id,
+          plant_type: properties.plant_type,
+          rule_id: properties.rule_id,
+          species_id: properties.species_id,
+          species_reason_ru: properties.species_reason_ru,
+        },
+      })),
     });
   }),
 
@@ -551,35 +654,52 @@ export const handlers = [
   http.get<ProjectParams>(`${API}/projects/:projectId/plantings`, ({ params }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
-    // Правок не было — штатный случай, а не 404: 404 значит «нет проекта или результата».
-    if (ready.project.edits === null) return new HttpResponse(null, { status: 204 });
-    return geoJson(ready.project.edits);
+    return HttpResponse.json(versionsOf(ready).map(({ meta }) => meta));
   }),
 
-  http.put<ProjectParams>(`${API}/projects/:projectId/plantings`, async ({ params, request }) => {
+  http.get<VersionParams>(`${API}/projects/:projectId/plantings/:version`, ({ params }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
-    const parsed = await readJson(request);
-    if (!parsed.ok) return validationError([jsonInvalid()]);
-    const plantings = parsePlantings(parsed.body);
-    if (!Array.isArray(plantings)) return validationError([plantings]);
-
-    const placement = placementOfProject(ready.project);
-    ready.project.edits = {
+    const version = findVersion(ready, params.version);
+    if (version === undefined) return detail(404, 'Planting version not found');
+    return geoJson({
       type: 'FeatureCollection',
-      metadata: {
-        crs: ready.result.planting.metadata.crs,
-        saved_at: new Date().toISOString(),
-      },
-      features: checkPlantings(
-        plantings,
-        placement,
-        ready.run.params,
-        ready.result.planting.features,
-      ),
-    };
-    return geoJson(ready.project.edits);
+      metadata: { crs: ready.result.planting.metadata.crs, version: version.meta.id },
+      features: version.features,
+    });
   }),
+
+  http.post<VersionParams>(
+    `${API}/projects/:projectId/plantings/:version/edit`,
+    async ({ params, request }) => {
+      const ready = readyResult(params.projectId);
+      if (ready instanceof Response) return ready;
+      const versions = versionsOf(ready);
+      const base = findVersion(ready, params.version);
+      if (base === undefined) return detail(404, 'Planting version not found');
+      const parsed = await readJson(request);
+      if (!parsed.ok) return validationError([jsonInvalid()]);
+      const edit = parseEdit(parsed.body);
+      if (isIssue(edit)) return validationError([edit]);
+      const applied = applyEdit(ready.project, versions[0]?.features ?? [], base.features, edit);
+      if (isIssue(applied)) return validationError([applied]);
+
+      const name = edit.name?.trim() ?? '';
+      const created: MockVersion = {
+        meta: {
+          id: (versions.at(-1)?.meta.id ?? 0) + 1,
+          name: name === '' ? null : name,
+          kind: 'manual',
+          created_at: new Date().toISOString(),
+          based_on: base.meta.id,
+          planting_count: applied.features.length,
+        },
+        features: applied.features,
+      };
+      ready.project.versions.push(created);
+      return HttpResponse.json({ ...created.meta, added_ids: applied.addedIds }, { status: 201 });
+    },
+  ),
 
   http.put<ProjectParams>(
     `${API}/projects/:projectId/georeference`,
@@ -614,10 +734,10 @@ export const handlers = [
   http.get<ProjectParams>(`${API}/projects/:projectId/dxf`, ({ params, request }) => {
     const ready = readyResult(params.projectId);
     if (ready instanceof Response) return ready;
-    const variant = new URL(request.url).searchParams.get('variant');
-    const { edits } = ready.project;
-    const source =
-      edits !== null && variant !== 'original' ? edits.features : ready.result.planting.features;
+    const requested = new URL(request.url).searchParams.get('version');
+    const version = requested === null ? versionsOf(ready).at(-1) : findVersion(ready, requested);
+    if (version === undefined) return detail(404, 'Planting version not found');
+    const source = version.features;
     const dxf = plantingDxf(
       drawingPoints(
         source.map(({ geometry, properties }) => ({

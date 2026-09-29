@@ -15,7 +15,8 @@ export type DxfPlanting = {
   x: number;
   y: number;
   plantType: PlantType;
-  ruleId: string;
+  // null — добавлена вручную: правила у неё нет.
+  ruleId: string | null;
   id: string;
   origin: 'auto' | 'manual';
   status: string;
@@ -88,7 +89,8 @@ export function plantingLayerDxf(plantings: readonly DxfPlanting[]): string {
       [40, number(CROWN_RADIUS_M[planting.plantType])],
       [1001, XDATA_APPID],
       [1000, planting.plantType],
-      [1000, safeText(planting.ruleId)],
+      // XDATA позиционная: пустая строка держит место правила.
+      [1000, safeText(planting.ruleId ?? '')],
       [1000, safeText(planting.id)],
       [1000, planting.origin],
       [1000, safeText(planting.status)],

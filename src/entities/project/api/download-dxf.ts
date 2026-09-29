@@ -5,17 +5,17 @@ import { saveFile } from '@/shared/lib/save-file';
 import { projectFileName } from '../lib/file-name';
 import type { Project } from '../model/project';
 
-// Вариант результата при возможности editedDxf: с правками (по умолчанию) или исходный
-// результат обработки (?variant=original, contracts/openapi.proposed.yaml).
-export type DxfVariant = 'edited' | 'original';
+// Версия плана посадок при возможности editedDxf (?version=, contracts/openapi.proposed.yaml);
+// null — /dxf без параметра. Суффикс имени файла отличает версии между собой.
+export type DxfVersion = { version: number; fileSuffix: string };
 
 // Через RTK Query не идёт: Blob не сериализуется, а кэшировать файл незачем.
 export async function downloadProjectDxf(
   { id, name }: Pick<Project, 'id' | 'name'>,
-  variant: DxfVariant = 'edited',
+  version: DxfVersion | null = null,
 ): Promise<AppError | null> {
   let file: Blob;
-  const query = variant === 'original' ? '?variant=original' : '';
+  const query = version === null ? '' : `?version=${String(version.version)}`;
   try {
     const response = await fetch(
       `${getRuntimeConfig().apiBaseUrl}/projects/${encodeURIComponent(id)}/dxf${query}`,
@@ -29,9 +29,6 @@ export async function downloadProjectDxf(
     return { kind: 'network' };
   }
 
-  saveFile(
-    file,
-    projectFileName(name, variant === 'original' ? ' — исходный результат.dxf' : '.dxf'),
-  );
+  saveFile(file, projectFileName(name, version === null ? '.dxf' : version.fileSuffix));
   return null;
 }

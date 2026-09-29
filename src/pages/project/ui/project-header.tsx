@@ -12,10 +12,10 @@ import {
   isProcessing,
   type Project,
   ProjectStatusBadge,
+  SERVICE_VERSION,
 } from '@/entities/project';
 import { deleteAvailability, DeleteProjectModal } from '@/features/delete-project';
-import { EditModeButton } from '@/features/edit-plantings';
-import { removeBrowserGeoreference, useBrowserGeoreference } from '@/features/georeference-project';
+import { EditModeButton, VersionSelect } from '@/features/edit-plantings';
 import { describeAppError } from '@/shared/api';
 import {
   FOCUS_PROJECTS_HEADING,
@@ -29,7 +29,7 @@ import { formatCount, formatDuration, formatMeters } from '@/shared/lib/format';
 import { Icon } from '@/shared/ui';
 
 import { DownloadDxf } from './download-dxf';
-import { manualMethod, manualParameters, serverManualMethod } from './manual-georeference';
+import { serverManualMethod } from './manual-georeference';
 import classes from './project-header.module.css';
 
 type ProjectHeaderProps = {
@@ -67,6 +67,7 @@ export function ProjectHeader({ project, polling }: ProjectHeaderProps): JSX.Ele
             )}
             {state.kind === 'ready' && <GeoreferenceButton project={project} />}
           </Group>
+          {state.kind === 'ready' && <VersionSelect projectId={project.id} />}
           {project.description !== null && <Text c="dimmed">{project.description}</Text>}
         </Stack>
         <Group gap="sm" wrap="nowrap">
@@ -89,12 +90,9 @@ const RESIDUALS_LIST_LIMIT = 20;
 const RESIDUAL_LIMIT_M = 1;
 const POINT_FORMS = { one: 'опорная точка', few: 'опорные точки', many: 'опорных точек' };
 
-// Геопривязка сервера, ручная привязка из этого браузера или её отсутствие. Кнопка одна на все
-// случаи: снятая привязка меняет подпись, а фокус возвращается на ту же кнопку.
+// Геопривязка сервера или её отсутствие.
 function GeoreferenceButton({ project }: GeoreferenceButtonProps): JSX.Element {
   const georeference = project.job.georeference ?? null;
-  const stored = useBrowserGeoreference(project);
-  const manual = stored.kind === 'current' ? stored.georeference : null;
   const [opened, setOpened] = useState(false);
   const confidence =
     georeference === null ? null : GEOREFERENCE_CONFIDENCE_LABELS[georeference.confidence];
@@ -113,54 +111,13 @@ function GeoreferenceButton({ project }: GeoreferenceButtonProps): JSX.Element {
             setOpened(!opened);
           }}
         >
-          {manual !== null
-            ? `Геопривязка: ${manualMethod(manual)}`
-            : georeference === null
-              ? 'Без геопривязки'
-              : `Геопривязка: ${serverManual ? serverManualMethod(values) : (confidence ?? 'есть')}`}
+          {georeference === null
+            ? 'Без геопривязки'
+            : `Геопривязка: ${serverManual ? serverManualMethod(values) : (confidence ?? 'есть')}`}
         </Button>
       </Popover.Target>
       <Popover.Dropdown className={classes.georeference}>
-        {manual !== null ? (
-          <Stack gap="sm">
-            <Table className={classes.numbers}>
-              <Table.Tbody>
-                {manualParameters(manual).map(([label, value]) => (
-                  <Table.Tr key={label}>
-                    <Table.Th scope="row">{label}</Table.Th>
-                    <Table.Td>{value}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-            <Text size="sm" c="dimmed">
-              Привязка задана в модуле геопривязки и хранится только в этом браузере. Она кладёт
-              план на карту города; проверки норм, ведомость и слой DXF остаются в координатах
-              чертежа.
-            </Text>
-            <Group gap="sm">
-              <Button
-                component={Link}
-                to={georeferenceProjectPath(project.id)}
-                variant="default"
-                size="compact-md"
-              >
-                Изменить привязку
-              </Button>
-              <Button
-                variant="subtle"
-                color="clay"
-                size="compact-md"
-                onClick={() => {
-                  setOpened(false);
-                  removeBrowserGeoreference(project.id);
-                }}
-              >
-                Снять привязку
-              </Button>
-            </Group>
-          </Stack>
-        ) : georeference === null ? (
+        {georeference === null ? (
           <Text size="sm">
             Чертёж не привязан к городу: план показан в координатах чертежа, без подложки.
             Расстояния на плане — в метрах чертежа.
@@ -229,14 +186,18 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
   const archive = archiveAction(project.state);
   const deletion = deleteAvailability(project, polling);
   const withEditedDxf = useCapability('editedDxf');
-  const stored = useBrowserGeoreference(project);
+  // Привязать проект к карте из модуля может только сервер (следующая версия; в «Демо» — как цель).
+  const bindable = useCapability('manualGeoreference');
   const ready = project.state.kind === 'ready';
 
   // Пока файл скачивается, пункт недоступен: второй щелчок скачал бы его ещё раз.
   const [downloading, setDownloading] = useState(false);
   const downloadOriginal = async () => {
     setDownloading(true);
-    const error = await downloadProjectDxf(project, 'original');
+    const error = await downloadProjectDxf(project, {
+      version: SERVICE_VERSION,
+      fileSuffix: ' — исходный результат.dxf',
+    });
     setDownloading(false);
     if (error !== null) {
       notifications.show({ color: 'clay', message: describeAppError(error) });
@@ -264,7 +225,7 @@ function ProjectMenu({ project, polling }: ProjectMenuProps): JSX.Element {
             </Menu.Item>
           )}
           {/* План в координатах чертежа: его можно положить на карту города. */}
-          {ready && project.job.georeference == null && stored.kind !== 'current' && (
+          {ready && bindable && project.job.georeference == null && (
             <Menu.Item component={Link} to={georeferenceProjectPath(project.id)}>
               Привязать к карте
             </Menu.Item>

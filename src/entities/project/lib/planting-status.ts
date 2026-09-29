@@ -1,16 +1,14 @@
 import { isInside, type LocalPoint } from '@/shared/lib/geometry';
 
-import type { CheckedPlantingsFeatureCollection } from '../api/project-result-api';
 import type { PlantType } from '../model/project';
 import { checksAgainstObstacles, type PreparedObstacles } from './obstacle-checks';
 import { CROWN_RADIUS_M } from './plan-projection';
 import { checksForPlanting, type PreparedZones } from './planting-checks';
 
-// Статус посадки из CheckedPlanting контракта: allowed — нормы соблюдены и точка там, где
-// сервис сажает; forbidden — нарушена норма; rejected — нормы соблюдены, но точка вне газона
-// в границах участка.
-export type PlantingStatus =
-  CheckedPlantingsFeatureCollection['features'][number]['properties']['status'];
+// Статус правленой посадки. Его считает клиент: в API версий статусов нет. allowed — нормы
+// соблюдены и точка там, где сервис сажает; forbidden — нарушена норма; rejected — нормы
+// соблюдены, но точка вне газона в границах участка.
+export type PlantingStatus = 'allowed' | 'forbidden' | 'rejected';
 
 // Статус посадки, которую поправили на фронте: теми же проверками, что карточка посадки.
 // С объектами подосновы — по расстоянию до них с допуском TOLERANCE_M, без них — по зонам

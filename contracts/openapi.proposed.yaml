@@ -23,8 +23,8 @@ info:
     | `norms` | `GET /norms` |
     | `explanationChecks` | `checks` в `/explanation` |
     | `species` | `GET /species`, `species_id` и `species_reason_ru` у посадки |
-    | `plantingEdits` | `PUT` и `GET /projects/{project_id}/plantings` |
-    | `editedDxf` | `/dxf` с правками и `?variant=original` |
+    | `plantingEdits` | версии плана посадок: `GET /projects/{project_id}/plantings`, `GET` и `POST …/plantings/{version}/edit` |
+    | `editedDxf` | `/dxf?version={version}` |
     | `runs` | `POST /projects/{project_id}/runs` |
     | `manualGeoreference` | `PUT /projects/{project_id}/georeference` |
     | `optionalBbox` | создание проекта без `bbox_user` |
@@ -39,8 +39,8 @@ info:
     - `GET /projects/{project_id}/rejected` — места-кандидаты, отклонённые из-за отступа;
     - `GET /norms` — справочник норм из `norms/default.yaml` с пунктами нормативных актов;
     - `GET /species` — справочник пород; у посадки добавочно порода и причина выбора;
-    - `PUT` и `GET /projects/{project_id}/plantings` — правки посадок с перепроверкой норм,
-      `/dxf` с правками;
+    - версии плана посадок (модель бэкенд-разработчика): список версий, версия целиком и правка
+      версии, которая создаёт новую; `/dxf?version=`;
     - `PUT /projects/{project_id}/georeference` — готовые параметры привязки от клиента;
     - `POST /projects/{project_id}/runs` — повторная обработка загруженного архива с параметрами;
     - `GET /processing-defaults` — параметры обработки по умолчанию и допустимые диапазоны;
@@ -53,13 +53,24 @@ info:
     Когда эндпоинт реализован, фронтенд удаляет его из этого файла и берёт типы из основной
     спецификации.
 
+    Решения бэкенд-разработчика (28.09.2026), фронтенд их не оспаривает:
+    - геопривязка обязательна: проект, упавший на ней, считается сломанным;
+    - `bbox_user` остаётся обязательным — возможности `optionalBbox` на сервере не будет;
+    - `parsed.geojson` до геопривязки не пишется: у упавшего на геопривязке проекта
+      `/obstacles` — 404;
+    - `PUT /georeference` и работа без сети — следующая версия;
+    - `/obstacles`, `/norms`, имя файла в `/dxf` и пункты норм — «если успеет», включаются
+      конфигом; сети распознаются неточно, поэтому основной путь проверок — зоны запрета;
+    - версии плана посадок — модель бэкенд-разработчика; здесь она с дополнениями фронтенда.
+
 paths:
   /projects:
     post:
       summary: Создать проект
       description: |
-        Изменения — `bbox_user` необязателен; у `name` и `description` появились ограничения
-        длины (см. `ProjectCreateRequest`).
+        Изменения — у `name` и `description` появились ограничения длины (см.
+        `ProjectCreateRequest`). Необязательный `bbox_user` (возможность `optionalBbox`)
+        бэкенд-разработчик решил не делать: поле остаётся обязательным.
       operationId: create_project
       requestBody:
         required: true
@@ -214,9 +225,9 @@ paths:
         Отдаётся и у проекта, упавшего на этапе геопривязки (`insufficient_geodetic_points`,
         `georeference_service_error`): подоснова уже разобрана, объекты — в координатах чертежа.
         По границе работ (`category: site_boundary`) фронтенд строит контур для ручной привязки
-        (`PUT /georeference`). Для этого `parsed.geojson` в координатах чертежа нужно писать до
-        геопривязки: сейчас он пишется после неё (`greenplan/api/jobs.py:293-317`), и при сбое
-        геопривязки его нет. У проекта, упавшего раньше разбора, — 404.
+        (`PUT /georeference`). По решению бэкенда `parsed.geojson` пишется после геопривязки
+        (`greenplan/api/jobs.py:293-317`): у проекта, упавшего на ней, ответ 404, и контур
+        пользователь загружает файлом. У проекта, упавшего раньше разбора, — тоже 404.
 
         Возможность: `obstacles`.
       operationId: get_obstacles
@@ -302,67 +313,115 @@ paths:
 
   /projects/{project_id}/plantings:
     get:
-      summary: Последняя сохранённая версия посадок с правками
+      summary: Версии плана посадок
       description: |
-        Новый эндпоинт. Последний список, сохранённый через `PUT`, со статусами. Если правок не
-        было — 204 без тела: тогда актуален исходный результат `/planting`. 404 — только «нет
-        проекта или результата», как у остальных эндпоинтов результата.
+        Модель бэкенд-разработчика. Версия 1 (`kind: auto`) — расстановка обработки; каждая
+        правка создаёт следующую версию (`kind: manual`) на основе правленой. История линейная
+        по номерам: `based_on` показывает, от какой версии сделана правка, и она может быть
+        не последней. Версии не удаляются и не меняются.
+
+        Новая обработка (`upload`, `/runs`, `PUT /georeference`) начинает историю заново:
+        прежние версии относятся к прошлой расстановке.
+
+        Список — по возрастанию `id`. 404 — только «нет проекта или результата».
 
         Возможность: `plantingEdits`.
-      operationId: get_plantings
+      operationId: list_planting_versions
       parameters:
         - $ref: '#/components/parameters/ProjectId'
       responses:
         '200':
-          description: Посадки с правками и статусами.
+          description: Версии, первая — расстановка обработки.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlantingVersion'
+        '404':
+          $ref: '#/components/responses/ResultNotReady'
+
+  /projects/{project_id}/plantings/{version}:
+    get:
+      summary: Посадки версии
+      description: |
+        Формат `/planting` и добавочно `origin` у каждой посадки. Координаты — в той же системе,
+        что `/planting` (метка в `metadata.crs`).
+
+        `id` посадок версии 1 устойчивы: во всех следующих версиях у той же посадки тот же `id`,
+        даже если её переместили. У добавленной вручную `id` выдаёт сервер, `rule_id` — `null`.
+
+        Возможность: `plantingEdits`.
+      operationId: get_planting_version
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/PlantingVersionId'
+      responses:
+        '200':
+          description: Посадки версии.
           content:
             application/geo+json:
               schema:
-                $ref: '#/components/schemas/CheckedPlantingsFeatureCollection'
-        '204':
-          description: Правок не было.
+                $ref: '#/components/schemas/PlantingVersionFeatureCollection'
         '404':
-          $ref: '#/components/responses/ResultNotReady'
-    put:
-      summary: Сохранить правки посадок
+          description: Нет проекта, результата или такой версии.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /projects/{project_id}/plantings/{version}/edit:
+    post:
+      summary: Правка версии — новая версия
       description: |
-        Новый эндпоинт. Полный список посадок после правок пользователя: перемещённые,
-        добавленные, со сменой породы; удалённых в списке нет. Координаты — в той же системе,
-        что `/planting` (метка в `metadata.crs`). Сервер перепроверяет каждую посадку по нормам
-        и раскладке и отвечает тем же списком со статусами:
-        - `allowed` — все проверки пройдены;
-        - `forbidden` — точка в зоне запрета; в `checks` есть непройденная проверка;
-        - `rejected` — нормы соблюдены, но сервис не поставил бы сюда посадку: нарушен шаг
-          между посадками или точка вне допустимой области (газон ∩ граница участка);
-          причина — в `rejection`.
+        Создаёт новую версию на основе `{version}`: её посадки, к которым применены удаления,
+        перемещения и добавления. Правится любая версия, не только последняя; новая получает
+        следующий номер, `based_on` — `{version}`. Одновременные правки не конфликтуют: каждая
+        создаёт свою версию.
 
-        Свои неизменённые посадки (`origin: auto`, тот же `id` и та же точка, что в `/planting`)
-        сервер по области и шагу не перепроверяет: раскладка уже поставила их с учётом того и
-        другого, а правки соседей их статус не меняют. Статус такой посадки — из исходного
-        результата; нормы и `checks` считаются, как у остальных.
+        - `delete` — `id` посадок правленой версии;
+        - `update` — новая точка посадки правленой версии. Посадка версии 1, которой в правленой
+          версии нет (удалена раньше), этим же способом возвращается в указанную точку со своим
+          `id`, типом и правилом;
+        - `add` — новая посадка; `plant_type` обязателен. `client_id` — идентификатор клиента: по
+          нему клиент находит посадку в ответе, сервер его не хранит.
 
-        Сохраняется всегда, даже с `forbidden` и `rejected`: правку проектировщика сервис не
-        отбрасывает, а объясняет. Исходный результат обработки не меняется.
+        Порядок применения: `delete`, `update`, `add`. Один `id` в двух списках — 422. Пустая
+        правка (все три списка пусты) — 422: версия без изменений не нужна.
+
+        `origin: manual` получают добавленные и перемещённые; перемещённая сохраняет `rule_id`.
+        Порода и статус нормы в API версий не входят: сервер правки не перепроверяет, статусы
+        считает клиент.
+
+        Координаты — в системе `/planting` той же обработки: WGS84 при геопривязке, иначе метры
+        чертежа. Для DXF сервер переводит их в систему чертежа обратным преобразованием привязки.
 
         Возможность: `plantingEdits`.
-      operationId: put_plantings
+      operationId: edit_planting_version
       parameters:
         - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/PlantingVersionId'
       requestBody:
         required: true
         content:
-          application/geo+json:
+          application/json:
             schema:
-              $ref: '#/components/schemas/EditedPlantingsFeatureCollection'
+              $ref: '#/components/schemas/PlantingEdit'
       responses:
-        '200':
-          description: Сохранено; посадки со статусами.
+        '201':
+          description: Версия создана.
           content:
-            application/geo+json:
+            application/json:
               schema:
-                $ref: '#/components/schemas/CheckedPlantingsFeatureCollection'
+                $ref: '#/components/schemas/PlantingVersionCreated'
         '404':
-          $ref: '#/components/responses/ResultNotReady'
+          description: |
+            Нет проекта, результата или такой версии. Во время новой обработки результата нет —
+            тоже 404, как у остальных эндпоинтов результата.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
           $ref: '#/components/responses/ValidationError'
 
@@ -434,8 +493,11 @@ paths:
       summary: Точки посадок
       description: |
         Описывает текущий вывод `greenplan/export/planting.py`. Добавочно у посадки — порода
-        `species_id` и причина её выбора `species_reason_ru` (возможность `species`). Это исходный
-        результат обработки: правки пользователя живут отдельно, в `/plantings`.
+        `species_id` и причина её выбора `species_reason_ru` (возможность `species`).
+
+        С версиями плана посадок (возможность `plantingEdits`) — последняя версия в этом же
+        формате: у добавленных вручную `rule_id` — `null`. Клиент, который не знает о версиях,
+        видит последний план.
       operationId: get_planting
       parameters:
         - $ref: '#/components/parameters/ProjectId'
@@ -456,19 +518,18 @@ paths:
         Главный DXF архива плюс слой `GREENING_PROPOSED`. Сейчас спецификация указывает
         `application/json`, а бэкенд отдаёт файл.
 
-        Добавочно (возможность `editedDxf`): если через `PUT /plantings` сохранены правки,
-        по умолчанию отдаётся вариант с правками — слой посадок строится из сохранённого
-        списка. `?variant=original` — исходный результат обработки.
+        Добавочно (возможность `editedDxf`): `?version={version}` — слой посадок этой версии
+        плана посадок. Без параметра — последняя версия, как `/planting`.
       operationId: get_dxf
       parameters:
         - $ref: '#/components/parameters/ProjectId'
-        - name: variant
+        - name: version
           in: query
           required: false
-          description: '`edited` (по умолчанию, если есть правки) или `original`.'
+          description: Номер версии плана посадок; 404 — такой версии нет.
           schema:
-            type: string
-            enum: [edited, original]
+            type: integer
+            minimum: 1
       responses:
         '200':
           description: DXF-файл.
@@ -512,6 +573,13 @@ components:
       schema:
         type: string
 
+    PlantingVersionId:
+      name: version
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
   responses:
     ProjectNotFound:
       description: Проекта нет или он удалён.
@@ -927,45 +995,47 @@ components:
     PlantingOrigin:
       type: string
       enum: [auto, manual]
-      description: '`auto` — поставлена обработкой, `manual` — добавлена или перемещена пользователем.'
+      description: '`auto` — точка расстановки обработки, `manual` — добавлена или перемещена пользователем.'
 
-    EditedPlantingsFeatureCollection:
+    PlantingVersion:
       type: object
-      required: [type, metadata, features]
+      required: [id, name, kind, created_at, based_on, planting_count]
       properties:
-        type:
-          const: FeatureCollection
-        metadata:
-          $ref: '#/components/schemas/CrsMetadata'
-        features:
-          type: array
-          items:
-            $ref: '#/components/schemas/EditedPlanting'
+        id:
+          type: integer
+          minimum: 1
+          description: Номер версии; 1 — расстановка обработки.
+        name:
+          type: [string, 'null']
+          maxLength: 200
+          description: Имя, которое дал автор правки; у версии обработки — `null`.
+        kind:
+          type: string
+          enum: [auto, manual]
+          description: '`auto` — расстановка обработки, `manual` — правка пользователя.'
+        created_at:
+          type: string
+          format: date-time
+        based_on:
+          type: [integer, 'null']
+          description: Версия, на основе которой сделана правка; у версии обработки — `null`.
+        planting_count:
+          type: integer
+          minimum: 0
 
-    EditedPlanting:
-      type: object
-      required: [type, geometry, properties]
-      properties:
-        type:
-          const: Feature
-        geometry:
-          $ref: '#/components/schemas/PointGeometry'
-        properties:
-          type: object
-          required: [id, plant_type, species_id, origin]
+    PlantingVersionCreated:
+      allOf:
+        - $ref: '#/components/schemas/PlantingVersion'
+        - type: object
+          required: [added_ids]
           properties:
-            id:
-              type: string
-              description: Прежний `id` у посадки из `/planting`, новый — у добавленной.
-            plant_type:
-              $ref: '#/components/schemas/PlantType'
-            species_id:
-              type: [string, 'null']
-              description: Порода из `/species`; `null` — порода не выбрана.
-            origin:
-              $ref: '#/components/schemas/PlantingOrigin'
+            added_ids:
+              type: object
+              additionalProperties:
+                type: string
+              description: '`client_id` из `add` → `id`, который сервер выдал посадке.'
 
-    CheckedPlantingsFeatureCollection:
+    PlantingVersionFeatureCollection:
       type: object
       required: [type, metadata, features]
       properties:
@@ -975,18 +1045,16 @@ components:
           allOf:
             - $ref: '#/components/schemas/CrsMetadata'
             - type: object
-              required: [saved_at]
+              required: [version]
               properties:
-                saved_at:
-                  type: string
-                  format: date-time
-                  description: Когда сохранены правки.
+                version:
+                  type: integer
         features:
           type: array
           items:
-            $ref: '#/components/schemas/CheckedPlanting'
+            $ref: '#/components/schemas/PlantingVersionFeature'
 
-    CheckedPlanting:
+    PlantingVersionFeature:
       type: object
       required: [type, geometry, properties]
       properties:
@@ -996,47 +1064,64 @@ components:
           $ref: '#/components/schemas/PointGeometry'
         properties:
           type: object
-          required: [id, plant_type, species_id, origin, status, checks, rejection]
+          required: [id, plant_type, rule_id, origin]
           properties:
             id:
               type: string
             plant_type:
               $ref: '#/components/schemas/PlantType'
-            species_id:
+            rule_id:
               type: [string, 'null']
+              description: Правило посадки; у добавленной вручную — `null`.
             origin:
               $ref: '#/components/schemas/PlantingOrigin'
-            status:
-              type: string
-              enum: [allowed, forbidden, rejected]
-              description: |
-                `allowed` — проверки пройдены; `forbidden` — точка в зоне запрета; `rejected` — нормы
-                соблюдены, но нарушен шаг или граница (см. `rejection`).
-            checks:
-              type: array
-              description: Проверки отступов от ближайших объектов, как в `/explanation`.
-              items:
-                $ref: '#/components/schemas/ExplanationCheck'
-            rejection:
-              description: Причина статуса `rejected`; у остальных — `null`.
-              anyOf:
-                - $ref: '#/components/schemas/PlantingRejection'
-                - type: 'null'
+            species_id:
+              type: [string, 'null']
+              description: Как в `/planting` (возможность `species`); правка породу не меняет.
+            species_reason_ru:
+              type: [string, 'null']
 
-    PlantingRejection:
+    PlantingEdit:
       type: object
-      required: [reason, text_ru]
+      required: [add, update, delete]
       properties:
-        reason:
-          type: string
-          enum: [spacing, outside_site]
-          description: '`spacing` — ближе шага к соседней посадке; `outside_site` — вне газона или границы участка.'
-        text_ru:
-          type: string
-          description: Объяснение по-русски, например «До соседнего дерева 3,2 м при шаге 5 м».
-        neighbour_id:
+        name:
           type: [string, 'null']
-          description: Соседняя посадка, с которой нарушен шаг.
+          maxLength: 200
+          description: Имя новой версии; пустая строка — как `null`.
+        add:
+          type: array
+          items:
+            type: object
+            required: [client_id, lon, lat, plant_type]
+            properties:
+              client_id:
+                type: string
+                maxLength: 64
+              lon:
+                type: number
+                description: Долгота или X чертежа — в системе `/planting`.
+              lat:
+                type: number
+                description: Широта или Y чертежа — в системе `/planting`.
+              plant_type:
+                $ref: '#/components/schemas/PlantType'
+        update:
+          type: array
+          items:
+            type: object
+            required: [id, lon, lat]
+            properties:
+              id:
+                type: string
+              lon:
+                type: number
+              lat:
+                type: number
+        delete:
+          type: array
+          items:
+            type: string
 
     ManualGeoreference:
       type: object
@@ -1414,7 +1499,8 @@ components:
             plant_type:
               $ref: '#/components/schemas/PlantType'
             rule_id:
-              type: string
+              type: [string, 'null']
+              description: Изменение — `null` у добавленной вручную в последней версии плана посадок.
             species_id:
               type: [string, 'null']
               description: Добавочно (возможность `species`) — порода из `/species`.

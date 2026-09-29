@@ -2,23 +2,18 @@ import { Button, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { type JSX, type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
 
-import type { ProjectPair } from '@/entities/georeference';
 import {
   failedOnGeoreference,
   isGeographic,
-  placementOfGeoreference,
   type Project,
   useGetObstaclesQuery,
   useGetPlantingQuery,
   useGetZonesQuery,
   useProjectWithPolling,
 } from '@/entities/project';
-import { useBrowserGeoreference } from '@/features/georeference-project';
 import { describeAppError, toAppError } from '@/shared/api';
 import { PRODUCT_NAME, projectPath, useCapability } from '@/shared/config';
 import type { Contour } from '@/shared/lib/contour';
-import type { LatLon } from '@/shared/lib/geodesy';
-import { placementTransform } from '@/shared/lib/georeference';
 import { NotFoundScreen } from '@/shared/ui';
 
 import { type ContourOrigin, obstaclesContour, projectContour } from '../lib/project-contour';
@@ -33,8 +28,6 @@ export type ProjectMode = {
   origin: ContourOrigin;
   // План проекта под контуром; у упавшего на геопривязке плана нет.
   overlay: ProjectOverlay | null;
-  // Прежняя привязка проекта в этом браузере; null — контур встаёт в центр карты без поворота.
-  start: { anchor: LatLon; rotation: number; scale: number; gcp: ProjectPair[] } | null;
 };
 
 type ProjectGeoreferenceProps = {
@@ -43,7 +36,10 @@ type ProjectGeoreferenceProps = {
 };
 
 // Загрузка проекта и его результата для режима проекта; модуль получает готовый контур.
+// Привязка проекта применяется только сервером (manualGeoreference): без него режима проекта
+// нет, а модуль открыт в меню «Геопривязка» сам по себе.
 export function ProjectGeoreference({ id, children }: ProjectGeoreferenceProps): JSX.Element {
+  const manual = useCapability('manualGeoreference');
   const { data: project, error, notFound, isFetching, refetch } = useProjectWithPolling(id);
   if (notFound) return <NotFoundScreen />;
   if (project === undefined) {
@@ -57,6 +53,14 @@ export function ProjectGeoreference({ id, children }: ProjectGeoreferenceProps):
             Повторить
           </Button>
         }
+      />
+    );
+  }
+  if (!manual) {
+    return (
+      <Unavailable
+        project={project}
+        text="Привязать проект к карте можно будет в следующей версии: сервер пока не принимает привязку из модуля. Без проекта модуль доступен в меню «Геопривязка»."
       />
     );
   }
@@ -94,7 +98,6 @@ type ProjectResultProps = { project: Project; children: (mode: ProjectMode) => R
 function ProjectResult({ project, children }: ProjectResultProps): JSX.Element {
   const zones = useGetZonesQuery(project.id);
   const planting = useGetPlantingQuery(project.id);
-  const stored = useBrowserGeoreference(project);
   const error = zones.error ?? planting.error;
   if (error !== undefined) {
     return (
@@ -132,7 +135,6 @@ function ProjectResult({ project, children }: ProjectResultProps): JSX.Element {
     );
   }
   const { contour, origin } = chosen;
-  const previous = stored.kind === 'none' ? null : stored.georeference;
   return (
     <>
       {children({
@@ -140,25 +142,6 @@ function ProjectResult({ project, children }: ProjectResultProps): JSX.Element {
         contour,
         origin,
         overlay: prepareOverlay(zones.data, planting.data),
-        // Изменить привязку — начать с прежней, в том числе устаревшей. Опорная точка прежней
-        // привязки — центр прежнего контура: новое положение центра даёт сама привязка.
-        start:
-          previous === null
-            ? null
-            : {
-                anchor: placementTransform(placementOfGeoreference(previous)).toLatLon(
-                  contour.center,
-                ),
-                rotation: previous.rotation_deg,
-                scale: previous.scale,
-                gcp: previous.control_points.map(({ drawing, wgs84, used }) => ({
-                  x: drawing.x,
-                  y: drawing.y,
-                  lat: wgs84.lat,
-                  lon: wgs84.lon,
-                  control: !used,
-                })),
-              },
       })}
     </>
   );
@@ -167,22 +150,12 @@ function ProjectResult({ project, children }: ProjectResultProps): JSX.Element {
 type FailedProjectProps = { project: Project; children: (mode: ProjectMode) => ReactNode };
 
 // Проект, упавший на геопривязке: результата нет, контур — граница участка из объектов подосновы
-// (возможность obstacles), иначе — файл пользователя. Применить привязку можно только на сервере:
-// без результата браузеру положить на карту нечего.
+// (возможность obstacles), иначе — файл пользователя.
 function FailedProject({ project, children }: FailedProjectProps): JSX.Element {
-  const manual = useCapability('manualGeoreference');
   const withObstacles = useCapability('obstacles');
-  const obstacles = useGetObstaclesQuery(project.id, { skip: !manual || !withObstacles });
+  const obstacles = useGetObstaclesQuery(project.id, { skip: !withObstacles });
   // Сбой /obstacles — повторить или загрузить границу файлом: решает пользователь.
   const [fileInstead, setFileInstead] = useState(false);
-  if (!manual) {
-    return (
-      <Unavailable
-        project={project}
-        text="Сервер пока не принимает ручную привязку, а без неё проект заново не обработать. Загрузите архив снова, когда геопривязка на сервере заработает."
-      />
-    );
-  }
   if (obstacles.isLoading) return <Loader size="sm" aria-label="Загрузка подосновы проекта" />;
   // 404 — подосновы у сервера для этого проекта нет: это не сбой, а случай «загрузите файлом».
   const error = obstacles.error;
@@ -235,7 +208,6 @@ function FailedProject({ project, children }: FailedProjectProps): JSX.Element {
         contour: found?.kind === 'contour' ? found.contour : null,
         origin,
         overlay: null,
-        start: null,
       })}
     </>
   );

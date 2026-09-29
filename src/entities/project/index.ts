@@ -1,4 +1,4 @@
-export type { DxfVariant } from './api/download-dxf';
+export type { DxfVersion } from './api/download-dxf';
 export { downloadProjectDxf } from './api/download-dxf';
 export {
   useCreateProjectMutation,
@@ -8,25 +8,30 @@ export {
   useRunProjectMutation,
 } from './api/project-api';
 export type {
-  CheckedPlantingsFeatureCollection,
   ExplanationEntry,
   Norm,
   ObstaclesFeatureCollection,
+  PlantingEdit,
   PlantingFeatureCollection,
+  PlantingVersion,
+  PlantingVersionFeatureCollection,
   RejectedSitesFeatureCollection,
   Species,
   ZonesFeatureCollection,
 } from './api/project-result-api';
 export {
+  SERVICE_VERSION,
+  useEditPlantingVersionMutation,
   useGetExplanationQuery,
   useGetNormsQuery,
   useGetObstaclesQuery,
   useGetPlantingQuery,
-  useGetPlantingsQuery,
+  useGetPlantingVersionQuery,
+  useGetPlantingVersionsQuery,
   useGetRejectedQuery,
   useGetSpeciesQuery,
   useGetZonesQuery,
-  usePutPlantingsMutation,
+  useLazyGetPlantingVersionQuery,
 } from './api/project-result-api';
 export {
   GEOREFERENCE_CONFIDENCE_LABELS,
@@ -41,7 +46,6 @@ export { DRAWING_FIT_LIMIT_M, drawingTransform } from './lib/drawing-transform';
 export { projectFileName } from './lib/file-name';
 export { createLocalFrame, type LocalFrame } from './lib/local-frame';
 export type { ManualGeoreference } from './lib/manual-georeference';
-export { placementOfGeoreference } from './lib/manual-georeference';
 export {
   toMapData,
   toMapObstacles,

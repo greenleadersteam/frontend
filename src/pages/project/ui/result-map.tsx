@@ -59,6 +59,7 @@ import {
   plantingEditsActions,
   useEditMode,
 } from '@/features/edit-plantings';
+import { useCapability } from '@/shared/config';
 import { useAppDispatch } from '@/shared/lib/store';
 import { Icon } from '@/shared/ui';
 
@@ -200,6 +201,8 @@ export function ResultMap({
   const rejectedRef = useRef<number | null>(null);
   const dispatch = useAppDispatch();
   const mode = useEditMode(projectId);
+  // Порода в API версий плана посадок не входит: с версиями её не выбрать и не сохранить.
+  const speciesEditable = !useCapability('plantingEdits');
   // Обработчик щелчка создаётся один раз при загрузке карты: режим правки он читает отсюда.
   const addingRef = useRef(false);
   useEffect(() => {
@@ -465,7 +468,10 @@ export function ResultMap({
       onSelect(id === null ? null : { kind: 'planting', id });
     },
     defaultSpecies: (type) =>
-      [...species.values()].find(({ plant_type: speciesType }) => speciesType === type)?.id ?? null,
+      speciesEditable
+        ? ([...species.values()].find(({ plant_type: speciesType }) => speciesType === type)?.id ??
+          null)
+        : null,
     statusAt: (point, type) => plantingStatus(point, type, prepared, obstacles?.prepared ?? null),
     checksAt: (point, type) =>
       obstacles === null
@@ -654,7 +660,8 @@ export function ResultMap({
         edit={edit}
         editing={mode.editing}
         speciesOptions={[...species.values()].filter(
-          ({ plant_type: type }) => type === selectedPlanting.properties.plant_type,
+          ({ plant_type: type }) =>
+            speciesEditable && type === selectedPlanting.properties.plant_type,
         )}
         onSpeciesChange={(speciesId) => {
           dispatch(

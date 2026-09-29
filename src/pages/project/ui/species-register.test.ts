@@ -29,7 +29,7 @@ const planting: FinalPlanting = {
     feature({ id: 'T-2', species_id: 'tilia_cordata' }),
     feature({ id: 'T-3', species_id: 'sorbus_aucuparia' }),
     feature({ id: 'S-1', plant_type: 'shrub', rule_id: 'SHRUB_HEDGE_CURB' }),
-    feature({ id: 'manual-1', plant_type: 'shrub', rule_id: 'manual', origin: 'manual' }),
+    feature({ id: 'manual-1', plant_type: 'shrub', rule_id: null, origin: 'manual' }),
   ],
 };
 

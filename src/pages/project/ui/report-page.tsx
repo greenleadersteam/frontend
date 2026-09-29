@@ -7,24 +7,25 @@ import {
   GEOREFERENCE_CONFIDENCE_LABELS,
   isProjectId,
   lawnArea,
-  type ManualGeoreference,
   obstacleLabel,
-  placementOfGeoreference,
   PLANT_TYPE_LABELS,
   prohibitedArea,
   type Project,
   RESULT_COUNT_FORMS,
   useProjectWithPolling,
 } from '@/entities/project';
-import { EditsLoadAlert, useEditsLoader, usePlantingEdits } from '@/features/edit-plantings';
-import { useBrowserGeoreference } from '@/features/georeference-project';
+import {
+  EditsLoadAlert,
+  useEditsLoader,
+  usePlantingEdits,
+  usePlantingVersions,
+  versionLabel,
+} from '@/features/edit-plantings';
 import { describeAppError, toAppError } from '@/shared/api';
 import { currentDataSource, PRODUCT_NAME, projectPath } from '@/shared/config';
 import {
-  formatCoordinate,
   formatCount,
   formatDateTime,
-  formatDrawingCoordinate,
   formatMeters,
   formatNumber,
   formatSquareMeters,
@@ -36,7 +37,7 @@ import {
   appliedNorms,
   defaultReportSelection,
   estimatedPages,
-  NORMS_NOT_IN_SERVICE,
+  NORMS_NOT_RECOGNIZED,
   type ReportCheck,
   type ReportPlanting,
   reportPlantings,
@@ -50,7 +51,7 @@ import {
   useResultData,
 } from '../model/result';
 import { CROWN_NOTE } from './check-item';
-import { manualMethod, manualParameters, serverManualMethod } from './manual-georeference';
+import { serverManualMethod } from './manual-georeference';
 import { normReference } from './norm-reference';
 import { editsLine } from './planting-register';
 import classes from './report-page.module.css';
@@ -122,10 +123,9 @@ type ReportProps = { project: Project; result: LoadedResult };
 function Report({ project, result }: ReportProps): JSX.Element {
   useEditsLoader(project, result.data.planting);
   const edits = usePlantingEdits(project.id, result.data.planting);
-  // Ручная привязка из этого браузера кладёт план отчёта на подложку города.
-  const stored = useBrowserGeoreference(project);
-  const manual = stored.kind === 'current' ? stored.georeference : null;
-  const base = resultBase(result, manual === null ? null : placementOfGeoreference(manual));
+  const versions = usePlantingVersions(project.id);
+  const version = versions.list?.find(({ id }) => id === edits.version);
+  const base = resultBase(result);
   const [allPlantings, setAllPlantings] = useState(false);
   const demo = currentDataSource() === 'demo';
   const [generatedAt] = useState(() => new Date().toISOString());
@@ -206,6 +206,12 @@ function Report({ project, result }: ReportProps): JSX.Element {
               ? 'нет данных'
               : formatDateTime(project.job.finished_at)}
           </dd>
+          {version !== undefined && (
+            <>
+              <dt>Версия плана посадок</dt>
+              <dd>{versionLabel(version)}</dd>
+            </>
+          )}
         </dl>
       </header>
 
@@ -269,7 +275,7 @@ function Report({ project, result }: ReportProps): JSX.Element {
       </section>
 
       <NotChecked uncovered={computed.edited.zones.metadata.uncovered_categories} />
-      <Georeference project={project} manual={manual} />
+      <Georeference project={project} />
     </article>
   );
 }
@@ -479,7 +485,9 @@ function NotChecked({ uncovered }: NotCheckedProps): JSX.Element {
         </>
       )}
       <Text>
-        Нормы первоисточника, которых нет в сервисе: отступ от этих объектов не проверялся.
+        {
+          'Нормы в сервисе есть, но такие объекты в чертеже пока не распознаются: отступ от них не проверялся. Здания школ и детских садов проверены как прочие здания — 5\u00A0м для дерева вместо 10\u00A0м, край улиц любой категории — как край проезжей части, 2\u00A0м.'
+        }
       </Text>
       <Table className={classes.table}>
         <Table.Thead className={classes.head}>
@@ -490,7 +498,7 @@ function NotChecked({ uncovered }: NotCheckedProps): JSX.Element {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {NORMS_NOT_IN_SERVICE.map((norm) => (
+          {NORMS_NOT_RECOGNIZED.map((norm) => (
             <Table.Tr key={norm.object} className={classes.row}>
               <Table.Td>{norm.object}</Table.Td>
               <Table.Td>{norm.values}</Table.Td>
@@ -503,9 +511,9 @@ function NotChecked({ uncovered }: NotCheckedProps): JSX.Element {
   );
 }
 
-type GeoreferenceProps = { project: Project; manual: ManualGeoreference | null };
+type GeoreferenceProps = { project: Project };
 
-function Georeference({ project, manual }: GeoreferenceProps): JSX.Element {
+function Georeference({ project }: GeoreferenceProps): JSX.Element {
   const georeference = project.job.georeference ?? null;
   const residuals = Object.entries(georeference?.residuals_m ?? {});
   return (
@@ -513,72 +521,7 @@ function Georeference({ project, manual }: GeoreferenceProps): JSX.Element {
       <Title order={2} id="report-georeference">
         Геопривязка
       </Title>
-      {manual !== null ? (
-        <>
-          <Text>
-            {`Способ: вручную в браузере${manual.method === 'control_points' ? `, ${manualMethod(manual)}` : ''}. Привязка задана в модуле геопривязки и на сервер не передавалась: она кладёт план на карту города, а проверки норм, ведомость и слой DXF — в координатах чертежа.`}
-          </Text>
-          <Table className={classes.table}>
-            <Table.Tbody>
-              {manualParameters(manual).map(([label, value]) => (
-                <Table.Tr key={label} className={classes.row}>
-                  <Table.Th scope="row">{label}</Table.Th>
-                  <Table.Td className={classes.numbers}>{value}</Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-          {manual.control_points.length > 0 && (
-            <Table className={classes.table}>
-              <Table.Thead className={classes.head}>
-                <Table.Tr>
-                  <Table.Th scope="col">№</Table.Th>
-                  <Table.Th scope="col">X чертежа, м</Table.Th>
-                  <Table.Th scope="col">Y чертежа, м</Table.Th>
-                  <Table.Th scope="col">Широта</Table.Th>
-                  <Table.Th scope="col">Долгота</Table.Th>
-                  <Table.Th scope="col">Невязка</Table.Th>
-                  <Table.Th scope="col">Роль</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {manual.control_points.map((point, index) => (
-                  // У точки привязки нет идентификатора: пара координат и есть точка.
-                  <Table.Tr
-                    key={[
-                      point.drawing.x,
-                      point.drawing.y,
-                      point.wgs84.lat,
-                      point.wgs84.lon,
-                    ].join()}
-                    className={classes.row}
-                  >
-                    <Table.Td className={classes.numbers}>
-                      {point.label ?? String(index + 1)}
-                    </Table.Td>
-                    <Table.Td className={classes.numbers}>
-                      {formatDrawingCoordinate(point.drawing.x)}
-                    </Table.Td>
-                    <Table.Td className={classes.numbers}>
-                      {formatDrawingCoordinate(point.drawing.y)}
-                    </Table.Td>
-                    <Table.Td className={classes.numbers}>
-                      {formatCoordinate(point.wgs84.lat)}
-                    </Table.Td>
-                    <Table.Td className={classes.numbers}>
-                      {formatCoordinate(point.wgs84.lon)}
-                    </Table.Td>
-                    <Table.Td className={classes.numbers}>
-                      {formatMeters(point.residual_m)}
-                    </Table.Td>
-                    <Table.Td>{point.used ? 'Опорная' : 'Контрольная'}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          )}
-        </>
-      ) : georeference === null ? (
+      {georeference === null ? (
         <Text>
           Без геопривязки: план построен в координатах чертежа, расстояния — в метрах чертежа.
         </Text>

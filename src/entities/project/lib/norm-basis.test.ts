@@ -34,18 +34,28 @@ describe('normBasis', () => {
         'service_default',
       );
     }
-    expect(normBasis(null, 'green_existing', 'existing_tree', 'tree', 5)?.basis).toBe(
+    expect(normBasis(null, 'green_existing', 'existing_tree', 'tree', 6)?.basis).toBe(
       'service_default',
     );
   });
 
-  test('бортовой камень — без подтипа, норма акта', () => {
-    expect(normBasis(null, 'road_edge', null, 'shrub', 0.5)).toEqual({ basis: 'regulation' });
+  test('бортовой камень — край проезжей части, норма акта', () => {
+    expect(normBasis(null, 'road_edge', null, 'tree', 2)).toEqual({ basis: 'regulation' });
+    expect(normBasis(null, 'road_edge', null, 'shrub', 1)).toEqual({ basis: 'regulation' });
+  });
+
+  test('здание — норма акта; у школы и детского сада своя строка', () => {
+    expect(normBasis(null, 'buildings', null, 'tree', 5)).toEqual({ basis: 'regulation' });
+    expect(normBasis(null, 'buildings', null, 'shrub', 1.5)).toEqual({ basis: 'regulation' });
+    expect(normBasis(null, 'buildings', 'school_kindergarten', 'tree', 10)).toEqual({
+      basis: 'regulation',
+    });
   });
 
   test('другое значение сервиса таблица не подтверждает: основание неизвестно', () => {
     expect(normBasis(null, 'underground_utilities', 'gas', 'tree', 2)).toBeNull();
-    expect(normBasis(null, 'buildings', null, 'tree', 5)).toBeNull();
+    expect(normBasis(null, 'road_edge', null, 'tree', 0.7)).toBeNull();
+    expect(normBasis(null, 'buildings', 'school_kindergarten', 'tree', 5)).toBeNull();
   });
 
   test('с /norms — основание и причина сервера, таблица не нужна', () => {
