@@ -1747,7 +1747,7 @@ describe('правка расстановки', () => {
     ]) {
       expect(within(toolbar).getByRole('button', { name })).toBeInTheDocument();
     }
-    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
+    expect(within(toolbar).getByText('Правок нет')).toBeInTheDocument();
     expect(within(toolbar).getByRole('button', { name: 'Сохранить' })).toBeDisabled();
     expect(fakeMap.container.style.touchAction).toBe('none');
 
@@ -1792,7 +1792,7 @@ describe('правка расстановки', () => {
 
     await userEvent.click(within(panel).getByRole('button', { name: 'Вернуть на место' }));
     expect(within(panel).queryByText('Нарушает норму')).not.toBeInTheDocument();
-    expect(screen.getByText('Правок: 0')).toBeInTheDocument();
+    expect(screen.getByText('Правок нет')).toBeInTheDocument();
   });
 
   test('жест без сдвига правкой не считается', async () => {
@@ -1803,7 +1803,7 @@ describe('правка расстановки', () => {
     await dragTree(FIRST_TREE, []);
 
     expect(movedActions()).toHaveLength(0);
-    expect(screen.getByText('Правок: 0')).toBeInTheDocument();
+    expect(screen.getByText('Правок нет')).toBeInTheDocument();
   });
 
   test('вне режима правки посадка не тянется', async () => {
@@ -1874,7 +1874,7 @@ describe('правка расстановки', () => {
     expect(within(toolbar).getByText('Правок: 1')).toBeInTheDocument();
 
     await userEvent.keyboard('{Control>}z{/Control}');
-    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
+    expect(within(toolbar).getByText('Правок нет')).toBeInTheDocument();
 
     await userEvent.keyboard('{Control>}y{/Control}');
     expect(within(toolbar).getByText('Правок: 1')).toBeInTheDocument();
@@ -1930,7 +1930,7 @@ describe('правка расстановки', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Сбросить к расстановке сервиса?' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Сбросить' }));
 
-    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
+    expect(within(toolbar).getByText('Правок нет')).toBeInTheDocument();
   });
 
   test('«Сохранить» создаёт версию с именем, она становится текущей; «Готово» без сохранения спрашивает', async () => {
@@ -2218,8 +2218,13 @@ describe('правка расстановки', () => {
     await screen.findByRole('region', { name: MAP_LABEL });
     const toolbar = await startEditing();
     fakeMap.focus.mockClear();
+    const tree = within(toolbar).getByRole('button', { name: 'Добавить дерево' });
+    expect(tree).toHaveAccessibleDescription(
+      'Дерево: щёлкните по карте или нажмите Enter — посадка встанет в центр',
+    );
 
-    await userEvent.click(within(toolbar).getByRole('button', { name: 'Добавить дерево' }));
+    await userEvent.click(tree);
+    expect(tree).toHaveAttribute('aria-pressed', 'true');
     // Иначе фокус остался бы на кнопке инструмента, и Enter снял бы инструмент.
     expect(fakeMap.focus).toHaveBeenCalledWith({ preventScroll: true });
     act(() => {
@@ -2243,7 +2248,7 @@ describe('правка расстановки', () => {
       tool.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
 
-    expect(within(toolbar).getByText('Правок: 0')).toBeInTheDocument();
+    expect(within(toolbar).getByText('Правок нет')).toBeInTheDocument();
   });
 
   test('в «Ведомости» клавиши правки невидимый план не меняют', async () => {

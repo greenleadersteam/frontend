@@ -6,8 +6,33 @@
   box-shadow: var(--mantine-shadow-md);
 }
 
+/* Все недоступные кнопки панели выглядят одинаково: без заливки, бледной иконкой. Заливка
+   Mantine для недоступных превращала часть панели в бежевые плашки. Иконка светлее, чем
+   у доступных (stone.6): иначе без заливки их не различить. Цвет иконки Icon задаёт атрибутом
+   stroke, поэтому переопределяется stroke. */
+.tool:where(:disabled, [data-disabled]) {
+  border-color: transparent;
+  background: transparent;
+
+  & svg {
+    stroke: var(--mantine-color-gray-4);
+  }
+}
+
+/* Выбранный инструмент — не только цветом: рамка вокруг кнопки. */
+.tool[aria-pressed='true'] {
+  border-color: var(--app-accent);
+}
+
 .count {
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Где хранятся правки — отдельная подпись, не продолжение счётчика. */
+.storage {
+  padding-inline-start: var(--mantine-spacing-xs);
+  border-inline-start: 1px solid var(--mantine-color-default-border);
   white-space: nowrap;
 }
 

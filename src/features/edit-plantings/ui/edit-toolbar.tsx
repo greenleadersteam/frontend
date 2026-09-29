@@ -50,7 +50,9 @@ type EditToolbarProps = {
   onToolPicked: () => void;
 };
 
-const PLACE_HINT = 'Щёлкните по карте или нажмите Enter — посадка встанет в центр перекрестия';
+// Подсказка инструмента добавления: и мышь, и клавиатура (Enter ставит в центр перекрестия).
+const placeHint = (what: string) =>
+  `${what}: щёлкните по карте или нажмите Enter — посадка встанет в центр`;
 // Предел имени версии в контракте (PlantingEdit.name).
 const VERSION_NAME_MAX = 200;
 
@@ -90,18 +92,21 @@ type ToolProps = {
   onClick: () => void;
   disabled?: boolean;
   pressed?: boolean;
-  // Как выполнить действие, если одной кнопки мало: видно в подсказке, слышно в описании.
+  // Как выполнить действие, если одной кнопки мало: видно в подсказке вместо названия, слышно
+  // в описании.
   hint?: string;
 };
 
+// Подсказка — под кнопкой: панель прижата к верху карты, и над ней подсказка ушла бы за карту.
 function Tool({ label, icon, onClick, disabled = false, pressed, hint }: ToolProps): JSX.Element {
   const hintId = useId();
   return (
-    <Tooltip label={hint === undefined ? label : `${label}. ${hint}`}>
+    <Tooltip label={hint ?? label} position="bottom">
       <ActionIcon
         aria-describedby={hint === undefined ? undefined : hintId}
         variant={pressed === true ? 'light' : 'subtle'}
         size="lg"
+        className={classes.tool}
         aria-label={label}
         aria-pressed={pressed}
         disabled={disabled}
@@ -214,14 +219,14 @@ export function EditToolbar({
       break;
     case 'draft':
       storage = (
-        <Text size="sm" c="dimmed">
+        <Text size="sm" c="dimmed" className={classes.storage}>
           Черновик в этом браузере
         </Text>
       );
       break;
     case 'memory':
       storage = (
-        <Text size="sm" c="dimmed">
+        <Text size="sm" c="dimmed" className={classes.storage}>
           Браузер не хранит черновик: правки — до перезагрузки
         </Text>
       );
@@ -242,7 +247,7 @@ export function EditToolbar({
     >
       <Tool
         label="Добавить дерево"
-        hint={PLACE_HINT}
+        hint={placeHint('Дерево')}
         icon={IconTree}
         pressed={mode.tool === 'tree'}
         onClick={() => {
@@ -251,7 +256,7 @@ export function EditToolbar({
       />
       <Tool
         label="Добавить кустарник"
-        hint={PLACE_HINT}
+        hint={placeHint('Кустарник')}
         icon={IconPlant2}
         pressed={mode.tool === 'shrub'}
         onClick={() => {
@@ -287,7 +292,7 @@ export function EditToolbar({
       />
       <Divider orientation="vertical" />
       <Text size="sm" className={classes.count}>
-        {`Правок: ${formatNumber(edits.counts.total)}`}
+        {edits.counts.total === 0 ? 'Правок нет' : `Правок: ${formatNumber(edits.counts.total)}`}
       </Text>
       {storage}
       <Modal
