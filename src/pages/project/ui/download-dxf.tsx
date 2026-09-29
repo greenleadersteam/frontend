@@ -6,6 +6,7 @@ import { type JSX, useState } from 'react';
 import {
   downloadProjectDxf,
   type DxfVersion,
+  fetchProjectDxf,
   type Project,
   projectFileName,
 } from '@/entities/project';
@@ -15,7 +16,7 @@ import { useCapability } from '@/shared/config';
 import { formatMeters } from '@/shared/lib/format';
 import { saveFile } from '@/shared/lib/save-file';
 
-import { type EditedDxf, editedDxf } from '../model/edited-dxf';
+import { type EditedDrawing, editedDrawing, type EditedDxf, editedDxf } from '../model/edited-dxf';
 import { editedResult, type LoadedResult, resultBase, useResultData } from '../model/result';
 import classes from './project-header.module.css';
 
@@ -64,19 +65,38 @@ function ServiceDxfButton({ project }: DownloadDxfProps): JSX.Element {
 // Почему слой не собран — и что делать вместо этого.
 const FAILURE_TEXT = {
   mismatch: (rms: number) =>
-    `Слой не собран: координаты плана не сводятся к чертежу поворотом, сдвигом и масштабом (расхождение ${formatMeters(rms, 2)}). Скачайте результат сервиса и перенесите правки вручную.`,
+    `Правки не перенесены в координаты чертежа: координаты плана не сводятся к чертежу поворотом, сдвигом и масштабом (расхождение ${formatMeters(rms, 2)}). Скачайте результат сервиса и перенесите правки вручную.`,
   insufficient:
-    'Слой не собран: в результате нет посадок сервиса с координатами чертежа, по которым план переводится в чертёж. Скачайте результат сервиса.',
+    'Правки не перенесены в координаты чертежа: неизменённых посадок сервиса с координатами чертежа меньше трёх, и план не переводится в чертёж. Скачайте результат сервиса.',
+  binary:
+    'Сервер отдал чертёж в двоичном DXF: браузер правки в него не вписывает. Скачайте только слой посадок и вставьте его в чертёж — координаты совпадают.',
+  unsupported:
+    'Чертёж сервера устроен не так, как ожидалось, и правки в него не вписаны. Скачайте только слой посадок и вставьте его в чертёж — координаты совпадают.',
 } as const;
 
-const failureText = (result: Exclude<EditedDxf, { kind: 'ready' }>) =>
-  result.kind === 'mismatch' ? FAILURE_TEXT.mismatch(result.rms) : FAILURE_TEXT.insufficient;
+const failureText = (
+  result: Exclude<EditedDxf, { kind: 'ready' }> | Exclude<EditedDrawing, { kind: 'ready' }>,
+): string => {
+  switch (result.kind) {
+    case 'mismatch':
+      return FAILURE_TEXT.mismatch(result.rms);
+    case 'insufficient':
+    case 'binary':
+    case 'unsupported':
+      return FAILURE_TEXT[result.kind];
+    default: {
+      const unexpected: never = result;
+      return unexpected;
+    }
+  }
+};
 
 type DownloadWithEditsProps = { project: Project; result: LoadedResult };
 
 function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Element {
   const edits = usePlantingEdits(project.id, result.data.planting);
   const { loading, download } = useDownload(project);
+  const [assembling, setAssembling] = useState(false);
   if (edits.counts.total === 0) {
     return (
       <Button loading={loading} onClick={() => void download()}>
@@ -84,6 +104,42 @@ function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Ele
       </Button>
     );
   }
+
+  // Чертёж сервера с итоговой расстановкой на слое результата: файл сервера читается
+  // байтами, в браузере меняются только ENTITIES слоя результата и $HANDSEED.
+  const downloadDrawing = async () => {
+    const base = resultBase(result);
+    if (base === null) {
+      notifications.show({ color: 'clay', message: FAILURE_TEXT.insufficient });
+      return;
+    }
+    const edited = editedResult(base, edits);
+    setAssembling(true);
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+      const server = await fetchProjectDxf(project.id);
+      if (server.kind === 'error') {
+        notifications.show({ color: 'clay', message: describeAppError(server.error) });
+        return;
+      }
+      bytes = new Uint8Array(await server.file.arrayBuffer());
+    } catch {
+      // Ответ не прочитался (обрыв сети посреди тела) — объяснение, а не вечная загрузка кнопки.
+      notifications.show({ color: 'clay', message: describeAppError({ kind: 'network' }) });
+      return;
+    } finally {
+      setAssembling(false);
+    }
+    const drawing = editedDrawing(edited, bytes);
+    if (drawing.kind !== 'ready') {
+      notifications.show({ color: 'clay', message: failureText(drawing) });
+      return;
+    }
+    saveFile(
+      new Blob(drawing.parts, { type: 'application/dxf' }),
+      projectFileName(project.name, ' — с правками.dxf'),
+    );
+  };
 
   // Слой собирается по щелчку: расчёт статусов и подгонка не нужны при каждом рендере шапки.
   const downloadLayer = () => {
@@ -104,7 +160,7 @@ function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Ele
     <Menu position="bottom-end">
       <Menu.Target>
         <Button
-          loading={loading}
+          loading={loading || assembling}
           // На заливке главной кнопки иконка берёт цвет текста.
           rightSection={<IconChevronDown size={20} stroke={1.5} aria-hidden />}
         >
@@ -112,8 +168,11 @@ function DownloadWithEdits({ project, result }: DownloadWithEditsProps): JSX.Ele
         </Button>
       </Menu.Target>
       <Menu.Dropdown>
+        <Menu.Item fw={600} onClick={() => void downloadDrawing()}>
+          Результат с правками (DXF)
+        </Menu.Item>
         <Menu.Item onClick={() => void download()}>Результат сервиса (DXF)</Menu.Item>
-        <Menu.Item onClick={downloadLayer}>Слой посадок с правками (DXF)</Menu.Item>
+        <Menu.Item onClick={downloadLayer}>Только слой посадок (DXF)</Menu.Item>
         <Text size="xs" c="dimmed" className={classes.menuHint}>
           Вставьте слой в исходный чертёж: координаты совпадают
         </Text>

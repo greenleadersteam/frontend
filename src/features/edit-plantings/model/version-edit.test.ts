@@ -30,6 +30,9 @@ const service: PlantingFeatureCollection = {
   ],
 };
 
+// Точка чертежа — план со сдвигом: видно, что x, y берутся из преобразования, а не из точки плана.
+const toDrawing = ([x = 0, y = 0]: readonly number[]): [number, number] => [x + 1000, y + 2000];
+
 const diff = (patch: Partial<PlantingDiff>): PlantingDiff => ({ ...emptyDiff(), ...patch });
 
 describe('versionEdit', () => {
@@ -41,11 +44,11 @@ describe('versionEdit', () => {
       species: { 'T-3': 'acer' },
     });
 
-    expect(versionEdit(service, emptyDiff(), present, '  Вариант ')).toEqual({
+    expect(versionEdit(service, emptyDiff(), present, '  Вариант ', toDrawing)).toEqual({
       name: 'Вариант',
       delete: ['T-1'],
-      update: [{ id: 'T-2', lon: 5, lat: 1 }],
-      add: [{ client_id: 'draft-1', lon: 7, lat: 7, plant_type: 'shrub' }],
+      update: [{ id: 'T-2', lon: 5, lat: 1, x: 1005, y: 2001 }],
+      add: [{ client_id: 'draft-1', lon: 7, lat: 7, x: 1007, y: 2007, plant_type: 'shrub' }],
     });
   });
 
@@ -59,10 +62,10 @@ describe('versionEdit', () => {
       added: { 'MANUAL-00001': { point: [8, 7], plantType: 'tree', speciesId: null } },
     });
 
-    expect(versionEdit(service, saved, present, '')).toEqual({
+    expect(versionEdit(service, saved, present, '', toDrawing)).toEqual({
       name: null,
       delete: ['T-3'],
-      update: [{ id: 'MANUAL-00001', lon: 8, lat: 7 }],
+      update: [{ id: 'MANUAL-00001', lon: 8, lat: 7, x: 1008, y: 2007 }],
       add: [],
     });
   });
@@ -70,8 +73,8 @@ describe('versionEdit', () => {
   test('посадка сервиса, удалённая в версии, возвращается через update со своим id', () => {
     const saved = diff({ removed: { 'T-2': true } });
 
-    expect(versionEdit(service, saved, emptyDiff(), '')).toMatchObject({
-      update: [{ id: 'T-2', lon: 5, lat: 0 }],
+    expect(versionEdit(service, saved, emptyDiff(), '', toDrawing)).toMatchObject({
+      update: [{ id: 'T-2', lon: 5, lat: 0, x: 1005, y: 2000 }],
       add: [],
     });
   });
@@ -80,7 +83,7 @@ describe('versionEdit', () => {
     const saved = diff({ moved: { 'T-2': [5, 1] } });
     const present = diff({ moved: { 'T-2': [5, 1] }, species: { 'T-1': 'acer' } });
 
-    expect(isEmptyEdit(versionEdit(service, saved, present, 'имя'))).toBe(true);
+    expect(isEmptyEdit(versionEdit(service, saved, present, 'имя', toDrawing))).toBe(true);
   });
 });
 
@@ -93,17 +96,24 @@ describe('diffFromVersion', () => {
         {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [5, 1] },
-          properties: { id: 'T-2', plant_type: 'tree', rule_id: 'R', origin: 'manual' },
+          properties: { id: 'T-2', plant_type: 'tree', rule_id: 'R', origin: 'manual', x: 5, y: 1 },
         },
         {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [10, 0] },
-          properties: { id: 'T-3', plant_type: 'tree', rule_id: 'R', origin: 'auto' },
+          properties: { id: 'T-3', plant_type: 'tree', rule_id: 'R', origin: 'auto', x: 10, y: 0 },
         },
         {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [7, 7] },
-          properties: { id: 'MANUAL-00001', plant_type: 'shrub', rule_id: null, origin: 'manual' },
+          properties: {
+            id: 'MANUAL-00001',
+            plant_type: 'shrub',
+            rule_id: null,
+            origin: 'manual',
+            x: 7,
+            y: 7,
+          },
         },
       ],
     };

@@ -21,8 +21,8 @@ import {
 import { NORMS } from './fixtures/norms';
 import { processingDefaults } from './fixtures/processing-defaults';
 import type { MockArchive } from './fixtures/projects';
-import { plantingDxf } from './fixtures/result-dxf';
-import { buildSiteResult, drawingPoints, type RunParams } from './fixtures/site';
+import { siteDxf } from './fixtures/result-dxf';
+import { buildSiteResult, type RunParams } from './fixtures/site';
 import { SPECIES } from './fixtures/species';
 
 type PlantingEdit = Proposed['schemas']['PlantingEdit'];
@@ -300,8 +300,10 @@ const isPlantType = (value: unknown): value is 'tree' | 'shrub' =>
 
 type VersionParams = ProjectParams & { version: string };
 
-// Версия 1 — расстановка обработки в формате версии; за ней — созданные правками.
+// Версия 1 — расстановка обработки в формате версии, точка чертежа — как в /explanation; за ней —
+// версии, созданные правками.
 function versionsOf({ project, result }: ReadyResult): MockVersion[] {
+  const drawing = new Map(result.explanation.map(({ id, x, y }) => [id, { x, y }]));
   const service: MockVersion = {
     meta: {
       id: 1,
@@ -312,10 +314,12 @@ function versionsOf({ project, result }: ReadyResult): MockVersion[] {
       based_on: null,
       planting_count: result.planting.features.length,
     },
-    features: result.planting.features.map((feature) => ({
-      ...feature,
-      properties: { ...feature.properties, origin: 'auto' },
-    })),
+    features: result.planting.features.map((feature) => {
+      const point = drawing.get(feature.properties.id);
+      // Фикстура строит /explanation по тем же посадкам, что /planting.
+      if (point === undefined) throw new Error(`Нет обоснования у ${feature.properties.id}`);
+      return { ...feature, properties: { ...feature.properties, origin: 'auto', ...point } };
+    }),
   };
   return [service, ...project.versions];
 }
@@ -348,18 +352,24 @@ function applyEdit(
   for (const [index, id] of edit.delete.entries()) {
     if (!current.delete(id)) return editIssue(['delete', index], 'Planting not found', id);
   }
-  for (const [index, { id, lon, lat }] of edit.update.entries()) {
+  for (const [index, { id, lon, lat, x: drawingX, y: drawingY }] of edit.update.entries()) {
     const planting = current.get(id) ?? original.get(id);
     if (planting === undefined) return editIssue(['update', index], 'Planting not found', id);
     const [x, y] = original.get(id)?.geometry.coordinates ?? [];
     current.set(id, {
       ...planting,
       geometry: { type: 'Point', coordinates: [lon, lat] },
-      properties: { ...planting.properties, origin: x === lon && y === lat ? 'auto' : 'manual' },
+      properties: {
+        ...planting.properties,
+        origin: x === lon && y === lat ? 'auto' : 'manual',
+        // Точка чертежа — присланная клиентом: сервер её не пересчитывает.
+        x: drawingX,
+        y: drawingY,
+      },
     });
   }
   const addedIds: Record<string, string> = {};
-  for (const { client_id: clientId, lon, lat, plant_type: plantType } of edit.add) {
+  for (const { client_id: clientId, lon, lat, x, y, plant_type: plantType } of edit.add) {
     project.manualPlantings += 1;
     const id = `MANUAL-${String(project.manualPlantings).padStart(5, '0')}`;
     addedIds[clientId] = id;
@@ -373,6 +383,8 @@ function applyEdit(
         origin: 'manual',
         species_id: null,
         species_reason_ru: null,
+        x,
+        y,
       },
     });
   }
@@ -404,14 +416,18 @@ function parseEdit(body: unknown): PlantingEdit | ValidationIssue {
       typeof item.client_id !== 'string' ||
       !isFiniteNumber(item.lon) ||
       !isFiniteNumber(item.lat) ||
+      !isFiniteNumber(item.x) ||
+      !isFiniteNumber(item.y) ||
       !isPlantType(item.plant_type)
     ) {
-      return invalid(['add', index], 'client_id, lon, lat and plant_type expected', item);
+      return invalid(['add', index], 'client_id, lon, lat, x, y and plant_type expected', item);
     }
     edit.add.push({
       client_id: item.client_id,
       lon: item.lon,
       lat: item.lat,
+      x: item.x,
+      y: item.y,
       plant_type: item.plant_type,
     });
   }
@@ -420,11 +436,13 @@ function parseEdit(body: unknown): PlantingEdit | ValidationIssue {
       !isRecord(item) ||
       typeof item.id !== 'string' ||
       !isFiniteNumber(item.lon) ||
-      !isFiniteNumber(item.lat)
+      !isFiniteNumber(item.lat) ||
+      !isFiniteNumber(item.x) ||
+      !isFiniteNumber(item.y)
     ) {
-      return invalid(['update', index], 'id, lon and lat expected', item);
+      return invalid(['update', index], 'id, lon, lat, x and y expected', item);
     }
-    edit.update.push({ id: item.id, lon: item.lon, lat: item.lat });
+    edit.update.push({ id: item.id, lon: item.lon, lat: item.lat, x: item.x, y: item.y });
   }
   for (const [index, id] of removed.entries()) {
     if (typeof id !== 'string') return invalid(['delete', index], 'Id expected', id);
@@ -737,15 +755,16 @@ export const handlers = [
     const requested = new URL(request.url).searchParams.get('version');
     const version = requested === null ? versionsOf(ready).at(-1) : findVersion(ready, requested);
     if (version === undefined) return detail(404, 'Planting version not found');
-    const source = version.features;
-    const dxf = plantingDxf(
-      drawingPoints(
-        source.map(({ geometry, properties }) => ({
-          coordinates: geometry.coordinates,
-          plantType: properties.plant_type,
-        })),
-        placementOfProject(ready.project),
-      ),
+    // Копия подосновы со слоем результата по точкам чертежа версии, как у сервера.
+    const dxf = siteDxf(
+      buildSiteResult(ready.run.params, null).obstacles.features,
+      version.features.map(({ properties }) => ({
+        x: properties.x,
+        y: properties.y,
+        plantType: properties.plant_type,
+        ruleId: properties.rule_id,
+        id: properties.id,
+      })),
     );
     return new HttpResponse(dxf, {
       headers: {

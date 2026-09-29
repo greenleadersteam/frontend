@@ -10,3 +10,8 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* Причина недоступности «Сохранить» — несколько строк, не шире карточки. */
+.reason {
+  max-inline-size: var(--app-card-min-width);
+}

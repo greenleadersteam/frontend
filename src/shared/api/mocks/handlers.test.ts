@@ -346,9 +346,14 @@ describe('результат', () => {
     expect(response.headers.get('Content-Disposition')).toBe(
       `attachment; filename="planting.dxf"; filename*=UTF-8''${encodeURIComponent('Сквер на Покровке')}.dxf`,
     );
-    const dxf = await response.text();
-    expect(dxf.startsWith('0\r\nSECTION')).toBe(true);
-    expect(dxf).toContain('GREENING_PROPOSED');
+    // Чертёж R12 в кодовой странице ANSI_1251, как исходная подоснова: кириллица — байтами cp1251.
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const dxf = new TextDecoder('windows-1251').decode(bytes);
+    expect(dxf.startsWith('  0\r\nSECTION')).toBe(true);
+    expect(dxf).toContain('\r\nANSI_1251\r\n');
+    expect(dxf).toContain('\r\nБортовой камень\r\n');
+    expect(dxf).toContain('\r\nGREENING_PROPOSED\r\n');
+    expect(new TextDecoder().decode(bytes)).not.toContain('Бортовой камень');
     expect(dxf.trimEnd().endsWith('EOF')).toBe(true);
   });
 

@@ -1,5 +1,5 @@
 export type { DxfVersion } from './api/download-dxf';
-export { downloadProjectDxf } from './api/download-dxf';
+export { downloadProjectDxf, fetchProjectDxf } from './api/download-dxf';
 export {
   useCreateProjectMutation,
   useDeleteProjectMutation,
@@ -42,6 +42,9 @@ export {
   STAGE_LABELS,
 } from './config/labels';
 export { dimensionLines } from './lib/dimension-lines';
+export type { DrawingDxf } from './lib/drawing-dxf';
+export { replacePlantingLayer } from './lib/drawing-dxf';
+export type { DrawingTransform } from './lib/drawing-transform';
 export { DRAWING_FIT_LIMIT_M, drawingTransform } from './lib/drawing-transform';
 export { projectFileName } from './lib/file-name';
 export { createLocalFrame, type LocalFrame } from './lib/local-frame';

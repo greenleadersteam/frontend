@@ -297,7 +297,13 @@ export interface paths {
          *     считает клиент.
          *
          *     Координаты — в системе `/planting` той же обработки: WGS84 при геопривязке, иначе метры
-         *     чертежа. Для DXF сервер переводит их в систему чертежа обратным преобразованием привязки.
+         *     чертежа (`lon`, `lat`). Кроме них клиент присылает точку в метрах чертежа (`x`, `y`) — ею
+         *     сервер пишет посадку в DXF версии, не пересчитывая: обратного преобразования WGS84 →
+         *     чертёж на сервере нет, а параметры привязки после обработки не сохраняются
+         *     (`greenplan/api/jobs.py:83-86`). Клиент считает `x`, `y` подобием «план → чертёж»,
+         *     подогнанным по неизменённым посадкам: у них есть и точка `/planting`, и точка чертежа
+         *     `/explanation`. Подгонка принимается при трёх и более парах и RMS не больше 1 см;
+         *     иначе клиент правку не отправляет. Без геопривязки `x`, `y` совпадают с `lon`, `lat`.
          *
          *     Возможность: `plantingEdits`.
          */
@@ -400,7 +406,8 @@ export interface paths {
          *     `application/json`, а бэкенд отдаёт файл.
          *
          *     Добавочно (возможность `editedDxf`): `?version={version}` — слой посадок этой версии
-         *     плана посадок. Без параметра — последняя версия, как `/planting`.
+         *     плана посадок, по точкам чертежа `x`, `y` версии. Без параметра — последняя версия, как
+         *     `/planting`.
          */
         get: operations["get_dxf"];
         put?: never;
@@ -718,6 +725,13 @@ export interface components {
                 plant_type: components["schemas"]["PlantType"];
                 /** @description Правило посадки; у добавленной вручную — `null`. */
                 rule_id: string | null;
+                /**
+                 * @description X чертежа, м: у посадки обработки — как в `/explanation`, у правленой — присланный
+                 *     клиентом. Ею посадка записана в DXF версии.
+                 */
+                x: number;
+                /** @description Y чертежа, м — как `x`. */
+                y: number;
                 origin: components["schemas"]["PlantingOrigin"];
                 /** @description Как в `/planting` (возможность `species`); правка породу не меняет. */
                 species_id?: string | null;
@@ -733,12 +747,20 @@ export interface components {
                 lon: number;
                 /** @description Широта или Y чертежа — в системе `/planting`. */
                 lat: number;
+                /** @description X чертежа, м — точка для DXF, считает клиент. */
+                x: number;
+                /** @description Y чертежа, м — точка для DXF, считает клиент. */
+                y: number;
                 plant_type: components["schemas"]["PlantType"];
             }[];
             update: {
                 id: string;
                 lon: number;
                 lat: number;
+                /** @description X чертежа, м — точка для DXF, считает клиент. */
+                x: number;
+                /** @description Y чертежа, м — точка для DXF, считает клиент. */
+                y: number;
             }[];
             delete: string[];
         };

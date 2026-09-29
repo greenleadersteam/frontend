@@ -21,6 +21,7 @@ import {
   CROWN_RADIUS_M,
   dimensionLabelsMinZoom,
   dimensionLines,
+  drawingTransform,
   type ExplanationEntry,
   HATCH_IMAGE,
   hatchPattern,
@@ -811,6 +812,7 @@ export function ResultMap({
                   // Выбор мог пережить отмену добавления: удалять можно только то, что есть.
                   selectedId={selectedPlanting?.properties.id ?? null}
                   active={visible}
+                  drawing={() => drawingTransform(data.planting.features, explanation, geographic)}
                   onRemoved={() => {
                     onSelect(null);
                   }}

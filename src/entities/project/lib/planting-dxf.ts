@@ -4,7 +4,7 @@ import { CROWN_RADIUS_M } from './plan-projection';
 // Слой и имя приложения XDATA — как у бэкенда (../backend/greenplan/io/dxf_sink.py:22-23),
 // чтобы слой с правками читался теми же инструментами, что и результат сервиса.
 export const PLANTING_LAYER = 'GREENING_PROPOSED';
-const XDATA_APPID = 'GREENPLAN';
+export const XDATA_APPID = 'GREENPLAN';
 // Цвет слоя — как у бэкенда: 3, зелёный (dxf_sink.py:88).
 const LAYER_COLOR = 3;
 // $INSUNITS: 6 — метры.
@@ -26,7 +26,8 @@ export type DxfPlanting = {
 // Строки DXF R12 — в кодовой странице чертежа, а значения пришли с сервера: всё, кроме
 // печатного ASCII, заменяется. Перевод строки иначе разорвал бы пару «код — значение» и
 // сдвинул бы весь файл. 255 — предел строки XDATA.
-const safeText = (value: string) => value.replace(/[^\x20-\x7E]/g, '_').slice(0, 255);
+export const safeText = (value: string): string =>
+  value.replace(/[^\x20-\x7E]/g, '_').slice(0, 255);
 
 // Десятая доля миллиметра; без экспоненты, которую понимают не все читатели DXF.
 const number = (value: number) => value.toFixed(4);

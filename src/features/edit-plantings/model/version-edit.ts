@@ -60,12 +60,14 @@ function placed(service: PlantingFeatureCollection, diff: PlantingDiff): Placed 
 
 // Правка сохранённой версии до того, что на экране. Посадка сервиса, удалённая в сохранённой
 // версии и возвращённая на экране, идёт в update: так сервер возвращает её со своим id.
-// Смена породы не отправляется — в API версий её нет.
+// Смена породы не отправляется — в API версий её нет. toDrawing — точка плана в метрах
+// чертежа: по ней сервер пишет посадку в DXF версии.
 export function versionEdit(
   service: PlantingFeatureCollection,
   saved: PlantingDiff,
   present: PlantingDiff,
   name: string,
+  toDrawing: (point: readonly number[]) => [number, number],
 ): PlantingEdit {
   const before = placed(service, saved);
   const after = placed(service, present);
@@ -78,11 +80,13 @@ export function versionEdit(
   };
   for (const [id, { point, plantType }] of after) {
     const previous = before.get(id);
+    if (previous !== undefined && samePoint(previous.point, point)) continue;
     const [lon = 0, lat = 0] = point;
+    const [x, y] = toDrawing(point);
     if (previous === undefined && !serviceIds.has(id)) {
-      edit.add.push({ client_id: id, lon, lat, plant_type: plantType });
-    } else if (previous === undefined || !samePoint(previous.point, point)) {
-      edit.update.push({ id, lon, lat });
+      edit.add.push({ client_id: id, lon, lat, x, y, plant_type: plantType });
+    } else {
+      edit.update.push({ id, lon, lat, x, y });
     }
   }
   return edit;

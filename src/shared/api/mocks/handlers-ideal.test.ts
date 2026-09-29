@@ -254,8 +254,8 @@ describe('версии плана посадок', () => {
     const { response, body } = await editOf(1, {
       name: '  Вариант у школы ',
       delete: [first.properties.id],
-      update: [{ id: second.properties.id, lon: 9, lat: 3 }],
-      add: [{ client_id: 'draft-1', lon: 30, lat: 10, plant_type: 'shrub' }],
+      update: [{ id: second.properties.id, lon: 9, lat: 3, x: 9, y: 3 }],
+      add: [{ client_id: 'draft-1', lon: 30, lat: 10, x: 30, y: 10, plant_type: 'shrub' }],
     });
 
     expect(response.status).toBe(201);
@@ -289,8 +289,12 @@ describe('версии плана посадок', () => {
     const [x = 0, y = 0] = first.geometry.coordinates;
     await editOf(1, { delete: [first.properties.id] });
 
-    const second = await editOf(1, { update: [{ id: first.properties.id, lon: x + 1, lat: y }] });
-    const restored = await editOf(2, { update: [{ id: first.properties.id, lon: x, lat: y }] });
+    const second = await editOf(1, {
+      update: [{ id: first.properties.id, lon: x + 1, lat: y, x: x + 1, y }],
+    });
+    const restored = await editOf(2, {
+      update: [{ id: first.properties.id, lon: x, lat: y, x, y }],
+    });
 
     expect(second.body).toMatchObject({ id: 3, based_on: 1 });
     expect(restored.body).toMatchObject({ id: 4, based_on: 2 });
@@ -316,6 +320,25 @@ describe('версии плана посадок', () => {
     expect((await fetch(`/api/projects/${READY_LOCAL}/dxf?version=9`)).status).toBe(404);
   });
 
+  test('точка чертежа — присланная: в версии и в её DXF, а не пересчёт lon, lat', async () => {
+    const [first] = (await versionOf(1)).features;
+    if (first === undefined) throw new Error('нет посадок');
+
+    await editOf(1, {
+      update: [{ id: first.properties.id, lon: 5, lat: 6, x: 123.4567, y: -89.0123 }],
+      add: [{ client_id: 'draft-1', lon: 7, lat: 8, x: 321.5, y: 45.25, plant_type: 'tree' }],
+    });
+
+    const version = await versionOf(2);
+    expect(
+      version.features.find(({ properties }) => properties.id === first.properties.id)?.properties,
+    ).toMatchObject({ x: 123.4567, y: -89.0123 });
+    const dxf = await (await fetch(`/api/projects/${READY_LOCAL}/dxf?version=2`)).text();
+    expect(dxf).toContain(' 10\r\n123.4567\r\n 20\r\n-89.0123\r\n');
+    expect(dxf).toContain(' 10\r\n321.5000\r\n 20\r\n45.2500\r\n');
+    expect(dxf).not.toContain(' 10\r\n5.0000\r\n 20\r\n6.0000\r\n');
+  });
+
   test('пустая правка, чужой id, id в двух списках, некорректное тело — 422; нет версии — 404', async () => {
     const [first] = (await versionOf(1)).features;
     if (first === undefined) throw new Error('нет посадок');
@@ -324,7 +347,8 @@ describe('версии плана посадок', () => {
     expect((await editOf(1, {})).response.status).toBe(422);
     expect((await editOf(1, { delete: ['NO-SUCH'] })).response.status).toBe(422);
     expect(
-      (await editOf(1, { delete: [id], update: [{ id, lon: 1, lat: 1 }] })).response.status,
+      (await editOf(1, { delete: [id], update: [{ id, lon: 1, lat: 1, x: 1, y: 1 }] })).response
+        .status,
     ).toBe(422);
     const malformed = { add: [{ lon: 'x' }], update: [], delete: [] };
     expect((await post(`${versionUrl(1)}/edit`, malformed)).response.status).toBe(422);

@@ -69,14 +69,6 @@ function toLonLat(placement: PlacementCore): (point: Point) => number[] {
   };
 }
 
-function fromLonLat(placement: PlacementCore): (point: Point) => Point {
-  const { toLocal } = placementTransform(placement);
-  return ([lon, lat]) => {
-    const { x, y } = toLocal({ lat, lon });
-    return [x, y];
-  };
-}
-
 const GEOGRAPHIC_CRS = 'EPSG:4326 (WGS84 lon/lat)';
 const DRAWING_CRS = 'local drawing coordinates, no geo-reference available';
 
@@ -640,16 +632,4 @@ export function buildSiteResult(params: RunParams, placement: PlacementCore | nu
       })),
     },
   };
-}
-
-// Координаты посадок для DXF — в метрах чертежа, как пишет ../backend/greenplan/io/dxf_sink.py.
-export function drawingPoints(
-  plantings: { coordinates: number[]; plantType: PlantType }[],
-  placement: PlacementCore | null,
-): { point: Point; plantType: PlantType }[] {
-  const toDrawing = placement === null ? null : fromLonLat(placement);
-  return plantings.map(({ coordinates: [x = 0, y = 0], plantType }) => ({
-    point: toDrawing === null ? ([x, y] as const) : toDrawing([x, y]),
-    plantType,
-  }));
 }

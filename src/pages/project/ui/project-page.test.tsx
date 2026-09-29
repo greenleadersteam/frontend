@@ -1952,12 +1952,49 @@ describe('правка расстановки', () => {
       update: [{ id: FIRST_TREE }],
       add: [{ plant_type: 'tree' }],
     });
+    // Точка чертежа — подгонкой «план → чертёж»: дерево из (3; 2,2) м сдвинуто на 2 м к югу.
+    // Тело — PlantingEdit по контракту: сужение на границе теста.
+    const [update] = (edits[0]?.body as { update: { x: number; y: number }[] }).update;
+    expect(update?.x).toBeCloseTo(3, 2);
+    expect(update?.y).toBeCloseTo(0.2, 2);
     expect(JSON.stringify(edits[0]?.body)).toMatch(/"client_id":"manual-/);
     // После сохранения на экране — новая версия: добавленная получила id сервера.
     await userEvent.click(screen.getByRole('radio', { name: 'Ведомость' }));
     expect(
       await screen.findByText(/^Правок: 2 \(перемещено 1, добавлено 1\)$/),
     ).toBeInTheDocument();
+  });
+
+  test('подгонка «план → чертёж» не сходится — сохранить нельзя, причина в описании кнопки', async () => {
+    const edits = captureVersionEdits();
+    // Точки чертежа в /explanation перемешаны: подобием план к ним не сводится.
+    // Ответ мока — по контракту: сужение на границе теста.
+    const explanation = (await (await fetch(`/api/projects/${READY_ID}/explanation`)).json()) as {
+      x: number;
+      y: number;
+    }[];
+    const shuffled = explanation.map((entry, index) => ({
+      ...entry,
+      x: explanation[(index * 7) % explanation.length]?.x ?? 0,
+    }));
+    server.use(http.get('/api/projects/:projectId/explanation', () => HttpResponse.json(shuffled)));
+    renderProject(READY_ID);
+    await selectFirstTree();
+    const toolbar = await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    const save = within(toolbar).getByRole('button', { name: 'Сохранить' });
+    // Недоступна, но фокусируется: причину видно в подсказке и с клавиатуры.
+    expect(save).toHaveAttribute('aria-disabled', 'true');
+    save.focus();
+    expect(save).toHaveFocus();
+    await userEvent.click(save);
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('dialog', { name: 'Сохранить правки' })).not.toBeInTheDocument();
+    expect(edits).toEqual([]);
+    expect(save).toHaveAccessibleDescription(
+      /^Сохранить нельзя: координаты плана не сводятся к чертежу/,
+    );
   });
 
   test('ошибка сохранения — сообщение, правки остаются', async () => {
@@ -2212,7 +2249,7 @@ const captureDownloads = () => {
 };
 
 describe('скачивание DXF с правками', () => {
-  test('без editedDxf и с правками — меню: результат сервиса или слой с правками', async () => {
+  test('без editedDxf и с правками — меню: результат с правками, результат сервиса, только слой', async () => {
     serverMock.editedDxf = false;
     const files = captureDownloads();
     renderProject(READY_ID);
@@ -2224,8 +2261,12 @@ describe('скачивание DXF с правками', () => {
     expect(
       await screen.findByText('Вставьте слой в исходный чертёж: координаты совпадают'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Результат сервиса (DXF)' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Слой посадок с правками (DXF)' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Результат с правками (DXF)',
+      'Результат сервиса (DXF)',
+      'Только слой посадок (DXF)',
+    ]);
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Только слой посадок (DXF)' }));
 
     await waitFor(() => {
       expect(files).toHaveLength(1);
@@ -2236,6 +2277,62 @@ describe('скачивание DXF с правками', () => {
     expect(dxf.split('\r\n').filter((line) => line === 'CIRCLE')).toHaveLength(36);
     expect(dxf).not.toContain(FIRST_TREE);
     expect(dxf).toContain('GREENING_PROPOSED');
+  });
+
+  test('«Результат с правками» — чертёж сервера: исходные слои байт в байт, слой результата — итоговая расстановка', async () => {
+    serverMock.editedDxf = false;
+    const files = captureDownloads();
+    const server = new Uint8Array(
+      await (await fetch(`/api/projects/${READY_ID}/dxf`)).arrayBuffer(),
+    );
+    renderProject(READY_ID);
+    await selectFirstTree();
+    await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать DXF' }));
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: 'Результат с правками (DXF)' }),
+    );
+
+    await waitFor(() => {
+      expect(files).toHaveLength(1);
+    });
+    expect(files[0]?.name).toBe('Сквер на Покровке — с правками.dxf');
+    const cp1251 = new TextDecoder('windows-1251');
+    const edited = cp1251.decode(await files[0]?.blob.arrayBuffer());
+    const original = cp1251.decode(server);
+    // Демо-чертёж — R12: окружности только на слое результата.
+    const withoutCircles = (text: string) =>
+      text.replace(/ {2}0\r\nCIRCLE\r\n[\s\S]*?(?= {2}0\r\n)/g, '');
+    expect(withoutCircles(edited)).toBe(withoutCircles(original));
+    expect(edited).toContain('\r\nБортовой камень\r\n');
+    expect(edited.match(/\r\nCIRCLE\r\n/g)).toHaveLength(36);
+    expect(edited).not.toContain(FIRST_TREE);
+    expect(edited).toContain('1001\r\nGREENPLAN\r\n1000\r\ntree\r\n1000\r\nTREE_ROW_CURB\r\n');
+  });
+
+  test('«Результат с правками» из двоичного DXF — объяснение, файла нет', async () => {
+    serverMock.editedDxf = false;
+    const files = captureDownloads();
+    server.use(
+      http.get(
+        '/api/projects/:projectId/dxf',
+        () => new HttpResponse(new TextEncoder().encode('AutoCAD Binary DXF\r\n\u001a\u0000')),
+      ),
+    );
+    renderProject(READY_ID);
+    await selectFirstTree();
+    await startEditing();
+    await userEvent.keyboard('{Delete}');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Скачать DXF' }));
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: 'Результат с правками (DXF)' }),
+    );
+
+    expect(await screen.findByText(/^Сервер отдал чертёж в двоичном DXF/)).toBeInTheDocument();
+    expect(files).toHaveLength(0);
   });
 
   test('без правок — обычная кнопка', async () => {

@@ -194,7 +194,14 @@ export function useStaleDraft(projectId: string): { discard: () => void; keep: (
 export function useSavePlantings(
   projectId: string,
   source: PlantingFeatureCollection,
-): { save: (name: string) => Promise<AppError | null>; saving: boolean } {
+): {
+  // toDrawing — точка плана в метрах чертежа: по ней сервер пишет DXF версии.
+  save: (
+    name: string,
+    toDrawing: (point: readonly number[]) => [number, number],
+  ) => Promise<AppError | null>;
+  saving: boolean;
+} {
   const dispatch = useAppDispatch();
   const entry = useAppSelector((state) => selectProjectEdits(state, projectId));
   const [editVersion, { isLoading }] = useEditPlantingVersionMutation();
@@ -202,10 +209,13 @@ export function useSavePlantings(
   const finishedAt = useAppSelector(
     (state) => selectProjectEdits(state, projectId)?.finishedAt ?? null,
   );
-  const save = async (name: string): Promise<AppError | null> => {
+  const save = async (
+    name: string,
+    toDrawing: (point: readonly number[]) => [number, number],
+  ): Promise<AppError | null> => {
     // Кнопка недоступна, пока версия не на экране (switching).
     if (entry?.version == null) return { kind: 'unknown' };
-    const edit = versionEdit(source, entry.saved, entry.present, name);
+    const edit = versionEdit(source, entry.saved, entry.present, name, toDrawing);
     // Посадку вернули туда же, где она в версии: менять нечего, и сервер такую правку не примет.
     if (isEmptyEdit(edit)) {
       dispatch(actions.saved({ projectId, diff: entry.present }));
