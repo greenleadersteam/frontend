@@ -29,6 +29,7 @@ import {
   selectGeoreference,
 } from '@/entities/georeference';
 import { isProjectId, usePutGeoreferenceMutation } from '@/entities/project';
+import { PlaceSearch, showPlace } from '@/features/find-place';
 import { describeAppError, toAppError } from '@/shared/api';
 import { PRODUCT_NAME, projectPath } from '@/shared/config';
 import { isLocked, isOutlier, stats as gcpStats } from '@/shared/lib/georeference';
@@ -336,6 +337,12 @@ function GeoreferenceWorkspace({ project }: GeoreferenceWorkspaceProps): JSX.Ele
               </Button>
             </>
           )}
+          <PlaceSearch
+            className={classes.search}
+            onPick={(target) => {
+              if (map !== null) showPlace(map, target);
+            }}
+          />
           <span className={classes.spacer} />
           <ActionIcon.Group>
             <ActionIcon

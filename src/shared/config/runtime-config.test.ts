@@ -21,8 +21,12 @@ describe('loadRuntimeConfig', () => {
     };
     const fetchMock = respondWith(JSON.stringify(config));
 
-    await expect(loadRuntimeConfig()).resolves.toEqual({ ...config, imagery: null });
-    expect(getRuntimeConfig()).toEqual({ ...config, imagery: null });
+    await expect(loadRuntimeConfig()).resolves.toEqual({
+      ...config,
+      imagery: null,
+      geocoder: null,
+    });
+    expect(getRuntimeConfig()).toEqual({ ...config, imagery: null, geocoder: null });
     expect(fetchMock).toHaveBeenCalledWith(
       '/config.json',
       expect.objectContaining({ cache: 'no-store' }),
@@ -43,6 +47,7 @@ describe('loadRuntimeConfig', () => {
       apiBaseUrl: '/api',
       basemapUrl: null,
       imagery: null,
+      geocoder: null,
       demoMode: 'off',
       serverCapabilities: [],
     });
@@ -81,6 +86,32 @@ describe('loadRuntimeConfig', () => {
       withImagery(value);
 
       await expect(loadRuntimeConfig()).rejects.toThrow('imagery');
+    });
+  });
+
+  describe('geocoder', () => {
+    const geocoder = {
+      url: 'https://nominatim.openstreetmap.org/search',
+      attribution: 'Nominatim, данные © участники OpenStreetMap',
+    };
+    const withGeocoder = (value: unknown) =>
+      respondWith(JSON.stringify({ apiBaseUrl: '/api', basemapUrl: null, geocoder: value }));
+
+    test('принимает геокодер по https', async () => {
+      withGeocoder(geocoder);
+
+      await expect(loadRuntimeConfig()).resolves.toMatchObject({ geocoder });
+    });
+
+    test.each([
+      ['http вместо https', { ...geocoder, url: 'http://nominatim.openstreetmap.org/search' }],
+      ['путь вместо адреса', { ...geocoder, url: '/search' }],
+      ['без атрибуции', { ...geocoder, attribution: '' }],
+      ['лишнее поле', { ...geocoder, limit: 5 }],
+    ])('отклоняет: %s', async (_name, value) => {
+      withGeocoder(value);
+
+      await expect(loadRuntimeConfig()).rejects.toThrow('geocoder');
     });
   });
 

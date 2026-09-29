@@ -81,6 +81,7 @@ docker run --rm -v frontend_data:/out greenplan-frontend
 | `apiBaseUrl`         | да                        | Путь к API на том же origin, начинается с `/`                                                                                                                                                                                                                                                                                            | `"/api"`                    |
 | `basemapUrl`         | да                        | Путь к файлу подложки PMTiles на том же origin; `null` — без подложки                                                                                                                                                                                                                                                                    | `"/basemap/moscow.pmtiles"` |
 | `imagery`            | нет, по умолчанию `null`  | Космоснимок для модуля геопривязки: `tilesUrl` и `labelsUrl` — `https://` с шаблоном `{z}/{y}/{x}`, `attribution` — подпись. `null` — снимка нет, приложение не обращается ни к одному внешнему адресу                                                                                                                                   | см. ниже                    |
+| `geocoder`           | нет, по умолчанию `null`  | Поиск по адресу на шаге «Участок» и в «Геопривязке»: `url` — `https://` адрес `/search` сервиса с API Nominatim, `attribution` — подпись под результатами. Хост нужен в `connect-src` CSP. `null` — поле поиска понимает только координаты                                                                                               | см. ниже                    |
 | `demoMode`           | нет, по умолчанию `"off"` | `"available"` — переключатель «Сервер» / «Демо» в шапке; `"off"` — только сервер, код демо не загружается                                                                                                                                                                                                                                | `"available"`               |
 | `serverCapabilities` | нет, по умолчанию `[]`    | Что сервер умеет сверх базового API. Допустимые значения: `obstacles`, `rejected`, `norms`, `explanationChecks`, `species`, `plantingEdits`, `editedDxf`, `runs`, `manualGeoreference`, `optionalBbox`. Неизвестные пропускаются с предупреждением в консоли. Что включает каждое — в [docs/scope.md](docs/scope.md#возможности-сервера) | `[]`                        |
 
@@ -95,6 +96,10 @@ docker run --rm -v frontend_data:/out greenplan-frontend
     "labelsUrl": "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
     "attribution": "Powered by Esri; Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community; Labels: Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS User Community"
   },
+  "geocoder": {
+    "url": "https://nominatim.openstreetmap.org/search",
+    "attribution": "Поиск по адресу: Nominatim, данные © участники OpenStreetMap"
+  },
   "demoMode": "available",
   "serverCapabilities": []
 }
@@ -107,6 +112,7 @@ docker run --rm -v frontend_data:/out greenplan-frontend
   "apiBaseUrl": "/api",
   "basemapUrl": "/basemap/moscow.pmtiles",
   "imagery": null,
+  "geocoder": null,
   "demoMode": "off",
   "serverCapabilities": []
 }

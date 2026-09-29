@@ -6,6 +6,10 @@
     "labelsUrl": "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
     "attribution": "Powered by Esri; Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community; Labels: Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS User Community"
   },
+  "geocoder": {
+    "url": "https://nominatim.openstreetmap.org/search",
+    "attribution": "Поиск по адресу: Nominatim, данные © участники OpenStreetMap"
+  },
   "demoMode": "available",
   "serverCapabilities": []
 }

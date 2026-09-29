@@ -11,6 +11,7 @@ import {
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { type JSX, lazy, Suspense, useId, useState } from 'react';
 
+import { PlaceSearch, showPlace } from '@/features/find-place';
 import { formatNumber } from '@/shared/lib/format';
 
 import { type SiteArea, siteProblem, siteSize } from '../model/site';
@@ -54,6 +55,7 @@ export function SiteStep({ initial, onBack, onSubmit }: SiteStepProps): JSX.Elem
   // каждую набранную цифру.
   const [touched, setTouched] = useState(false);
   const [mapArea, setMapArea] = useState<SiteArea | null>(null);
+  const [map, setMap] = useState<MapLibreMap | null>(null);
   const [corners, setCorners] = useState<Record<keyof SiteArea, number | string>>(
     initial ?? { west: '', south: '', east: '', north: '' },
   );
@@ -89,6 +91,7 @@ export function SiteStep({ initial, onBack, onSubmit }: SiteStepProps): JSX.Elem
     map.on('move', measure);
     map.on('resize', measure);
     measure();
+    setMap(map);
   };
 
   const corner = (key: keyof SiteArea, label: string) => (
@@ -111,6 +114,12 @@ export function SiteStep({ initial, onBack, onSubmit }: SiteStepProps): JSX.Elem
     <Stack gap="lg">
       {input === 'map' ? (
         <Stack gap="xs">
+          {/* Карта двигается к найденному месту — рамка участка остаётся по центру. */}
+          <PlaceSearch
+            onPick={(target) => {
+              if (map !== null) showPlace(map, target);
+            }}
+          />
           <div className={classes.map}>
             <Suspense fallback={<Skeleton className={classes.fill} radius="xl" />}>
               <MapView

@@ -9,7 +9,7 @@ flowchart TB
   app["<b>app</b><br/>провайдеры, store, маршруты, границы ошибок"]
   widgets["<b>widgets</b><br/>app-header — шапка, переключатель «Сервер» / «Демо»"]
   pages["<b>pages</b> — экраны<br/>projects — список проектов<br/>project-new — мастер загрузки<br/>project — план, ведомость, отчёт<br/>georeference — модуль геопривязки"]
-  features["<b>features</b> — действия<br/>edit-plantings — правка расстановки<br/>choose-root-dxf — выбор главного чертежа<br/>delete-project — удаление"]
+  features["<b>features</b> — действия<br/>edit-plantings — правка расстановки<br/>choose-root-dxf — выбор главного чертежа<br/>delete-project — удаление<br/>find-place — поиск места на карте"]
   entities["<b>entities</b> — предметные сущности<br/>project — API, состояние обработки, проверки норм, слои карты, DXF<br/>georeference — сессия привязки, история, выгрузка"]
   shared["<b>shared</b> — без предметного знания<br/>api — RTK Query, загрузка архива, контракт, демо<br/>map — MapLibre, подложки<br/>lib — геодезия, геометрия, подгонка, ZIP, книга Excel, формат чисел<br/>config — config.json, возможности сервера<br/>ui, theme"]
   app --> widgets
@@ -32,6 +32,7 @@ PNG для печати: [images/architecture-components.png](images/architectur
   - `georeference` — модуль геопривязки; открывается сам по себе или из проекта (`?project=<id>`).
 - **`features`.**
   - `edit-plantings` — правки расстановки: разница с расстановкой сервиса, история, черновик в браузере или версии плана посадок на сервере.
+  - `find-place` — поле поиска места для карты: разбор координат в браузере и адрес через геокодер из `config.json`.
   - `choose-root-dxf` — выбор главного чертежа, если в архиве их несколько.
   - `delete-project` — удаление проекта и правило, когда оно доступно.
 - **`entities`.**

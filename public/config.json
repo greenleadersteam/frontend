@@ -2,6 +2,7 @@
   "apiBaseUrl": "/api",
   "basemapUrl": "/basemap/moscow.pmtiles",
   "imagery": null,
+  "geocoder": null,
   "demoMode": "available",
   "serverCapabilities": []
 }

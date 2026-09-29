@@ -49,6 +49,16 @@ const imagerySchema = z.strictObject({
 
 export type ImageryConfig = z.infer<typeof imagerySchema>;
 
+// Геокодер для поиска по адресу (API Nominatim: /search с format=jsonv2). Внешний сервис, поэтому
+// только https; хост должен быть в connect-src CSP контура. Без него (null) поиск понимает только
+// координаты.
+const geocoderSchema = z.strictObject({
+  url: z.string().refine(isHttps, { message: 'должен быть адресом https://' }),
+  attribution: z.string().min(1),
+});
+
+export type GeocoderConfig = z.infer<typeof geocoderSchema>;
+
 // Что сервер умеет сверх базового API (контракт-предложение). Фронт не угадывает это по 404,
 // а читает явный список из конфига контура.
 export const CAPABILITIES = [
@@ -90,6 +100,8 @@ const runtimeConfigSchema = z.strictObject({
   basemapUrl: sameOriginPath.nullable(),
   // Без поля — снимка нет: внешний источник включают только явно.
   imagery: imagerySchema.nullable().default(null),
+  // Без поля — адресного поиска нет: внешний сервис включают только явно.
+  geocoder: geocoderSchema.nullable().default(null),
   // Демо на моках для показа. Без поля — выключено: контур заказчика получает демо, только
   // если его явно включили, и может выключить без пересборки образа.
   demoMode: z.enum(['available', 'off']).default('off'),

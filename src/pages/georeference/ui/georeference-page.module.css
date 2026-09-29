@@ -42,6 +42,12 @@
   flex: 1;
 }
 
+/* Поиск места — самый широкий элемент строки, но не шире полутора карточек. */
+.search {
+  flex: 1 1 auto;
+  max-inline-size: calc(var(--app-card-min-width) * 1.5);
+}
+
 .map {
   display: flex;
   position: relative;

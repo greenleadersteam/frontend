@@ -12,7 +12,7 @@ export {
   projectUploadPath,
 } from './paths';
 export { PRODUCT_NAME } from './product';
-export type { Capability, ImageryConfig } from './runtime-config';
+export type { Capability, GeocoderConfig, ImageryConfig } from './runtime-config';
 export {
   CAPABILITIES,
   getRuntimeConfig,
